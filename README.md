@@ -2,6 +2,8 @@
 
 A web-based loop shaping control design tool for analyzing and designing feedback control systems.
 
+https://maruta.github.io/loopshaper/
+
 ## Features
 
 - **Interactive Bode Plot**: Visualize gain and phase response of open-loop transfer function L(s) and closed-loop transfer function T(s)
