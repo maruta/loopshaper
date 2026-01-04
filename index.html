@@ -29,21 +29,7 @@
                     <div class="collapse show" id="collapse-code">
                         <div class="card-body">
                             <textarea class="form-control font-monospace" id="field-code" rows="3" spellcheck="false"></textarea>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Transfer Function Display -->
-                <div class="card mb-2">
-                    <div class="card-header collapsible" data-target="#collapse-tf">
-                        <h6 class="mb-0">
-                            <span class="collapse-icon"></span>
-                            Transfer Functions
-                        </h6>
-                    </div>
-                    <div class="collapse show" id="collapse-tf">
-                        <div class="card-body py-2">
-                            <div class="tf-row">
+                            <div class="tf-row mt-2">
                                 <span id="eq-L-display" class="eq-display-inline"></span>
                             </div>
                             <div class="tf-row">
@@ -93,11 +79,11 @@
                         <div class="bode-options" onclick="event.stopPropagation()">
                             <div class="form-check form-check-inline mb-0">
                                 <input class="form-check-input" type="checkbox" id="chk-show-L" checked>
-                                <label class="form-check-label bode-label-L" for="chk-show-L">L(s)</label>
+                                <label class="form-check-label bode-label-L" for="chk-show-L">&mdash; L(s)</label>
                             </div>
                             <div class="form-check form-check-inline mb-0">
                                 <input class="form-check-input" type="checkbox" id="chk-show-T" checked>
-                                <label class="form-check-label bode-label-T" for="chk-show-T">T(s)</label>
+                                <label class="form-check-label bode-label-T" for="chk-show-T">&mdash; T(s)</label>
                             </div>
                         </div>
                     </div>
@@ -114,7 +100,7 @@
             <!-- Stability/Frequency and Pole-Zero Map side by side -->
                 <div class="row g-2">
                     <!-- Left column: Stability + Frequency Range stacked -->
-                    <div class="col-6">
+                    <div class="col-12 col-md-6">
                         <!-- Stability Info -->
                         <div class="card mb-2">
                             <div class="card-header collapsible d-flex justify-content-between align-items-center" data-target="#collapse-stability">
@@ -127,11 +113,11 @@
                             <div class="collapse show" id="collapse-stability">
                                 <div class="card-body">
                                     <div class="row g-1 small">
-                                        <div class="col-6">
+                                        <div class="col-12 col-sm-6">
                                             <strong>GM:</strong>
                                             <span id="gm-display" class="text-muted">--</span>
                                         </div>
-                                        <div class="col-6">
+                                        <div class="col-12 col-sm-6">
                                             <strong>PM:</strong>
                                             <span id="pm-display" class="text-muted">--</span>
                                         </div>
@@ -178,7 +164,7 @@
                     </div>
 
                     <!-- Right column: Pole-Zero Map -->
-                    <div class="col-6">
+                    <div class="col-12 col-md-6">
                         <div class="card mb-2">
                             <div class="card-header collapsible" data-target="#collapse-poles">
                                 <h6 class="mb-0">

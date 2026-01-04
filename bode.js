@@ -57,19 +57,28 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
             phase[i] = Gjw.arg() / math.pi * 180 + phase_offset;
 
             // Detect crossings only for first transfer function (L)
-            if (tfIndex === 0) {
-                // Detect gain crossover
-                if (i > 0 && 0 < gain[i - 1] && gain[i] <= 0) {
-                    wgc.push((w[i - 1] + w[i]) / 2);
+            if (tfIndex === 0 && i > 0) {
+                // Detect gain crossover (both directions)
+                if ((gain[i - 1] > 0 && gain[i] <= 0) || (gain[i - 1] <= 0 && gain[i] > 0)) {
+                    // Linear interpolation to find exact crossing frequency
+                    let ratio = -gain[i - 1] / (gain[i] - gain[i - 1]);
+                    let wc = w[i - 1] + ratio * (w[i] - w[i - 1]);
+                    wgc.push(wc);
                 }
 
-                // Detect phase crossover
-                if (i > 0) {
-                    let p1 = phase[i - 1] % 360;
-                    let p2 = phase[i] % 360;
-                    if (p1 > -180 && p2 <= -180) {
-                        wpc.push((w[i - 1] + w[i]) / 2);
-                    }
+                // Detect phase crossover (-180 + n*360 degrees)
+                // Normalize phases to find crossings at -180, -540, -900, etc.
+                let p1 = phase[i - 1];
+                let p2 = phase[i];
+                // Check if phase crosses -180 + n*360 for any integer n
+                let n1 = Math.floor((p1 + 180) / 360);
+                let n2 = Math.floor((p2 + 180) / 360);
+                if (n1 !== n2) {
+                    // Crossing occurred - find the target phase value
+                    let targetPhase = (p1 > p2) ? n1 * 360 - 180 : n2 * 360 - 180;
+                    let ratio = (targetPhase - p1) / (p2 - p1);
+                    let wc = w[i - 1] + ratio * (w[i] - w[i - 1]);
+                    wpc.push(wc);
                 }
             }
         }
@@ -160,10 +169,23 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         }
     }
 
-    // Draw gain crossover lines (only for L)
+    // Draw gain crossover lines (only for L) - red
     wgc.forEach((wc) => {
         let x = w2x(math.log10(wc));
         ctx.strokeStyle = '#cc0000';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(x, g2y(gmax));
+        ctx.lineTo(x, p2y(pmin));
+        ctx.stroke();
+        ctx.setLineDash([]);
+    });
+
+    // Draw phase crossover lines (only for L) - blue
+    wpc.forEach((wc) => {
+        let x = w2x(math.log10(wc));
+        ctx.strokeStyle = '#0066cc';
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
@@ -300,7 +322,10 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
             for (let i = 0; i < N - 1; i++) {
                 if (w[i] <= wc && w[i + 1] >= wc) {
                     let ratio = (wc - w[i]) / (w[i + 1] - w[i]);
-                    let pm = 180 + (firstData.phase[i] + ratio * (firstData.phase[i + 1] - firstData.phase[i]));
+                    let phase = firstData.phase[i] + ratio * (firstData.phase[i + 1] - firstData.phase[i]);
+                    // Normalize phase relative to -180 + n*360 to get correct PM
+                    let n = Math.round((phase + 180) / 360);
+                    let pm = 180 + phase - n * 360;
                     phaseMargins.push({ frequency: wc, margin: pm });
                     break;
                 }
