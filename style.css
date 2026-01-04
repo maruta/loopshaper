@@ -1,0 +1,536 @@
+/* Loop Shaping Control Design Tool Styles */
+
+:root {
+    --bg-primary: #f5f5f5;
+    --bg-secondary: #ffffff;
+    --bg-card: #ffffff;
+    --text-primary: #333333;
+    --text-secondary: #666666;
+    --accent-cyan: #0088aa;
+    --accent-green: #28a745;
+    --accent-red: #dc3545;
+    --border-color: #dee2e6;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 14px;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* Main Flexbox Container */
+.main-container {
+    display: flex;
+    height: 100vh;
+    padding: 8px;
+    gap: 0;
+}
+
+/* Panels */
+.left-panel {
+    width: 350px;
+    min-width: 250px;
+    max-width: 600px;
+    padding-right: 4px;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+
+.right-panel {
+    flex: 1;
+    min-width: 0;
+    padding-left: 4px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Resize Handles */
+.resize-handle-v {
+    width: 6px;
+    cursor: col-resize;
+    background-color: transparent;
+    transition: background-color 0.2s;
+    flex-shrink: 0;
+}
+
+.resize-handle-v:hover,
+.resize-handle-v.dragging {
+    background-color: var(--accent-cyan);
+}
+
+.resize-handle-h {
+    height: 6px;
+    cursor: row-resize;
+    background-color: transparent;
+    transition: background-color 0.2s;
+    margin-top: -3px;
+    position: relative;
+    z-index: 10;
+}
+
+.resize-handle-h:hover,
+.resize-handle-h.dragging {
+    background-color: var(--accent-cyan);
+}
+
+/* Cards - Compact */
+.card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    min-width: 0;
+    overflow: hidden;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid var(--border-color);
+    padding: 6px 12px;
+}
+
+.card-header h6 {
+    color: var(--accent-cyan);
+    margin: 0;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.card-body {
+    padding: 10px 12px;
+    min-width: 0;
+}
+
+.card-body.p-0 {
+    overflow: hidden;
+}
+
+/* Collapsible Headers */
+.card-header.collapsible {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s;
+}
+
+.card-header.collapsible:hover {
+    background-color: #e9ecef;
+}
+
+.collapse-icon::before {
+    content: '\25BC';
+    display: inline-block;
+    margin-right: 6px;
+    font-size: 0.65rem;
+    transition: transform 0.2s;
+    vertical-align: middle;
+}
+
+.collapsed .collapse-icon::before {
+    transform: rotate(-90deg);
+}
+
+/* Form Controls - Compact */
+.form-control {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    padding: 4px 8px;
+}
+
+.form-control:focus {
+    background-color: var(--bg-secondary);
+    border-color: var(--accent-cyan);
+    color: var(--text-primary);
+    box-shadow: 0 0 0 0.15rem rgba(0, 136, 170, 0.2);
+}
+
+.form-control.is-valid {
+    border-color: var(--accent-green);
+}
+
+.form-control.is-invalid {
+    border-color: var(--accent-red);
+}
+
+.form-label {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-bottom: 3px;
+}
+
+textarea.form-control {
+    resize: vertical;
+    min-height: 60px;
+}
+
+.input-group-text {
+    font-size: 0.8rem;
+    padding: 4px 8px;
+}
+
+/* Equation Display */
+.eq-display {
+    margin-top: 6px;
+    padding: 8px 10px;
+    background-color: #f8f9fa;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    min-height: 32px;
+    overflow-x: auto;
+    color: var(--text-primary);
+}
+
+/* Transfer Function Rows */
+.tf-row {
+    margin-bottom: 4px;
+}
+
+.tf-row:last-child {
+    margin-bottom: 0;
+}
+
+/* Slider Styles - Compact */
+.slider-header {
+    display: grid;
+    grid-template-columns: 70px 60px 60px 35px 28px;
+    gap: 6px;
+    padding: 4px 0;
+    margin-bottom: 8px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.slider-row {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.slider-row:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.slider-config {
+    display: grid;
+    grid-template-columns: 70px 60px 60px 35px 28px;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.slider-config input[type="text"],
+.slider-config input[type="number"] {
+    padding: 3px 6px;
+    font-size: 0.8rem;
+}
+
+.slider-config .form-check {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.slider-config .form-check-input {
+    margin: 0;
+}
+
+.slider-config .form-check-label {
+    display: none;
+}
+
+.slider-config .remove-slider {
+    padding: 1px 5px;
+    font-size: 0.85rem;
+    line-height: 1;
+}
+
+.slider-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.slider-range {
+    flex: 1;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: linear-gradient(to right, var(--accent-cyan), var(--accent-green));
+    border-radius: 3px;
+    outline: none;
+}
+
+.slider-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: #ffffff;
+    border: 2px solid var(--accent-cyan);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.slider-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: #ffffff;
+    border: 2px solid var(--accent-cyan);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.slider-value {
+    min-width: 70px;
+    text-align: right;
+    font-family: 'Consolas', monospace;
+    font-size: 0.8rem;
+    color: var(--accent-cyan);
+    font-weight: 600;
+}
+
+/* Plot Wrappers - Compact */
+.plot-wrapper {
+    width: 100%;
+    height: calc(100vh - 200px);
+    min-width: 0;
+    background-color: #ffffff;
+    border-radius: 0 0 6px 6px;
+    overflow: hidden;
+}
+
+.plot-wrapper-small {
+    width: 100%;
+    height: 200px;
+    min-width: 0;
+    background-color: #ffffff;
+    border-radius: 0 0 6px 6px;
+    overflow: hidden;
+}
+
+.plot-wrapper canvas,
+.plot-wrapper-small canvas {
+    display: block;
+    max-width: 100%;
+}
+
+
+/* Stability Badge */
+.badge {
+    font-size: 0.7rem;
+    padding: 3px 6px;
+}
+
+.badge.bg-success {
+    background-color: var(--accent-green) !important;
+}
+
+.badge.bg-danger {
+    background-color: var(--accent-red) !important;
+}
+
+/* Text Colors */
+.text-success {
+    color: var(--accent-green) !important;
+}
+
+.text-danger {
+    color: var(--accent-red) !important;
+}
+
+.text-muted {
+    color: var(--text-secondary) !important;
+}
+
+.text-warning {
+    color: #856404 !important;
+}
+
+/* Buttons - Compact */
+.btn-sm {
+    padding: 2px 8px;
+    font-size: 0.75rem;
+}
+
+.btn-primary {
+    background-color: var(--accent-cyan);
+    border-color: var(--accent-cyan);
+    color: #ffffff;
+}
+
+.btn-primary:hover {
+    background-color: #006688;
+    border-color: #006688;
+    color: #ffffff;
+}
+
+.btn-danger {
+    background-color: var(--accent-red);
+    border-color: var(--accent-red);
+}
+
+.btn-outline-secondary {
+    color: var(--text-secondary);
+    border-color: var(--border-color);
+}
+
+.btn-outline-secondary:hover {
+    background-color: #e9ecef;
+    color: var(--text-primary);
+}
+
+/* Strong text in card body */
+.card-body strong {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+/* Responsive */
+@media (max-width: 991px) {
+    body {
+        overflow-y: auto;
+    }
+
+    .main-container {
+        flex-direction: column;
+        height: auto;
+        min-height: auto;
+    }
+
+    .left-panel {
+        width: 100% !important;
+        max-width: none;
+        padding-right: 0;
+        overflow-y: visible;
+    }
+
+    .right-panel {
+        padding-left: 0;
+        overflow-y: visible;
+        overflow-x: hidden;
+    }
+
+    .resize-handle-v {
+        display: none;
+    }
+
+    .plot-wrapper {
+        height: 300px !important;
+    }
+
+    .plot-wrapper-small {
+        height: 180px;
+    }
+}
+
+/* Ensure Bootstrap row/col don't force overflow */
+.right-panel .row {
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.right-panel .col-6 {
+    min-width: 0;
+}
+
+@media (max-width: 767px) {
+    .slider-header,
+    .slider-config {
+        grid-template-columns: 55px 50px 50px 32px 24px;
+        gap: 4px;
+    }
+
+    .slider-config input[type="text"],
+    .slider-config input[type="number"] {
+        font-size: 0.75rem;
+        padding: 2px 4px;
+    }
+}
+
+/* Prevent text selection during resize */
+.resizing {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+/* Equation Display Inline */
+.eq-display-inline {
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 6px;
+}
+
+/* Bode Plot Options */
+.bode-options {
+    display: flex;
+    gap: 10px;
+}
+
+.bode-label-L {
+    color: #0088aa;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.bode-label-T {
+    color: #22aa22;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+/* KaTeX Overrides */
+.katex {
+    font-size: 1em;
+    color: var(--text-primary);
+}
+
+/* Scrollbar Styles */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+}
+
+/* Form check compact */
+.form-check-inline {
+    margin-right: 0;
+}
+
+.form-check-label {
+    font-size: 0.85rem;
+}
+
+.form-check-input {
+    width: 14px;
+    height: 14px;
+}
