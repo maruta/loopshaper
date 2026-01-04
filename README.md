@@ -13,7 +13,7 @@ A web-based loop shaping control design tool for analyzing and designing feedbac
 
 ## Usage
 
-1. Open `index.html` in a web browser
+1. Open `[index.html](https://maruta.github.io/loopshaper/)` in a web browser
 2. Enter your transfer function definition in the **System Definition** field using JavaScript/math.js syntax
 3. Add parameter sliders to interactively tune your controller
 4. View the Bode plot, stability margins, and pole-zero map in real-time
