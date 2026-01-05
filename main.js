@@ -15,10 +15,8 @@ L = K * P`,
     showL: true,
     showT: true,
     autoFreq: true,
-    layout: {
-        leftPanelWidth: 350
-    },
-    collapsed: {}  // Track collapsed state of panels
+    showLpz: true,  // Pole-Zero Map: show L(s)
+    showTpz: true,  // Pole-Zero Map: show T(s)
 };
 
 let currentVars = {};
@@ -27,6 +25,49 @@ let urlUpdateTimeout = null;
 let showL = true;
 let showT = true;
 let autoFreq = true;
+let showLpz = true;  // Pole-Zero Map: show L(s)
+let showTpz = true;  // Pole-Zero Map: show T(s)
+
+// Dockview API reference
+let dockviewApi = null;
+
+// Panel definitions for the View menu
+const PANEL_DEFINITIONS = [
+    { id: 'system-definition', component: 'system-definition', title: 'System Definition' },
+    { id: 'parameters', component: 'parameters', title: 'Parameters' },
+    { id: 'bode', component: 'bode', title: 'Bode Plot' },
+    { id: 'stability', component: 'stability', title: 'Stability' },
+    { id: 'frequency', component: 'frequency', title: 'Frequency Range' },
+    { id: 'pole-zero', component: 'pole-zero', title: 'Pole-Zero Map' }
+];
+
+// Get dockview-core from global scope (UMD build uses window["dockview-core"])
+const dockview = window["dockview-core"];
+
+// Dockview theme selection
+const DOCKVIEW_THEME_CLASS = 'dockview-theme-light';
+
+let dockviewThemeObserver = null;
+let resizeListenerAttached = false;
+let isNarrowLayout = false;
+
+function applyDockviewTheme(el, themeClass) {
+    if (!el) return;
+    // remove any other theme classes to avoid CSS variable overrides
+    for (const c of Array.from(el.classList)) {
+        if (c.startsWith('dockview-theme-') && c !== themeClass) {
+            el.classList.remove(c);
+        }
+    }
+    el.classList.add(themeClass);
+}
+
+function lockDockviewTheme(el, themeClass) {
+    applyDockviewTheme(el, themeClass);
+    const observer = new MutationObserver(() => applyDockviewTheme(el, themeClass));
+    observer.observe(el, { attributes: true, attributeFilter: ['class'] });
+    return observer;
+}
 
 // Cached symbolic expressions (only recalculated when code changes)
 let cachedSymbolic = {
@@ -36,190 +77,367 @@ let cachedSymbolic = {
     codeHash: null
 };
 
+// Panel Renderer class for Dockview
+class PanelRenderer {
+    constructor(templateId) {
+        this._element = document.createElement('div');
+        this._element.className = 'panel-container';
+        this._templateId = templateId;
+    }
+
+    get element() {
+        return this._element;
+    }
+
+    init(params) {
+        const template = document.getElementById('template-' + this._templateId);
+        if (template) {
+            const content = template.content.cloneNode(true);
+            this._element.appendChild(content);
+        }
+    }
+}
+
+// Initialize Dockview
+function initializeDockview() {
+    const container = document.getElementById('dockview-container');
+
+    dockviewApi = dockview.createDockview(container, {
+        className: DOCKVIEW_THEME_CLASS,
+        createComponent: (options) => {
+            return new PanelRenderer(options.name);
+        }
+    });
+
+    // Fix: ensure only the requested theme class is present.
+    // Dockview may leave an extra theme class (e.g. dockview-theme-abyss) which overrides variables.
+    applyDockviewTheme(container, DOCKVIEW_THEME_CLASS);
+    applyDockviewTheme(container?.firstElementChild, DOCKVIEW_THEME_CLASS);
+
+    if (dockviewThemeObserver) {
+        dockviewThemeObserver.disconnect();
+        dockviewThemeObserver = null;
+    }
+    if (container?.firstElementChild) {
+        dockviewThemeObserver = lockDockviewTheme(container.firstElementChild, DOCKVIEW_THEME_CLASS);
+    }
+
+    // Always use default layout (layout is not saved to URL)
+    createDefaultLayout();
+
+    // Listen for layout changes to save and redraw canvases
+    dockviewApi.onDidLayoutChange(() => {
+        debouncedSaveToUrl();
+        // Delay redraw to allow layout to settle
+        setTimeout(() => {
+            updateBodePlot();
+            updatePolePlot();
+        }, 50);
+    });
+
+    // Listen for panel activation to reinitialize UI elements
+    dockviewApi.onDidActivePanelChange(() => {
+        setTimeout(() => {
+            initializeUI();
+            setupEventListeners();
+        }, 50);
+    });
+}
+
+// Create default layout (matches original design) - only used for wide screens
+function createDefaultLayout() {
+    // Left column: System Definition (top) + Parameters (bottom)
+    dockviewApi.addPanel({
+        id: 'system-definition',
+        component: 'system-definition',
+        title: 'System Definition',
+    });
+
+    // Right column: Bode Plot (top, larger)
+    dockviewApi.addPanel({
+        id: 'bode',
+        component: 'bode',
+        title: 'Bode Plot',
+        position: { referencePanel: 'system-definition', direction: 'right' }
+    });
+
+    // Add frequency first, then parameters on top (so parameters is the active tab)
+    dockviewApi.addPanel({
+        id: 'frequency',
+        component: 'frequency',
+        title: 'Frequency Range',
+        position: { referencePanel: 'system-definition', direction: 'below' },
+    });
+
+    dockviewApi.addPanel({
+        id: 'parameters',
+        component: 'parameters',
+        title: 'Parameters',
+        position: { referencePanel: 'frequency', direction: 'within' },  // Tab with Frequency, Parameters becomes active
+    });
+
+    // Bottom right: Stability + Pole-Zero Map
+    dockviewApi.addPanel({
+        id: 'stability',
+        component: 'stability',
+        title: 'Stability',
+        position: { referencePanel: 'frequency', direction: 'below' },
+    });
+
+    dockviewApi.addPanel({
+        id: 'pole-zero',
+        component: 'pole-zero',
+        title: 'Pole-Zero Map',
+        position: { referencePanel: 'stability', direction: 'right' }
+    });
+
+    // Adjust panel proportions after layout is created
+    setTimeout(() => {
+        try {
+            // Set System Definition to a smaller height
+            const sysDefPanel = dockviewApi.getPanel('system-definition');
+            const freqPanel = dockviewApi.getPanel('frequency');
+            if (sysDefPanel && sysDefPanel.api) {
+                sysDefPanel.api.setSize({ height: 280 });
+            }
+            if (freqPanel && freqPanel.api) {
+                freqPanel.api.setSize({ height: 220 });
+            }
+        } catch (e) {
+            console.log('Could not adjust panel sizes:', e);
+        }
+    }, 100);
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadFromUrl();
-    initializeUI();
-    setupEventListeners();
-    updateAll();
 
-    // Render KaTeX math in labels
-    renderMathInElement(document.body, {
-        delimiters: [
-            {left: '$$', right: '$$', display: true},
-            {left: '$', right: '$', display: false}
-        ],
-        throwOnError: false
-    });
+    isNarrowLayout = window.innerWidth < 768;
+
+    if (isNarrowLayout) {
+        // Narrow layout: use static HTML layout (no Dockview)
+        initializeNarrowLayout();
+    } else {
+        // Wide layout: use Dockview
+        initializeDockview();
+        initializeViewMenu();
+    }
+
+    // Wait for panels to be rendered, then initialize UI
+    setTimeout(() => {
+        initializeUI();
+        setupEventListeners();
+        updateAll();
+
+        // Render KaTeX math in labels
+        renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });
+    }, 100);
 });
 
+// Initialize narrow layout (static HTML, no Dockview)
+function initializeNarrowLayout() {
+    // Set up tab switching
+    const tabBtns = document.querySelectorAll('.narrow-tab-btn');
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const tabName = this.dataset.tab;
+
+            // Update active button
+            tabBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+
+            // Show/hide tab content
+            document.getElementById('narrow-tab-bode').style.display = tabName === 'bode' ? 'flex' : 'none';
+            document.getElementById('narrow-tab-pole-zero').style.display = tabName === 'pole-zero' ? 'flex' : 'none';
+
+            // Redraw the visible plot
+            if (tabName === 'bode') {
+                updateBodePlot();
+            } else {
+                updateNarrowPolePlot();
+            }
+        });
+    });
+
+    // Set up Pole-Zero visibility checkboxes for narrow layout
+    const chkLpz = document.getElementById('narrow-chk-show-L-pz');
+    const chkTpz = document.getElementById('narrow-chk-show-T-pz');
+    if (chkLpz) {
+        chkLpz.addEventListener('change', function() {
+            updateNarrowPolePlot();
+        });
+    }
+    if (chkTpz) {
+        chkTpz.addEventListener('change', function() {
+            updateNarrowPolePlot();
+        });
+    }
+
+    // Set up resize listener
+    if (!resizeListenerAttached) {
+        window.addEventListener('resize', function() {
+            updateBodePlot();
+            if (document.getElementById('narrow-tab-pole-zero').style.display !== 'none') {
+                updateNarrowPolePlot();
+            }
+        });
+        resizeListenerAttached = true;
+    }
+}
+
 function initializeUI() {
-    document.getElementById('field-code').value = design.code;
-    document.getElementById('field-freq-min').value = design.freqMin;
-    document.getElementById('field-freq-max').value = design.freqMax;
+    // Get element IDs based on layout mode
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+
+    const codeField = document.getElementById(prefix + 'field-code');
+    if (codeField) {
+        codeField.value = design.code;
+    }
+
+    // Frequency fields only exist in wide layout
+    if (!isNarrowLayout) {
+        const freqMinField = document.getElementById('field-freq-min');
+        const freqMaxField = document.getElementById('field-freq-max');
+        if (freqMinField) freqMinField.value = design.freqMin;
+        if (freqMaxField) freqMaxField.value = design.freqMax;
+
+        // Apply auto frequency range setting
+        autoFreq = design.autoFreq !== undefined ? design.autoFreq : true;
+        const chkAuto = document.getElementById('chk-freq-auto');
+        if (chkAuto) chkAuto.checked = autoFreq;
+        if (freqMinField) freqMinField.disabled = autoFreq;
+        if (freqMaxField) freqMaxField.disabled = autoFreq;
+
+        // Apply Pole-Zero Map visibility settings
+        showLpz = design.showLpz !== undefined ? design.showLpz : true;
+        showTpz = design.showTpz !== undefined ? design.showTpz : true;
+        const chkLpz = document.getElementById('chk-show-L-pz');
+        const chkTpz = document.getElementById('chk-show-T-pz');
+        if (chkLpz) chkLpz.checked = showLpz;
+        if (chkTpz) chkTpz.checked = showTpz;
+    }
+
     rebuildSliders();
 
     // Apply Bode plot visibility settings
     showL = design.showL !== undefined ? design.showL : true;
     showT = design.showT !== undefined ? design.showT : true;
-    document.getElementById('chk-show-L').checked = showL;
-    document.getElementById('chk-show-T').checked = showT;
-
-    // Apply auto frequency range setting
-    autoFreq = design.autoFreq !== undefined ? design.autoFreq : true;
-    document.getElementById('chk-freq-auto').checked = autoFreq;
-    document.getElementById('field-freq-min').disabled = autoFreq;
-    document.getElementById('field-freq-max').disabled = autoFreq;
-
-    // Apply layout settings (only leftPanelWidth; bodeHeight uses CSS default)
-    if (design.layout && design.layout.leftPanelWidth) {
-        document.getElementById('left-panel').style.width = design.layout.leftPanelWidth + 'px';
-    }
-
-    // Apply collapsed state for panels
-    if (design.collapsed) {
-        Object.keys(design.collapsed).forEach(panelId => {
-            if (design.collapsed[panelId]) {
-                const target = document.getElementById(panelId);
-                const header = document.querySelector(`[data-target="#${panelId}"]`);
-                if (target && header) {
-                    target.classList.remove('show');
-                    header.classList.add('collapsed');
-                }
-            }
-        });
-    }
+    const chkL = document.getElementById(prefix + 'chk-show-L');
+    const chkT = document.getElementById(prefix + 'chk-show-T');
+    if (chkL) chkL.checked = showL;
+    if (chkT) chkT.checked = showT;
 }
 
 function setupEventListeners() {
-    document.getElementById('field-code').addEventListener('input', debounceUpdate);
-    document.getElementById('field-freq-min').addEventListener('input', debounceUpdate);
-    document.getElementById('field-freq-max').addEventListener('input', debounceUpdate);
-    document.getElementById('btn-add-slider').addEventListener('click', addSlider);
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+
+    const codeField = document.getElementById(prefix + 'field-code');
+    const addSliderBtn = document.getElementById(prefix + 'btn-add-slider');
+
+    // Use data attribute to prevent duplicate event listeners
+    if (codeField && !codeField.dataset.listenerAttached) {
+        codeField.addEventListener('input', debounceUpdate);
+        codeField.dataset.listenerAttached = 'true';
+    }
+    if (addSliderBtn && !addSliderBtn.dataset.listenerAttached) {
+        addSliderBtn.addEventListener('click', addSlider);
+        addSliderBtn.dataset.listenerAttached = 'true';
+    }
 
     // Bode plot visibility checkboxes
-    document.getElementById('chk-show-L').addEventListener('change', function() {
-        showL = this.checked;
-        design.showL = showL;
-        updateBodePlot();
-        debouncedSaveToUrl();
-    });
-    document.getElementById('chk-show-T').addEventListener('change', function() {
-        showT = this.checked;
-        design.showT = showT;
-        updateBodePlot();
-        debouncedSaveToUrl();
-    });
-
-    // Auto frequency range checkbox
-    document.getElementById('chk-freq-auto').addEventListener('change', function() {
-        autoFreq = this.checked;
-        design.autoFreq = autoFreq;
-        document.getElementById('field-freq-min').disabled = autoFreq;
-        document.getElementById('field-freq-max').disabled = autoFreq;
-        if (autoFreq) {
-            autoAdjustFrequencyRange();
-        }
-        updateAll();
-    });
-
-    window.addEventListener('resize', function() {
-        updateBodePlot();
-        updatePolePlot();
-    });
-
-    // Collapse toggle - manual handling to prevent interactive elements from triggering
-    document.querySelectorAll('.collapsible').forEach(header => {
-        const target = document.querySelector(header.dataset.target);
-        if (!target) return;
-
-        const panelId = target.id;
-
-        // Track collapse state for icon and save to design
-        target.addEventListener('hide.bs.collapse', () => {
-            header.classList.add('collapsed');
-            design.collapsed[panelId] = true;
-            debouncedSaveToUrl();
-        });
-        target.addEventListener('show.bs.collapse', () => {
-            header.classList.remove('collapsed');
-            design.collapsed[panelId] = false;
-            debouncedSaveToUrl();
-        });
-
-        // Manual click handler - only toggle if not clicking interactive elements
-        header.addEventListener('click', e => {
-            // Check if clicked on or inside an interactive element
-            const interactive = e.target.closest('button, input, label, .badge, .form-check');
-            if (interactive) {
-                return; // Don't toggle collapse
-            }
-            // Toggle collapse using Bootstrap API
-            const bsCollapse = bootstrap.Collapse.getOrCreateInstance(target, { toggle: false });
-            bsCollapse.toggle();
-        });
-    });
-
-    // Setup resize handles
-    setupResizeHandles();
-}
-
-function setupResizeHandles() {
-    const resizeHandleV = document.getElementById('resize-handle-v');
-    const resizeHandleH = document.getElementById('resize-handle-h');
-    const leftPanel = document.getElementById('left-panel');
-    const bodeWrapper = document.getElementById('bode-wrapper');
-
-    // Vertical resize (left/right panel ratio)
-    let isResizingV = false;
-    resizeHandleV.addEventListener('mousedown', function(e) {
-        isResizingV = true;
-        document.body.classList.add('resizing');
-        resizeHandleV.classList.add('dragging');
-        e.preventDefault();
-    });
-
-    // Horizontal resize (Bode plot height)
-    let isResizingH = false;
-    resizeHandleH.addEventListener('mousedown', function(e) {
-        isResizingH = true;
-        document.body.classList.add('resizing');
-        resizeHandleH.classList.add('dragging');
-        e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', function(e) {
-        if (isResizingV) {
-            const containerRect = document.querySelector('.main-container').getBoundingClientRect();
-            let newWidth = e.clientX - containerRect.left - 8; // 8px padding
-            newWidth = Math.max(250, Math.min(600, newWidth));
-            leftPanel.style.width = newWidth + 'px';
-            design.layout.leftPanelWidth = newWidth;
-        }
-
-        if (isResizingH) {
-            const bodeCard = bodeWrapper.closest('.card');
-            const cardRect = bodeCard.getBoundingClientRect();
-            const headerHeight = bodeCard.querySelector('.card-header').offsetHeight;
-            let newHeight = e.clientY - cardRect.top - headerHeight;
-            newHeight = Math.max(200, Math.min(800, newHeight));
-            bodeWrapper.style.height = newHeight + 'px';
-            design.layout.bodeHeight = newHeight;
-        }
-    });
-
-    document.addEventListener('mouseup', function() {
-        if (isResizingV || isResizingH) {
-            isResizingV = false;
-            isResizingH = false;
-            document.body.classList.remove('resizing');
-            resizeHandleV.classList.remove('dragging');
-            resizeHandleH.classList.remove('dragging');
+    const chkL = document.getElementById(prefix + 'chk-show-L');
+    const chkT = document.getElementById(prefix + 'chk-show-T');
+    if (chkL && !chkL.dataset.listenerAttached) {
+        chkL.addEventListener('change', function() {
+            showL = this.checked;
+            design.showL = showL;
             updateBodePlot();
-            updatePolePlot();
             debouncedSaveToUrl();
+        });
+        chkL.dataset.listenerAttached = 'true';
+    }
+    if (chkT && !chkT.dataset.listenerAttached) {
+        chkT.addEventListener('change', function() {
+            showT = this.checked;
+            design.showT = showT;
+            updateBodePlot();
+            debouncedSaveToUrl();
+        });
+        chkT.dataset.listenerAttached = 'true';
+    }
+
+    // Wide layout only elements
+    if (!isNarrowLayout) {
+        const freqMinField = document.getElementById('field-freq-min');
+        const freqMaxField = document.getElementById('field-freq-max');
+
+        if (freqMinField && !freqMinField.dataset.listenerAttached) {
+            freqMinField.addEventListener('input', debounceUpdate);
+            freqMinField.dataset.listenerAttached = 'true';
         }
-    });
+        if (freqMaxField && !freqMaxField.dataset.listenerAttached) {
+            freqMaxField.addEventListener('input', debounceUpdate);
+            freqMaxField.dataset.listenerAttached = 'true';
+        }
+
+        // Auto frequency range checkbox
+        const chkAuto = document.getElementById('chk-freq-auto');
+        if (chkAuto && !chkAuto.dataset.listenerAttached) {
+            chkAuto.addEventListener('change', function() {
+                autoFreq = this.checked;
+                design.autoFreq = autoFreq;
+                const freqMinEl = document.getElementById('field-freq-min');
+                const freqMaxEl = document.getElementById('field-freq-max');
+                if (freqMinEl) freqMinEl.disabled = autoFreq;
+                if (freqMaxEl) freqMaxEl.disabled = autoFreq;
+                if (autoFreq) {
+                    autoAdjustFrequencyRange();
+                }
+                updateAll();
+            });
+            chkAuto.dataset.listenerAttached = 'true';
+        }
+
+        // Pole-Zero Map visibility checkboxes
+        const chkLpz = document.getElementById('chk-show-L-pz');
+        const chkTpz = document.getElementById('chk-show-T-pz');
+        if (chkLpz && !chkLpz.dataset.listenerAttached) {
+            chkLpz.addEventListener('change', function() {
+                showLpz = this.checked;
+                design.showLpz = showLpz;
+                updatePolePlot();
+                debouncedSaveToUrl();
+            });
+            chkLpz.dataset.listenerAttached = 'true';
+        }
+        if (chkTpz && !chkTpz.dataset.listenerAttached) {
+            chkTpz.addEventListener('change', function() {
+                showTpz = this.checked;
+                design.showTpz = showTpz;
+                updatePolePlot();
+                debouncedSaveToUrl();
+            });
+            chkTpz.dataset.listenerAttached = 'true';
+        }
+    }
+
+    // Window resize listener (only attach once)
+    if (!resizeListenerAttached) {
+        window.addEventListener('resize', function() {
+            updateBodePlot();
+            if (!isNarrowLayout) {
+                updatePolePlot();
+            }
+        });
+        resizeListenerAttached = true;
+    }
 }
 
 function debounceUpdate() {
@@ -233,13 +451,25 @@ function debounceUpdate() {
 }
 
 function saveDesign() {
-    design.code = document.getElementById('field-code').value;
-    design.freqMin = parseFloat(document.getElementById('field-freq-min').value) || -2;
-    design.freqMax = parseFloat(document.getElementById('field-freq-max').value) || 3;
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const codeField = document.getElementById(prefix + 'field-code');
+
+    if (codeField) design.code = codeField.value;
+
+    // Frequency fields only exist in wide layout
+    if (!isNarrowLayout) {
+        const freqMinField = document.getElementById('field-freq-min');
+        const freqMaxField = document.getElementById('field-freq-max');
+        if (freqMinField) design.freqMin = parseFloat(freqMinField.value) || -2;
+        if (freqMaxField) design.freqMax = parseFloat(freqMaxField.value) || 3;
+    }
 }
 
 function rebuildSliders() {
-    let container = document.getElementById('sliders-container');
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let container = document.getElementById(prefix + 'sliders-container');
+    if (!container) return;
+
     container.innerHTML = '';
 
     design.sliders.forEach((slider, index) => {
@@ -353,7 +583,8 @@ function updateCodeFromSliders() {
     });
 
     design.code = newLines.join('\n');
-    document.getElementById('field-code').value = design.code;
+    const codeField = document.getElementById('field-code');
+    if (codeField) codeField.value = design.code;
 }
 
 function sliderPosToValue(pos, min, max, logScale) {
@@ -456,11 +687,14 @@ function updateAll() {
             if (cachedSymbolic.Lsym && cachedSymbolic.Lsym.isNode) {
                 try {
                     cachedSymbolic.LsymRat = util_rationalize(cachedSymbolic.Lsym);
-                    let Tnum = cachedSymbolic.LsymRat.numerator;
-                    let Tden = new math.OperatorNode('+', 'add', [
-                        cachedSymbolic.LsymRat.numerator.clone(),
-                        cachedSymbolic.LsymRat.denominator.clone()
-                    ]);
+                    // Simplify numerator and denominator separately
+                    let Tnum = math.simplify(cachedSymbolic.LsymRat.numerator);
+                    let Tden = math.simplify(
+                        new math.OperatorNode('+', 'add', [
+                            cachedSymbolic.LsymRat.numerator.clone(),
+                            cachedSymbolic.LsymRat.denominator.clone()
+                        ])
+                    );
                     cachedSymbolic.TsymSimplified = new math.OperatorNode('/', 'divide', [Tnum, Tden]);
                 } catch (e) {
                     cachedSymbolic.LsymRat = null;
@@ -506,8 +740,11 @@ function updateAll() {
         syncSlidersFromVars();
 
     } catch (e) {
-        document.getElementById('field-code').classList.remove('is-valid');
-        document.getElementById('field-code').classList.add('is-invalid');
+        const codeField = document.getElementById('field-code');
+        if (codeField) {
+            codeField.classList.remove('is-valid');
+            codeField.classList.add('is-invalid');
+        }
         console.log('Parse error:', e);
         return;
     }
@@ -527,22 +764,39 @@ function updateAll() {
         }
     }
 
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const codeField = document.getElementById(prefix + 'field-code');
+    const eqLDisplay = document.getElementById(prefix + 'eq-L-display');
+    const eqTDisplay = document.getElementById(prefix + 'eq-T-display');
+
     // Check if L is defined and valid
     let hasErrors = parseErrors.length > 0 || evaluationError !== null;
     if (currentVars.L && !hasErrors) {
-        document.getElementById('field-code').classList.remove('is-invalid');
-        document.getElementById('field-code').classList.add('is-valid');
+        if (codeField) {
+            codeField.classList.remove('is-invalid');
+            codeField.classList.add('is-valid');
+        }
         calculateClosedLoopTF();
         displayTransferFunctions();
         updateClosedLoopPoles();  // Calculate closed-loop poles before frequency range
         autoAdjustFrequencyRange();
         updateBodePlot();
-        updatePolePlot();
+        if (!isNarrowLayout) {
+            updatePolePlot();
+        } else {
+            // Update narrow pole-zero plot if the tab is visible
+            let narrowPoleTab = document.getElementById('narrow-tab-pole-zero');
+            if (narrowPoleTab && narrowPoleTab.style.display !== 'none') {
+                updateNarrowPolePlot();
+            }
+        }
         updateMargins();
     } else if (hasErrors) {
         // Show error state
-        document.getElementById('field-code').classList.remove('is-valid');
-        document.getElementById('field-code').classList.add('is-invalid');
+        if (codeField) {
+            codeField.classList.remove('is-valid');
+            codeField.classList.add('is-invalid');
+        }
 
         let errorMsg = '';
         if (parseErrors.length > 0) {
@@ -550,16 +804,24 @@ function updateAll() {
         } else if (evaluationError) {
             errorMsg = 'Evaluation error: ' + evaluationError;
         }
-        document.getElementById('eq-L-display').innerHTML =
-            '<span class="text-danger">' + errorMsg + '</span>';
-        document.getElementById('eq-T-display').innerHTML = '';
+        if (eqLDisplay) {
+            eqLDisplay.innerHTML = '<span class="text-danger">' + errorMsg + '</span>';
+        }
+        if (eqTDisplay) {
+            eqTDisplay.innerHTML = '';
+        }
     } else {
         // L not defined, but no errors
-        document.getElementById('field-code').classList.remove('is-valid');
-        document.getElementById('field-code').classList.remove('is-invalid');
-        document.getElementById('eq-L-display').innerHTML =
-            '<span class="text-warning">Define L = ... to see the Bode plot</span>';
-        document.getElementById('eq-T-display').innerHTML = '';
+        if (codeField) {
+            codeField.classList.remove('is-valid');
+            codeField.classList.remove('is-invalid');
+        }
+        if (eqLDisplay) {
+            eqLDisplay.innerHTML = '<span class="text-warning">Define L = ... to see the Bode plot</span>';
+        }
+        if (eqTDisplay) {
+            eqTDisplay.innerHTML = '';
+        }
     }
 
     // Auto-save to URL (debounced)
@@ -623,15 +885,18 @@ function calculateClosedLoopTF() {
 }
 
 function displayTransferFunctions() {
-    let displayL = document.getElementById('eq-L-display');
-    let displayT = document.getElementById('eq-T-display');
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let displayL = document.getElementById(prefix + 'eq-L-display');
+    let displayT = document.getElementById(prefix + 'eq-T-display');
+
+    if (!displayL || !displayT) return;
 
     try {
         // Display cached symbolic L
         let Lsym = cachedSymbolic.Lsym;
         if (Lsym && Lsym.isNode) {
             let texString = Lsym.toTex({ parenthesis: 'auto', implicit: 'hide' });
-            katex.render('L(s) = ' + texString, displayL, { displayMode: false, throwOnError: false });
+            katex.render('L(s) = ' + texString, displayL, { displayMode: true, throwOnError: false });
         } else {
             displayL.innerHTML = '<span class="text-muted">--</span>';
         }
@@ -645,10 +910,10 @@ function displayTransferFunctions() {
         let TsymSimplified = cachedSymbolic.TsymSimplified;
         if (TsymSimplified && TsymSimplified.isNode) {
             let texString = TsymSimplified.toTex({ parenthesis: 'auto', implicit: 'hide' });
-            katex.render('T(s) = \\frac{L(s)}{1+L(s)} = ' + texString, displayT, { displayMode: false, throwOnError: false });
+            katex.render('T(s) = \\frac{L(s)}{1+L(s)} = ' + texString, displayT, { displayMode: true, throwOnError: false });
         } else if (cachedSymbolic.Lsym && cachedSymbolic.Lsym.isNode) {
             // L is not rational, just show T = L/(1+L) without simplification
-            katex.render('T(s) = \\frac{L(s)}{1+L(s)}', displayT, { displayMode: false, throwOnError: false });
+            katex.render('T(s) = \\frac{L(s)}{1+L(s)}', displayT, { displayMode: true, throwOnError: false });
         } else {
             displayT.innerHTML = '<span class="text-muted">--</span>';
         }
@@ -680,14 +945,15 @@ function updateBodePlot() {
         if (T && T.isNode) {
             transferFunctions.push({
                 compiled: T.compile(),
-                gainColor: '#22aa22',
-                phaseColor: '#22aa22',
+                gainColor: '#dd6600',
+                phaseColor: '#dd6600',
                 visible: showT
             });
         }
 
         // Draw Bode plot with multiple transfer functions
-        let margins = drawBodeMulti(transferFunctions, w, 'bode-wrapper', 'bode-canvas');
+        const prefix = isNarrowLayout ? 'narrow-' : '';
+        let margins = drawBodeMulti(transferFunctions, w, prefix + 'bode-wrapper', prefix + 'bode-canvas');
         window.lastMargins = margins;
 
     } catch (e) {
@@ -696,15 +962,18 @@ function updateBodePlot() {
 }
 
 function updateClosedLoopPoles() {
-    let clpEl = document.getElementById('clp-display');
-    let indicator = document.getElementById('stability-indicator');
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let clpEl = document.getElementById(prefix + 'clp-display');
+    let indicator = document.getElementById(prefix + 'stability-indicator');
 
     try {
         let L = currentVars.L;
         if (!L || !L.isNode) {
-            clpEl.textContent = '--';
-            indicator.textContent = '--';
-            indicator.className = 'badge bg-secondary';
+            if (clpEl) clpEl.textContent = '--';
+            if (indicator) {
+                indicator.textContent = '--';
+                indicator.className = 'badge bg-secondary';
+            }
             window.lastPoles = [];
             window.lastZeros = [];
             return;
@@ -716,9 +985,11 @@ function updateClosedLoopPoles() {
 
         if (structure.type === 'unknown') {
             // Cannot determine P, skip stability calculation
-            clpEl.textContent = '--';
-            indicator.textContent = '--';
-            indicator.className = 'badge bg-secondary';
+            if (clpEl) clpEl.textContent = '--';
+            if (indicator) {
+                indicator.textContent = '--';
+                indicator.className = 'badge bg-secondary';
+            }
             window.lastPoles = [];
             window.lastZeros = [];
             return;
@@ -727,9 +998,11 @@ function updateClosedLoopPoles() {
         // Calculate P (number of open-loop RHP poles)
         let P = countRHPpoles(structure.rationalPart);
         if (P === null) {
-            clpEl.textContent = '--';
-            indicator.textContent = '--';
-            indicator.className = 'badge bg-secondary';
+            if (clpEl) clpEl.textContent = '--';
+            if (indicator) {
+                indicator.textContent = '--';
+                indicator.className = 'badge bg-secondary';
+            }
             window.lastPoles = [];
             window.lastZeros = [];
             return;
@@ -767,7 +1040,7 @@ function updateClosedLoopPoles() {
                     let roots = findRoots(coeffs);
                     displayClosedLoopPoles(roots, Z === 0);
                 } else {
-                    clpEl.textContent = 'No poles';
+                    if (clpEl) clpEl.textContent = 'No poles';
                     updateStabilityIndicator(Z === 0);
                 }
 
@@ -787,8 +1060,10 @@ function updateClosedLoopPoles() {
             }
         } else {
             // For rational_delay, show Nyquist-based stability only
-            clpEl.textContent = Z === 0 ? '(Nyquist stable)' : `(${Z} RHP poles)`;
-            clpEl.classList.remove('text-danger', 'text-muted');
+            if (clpEl) {
+                clpEl.textContent = Z === 0 ? '(Nyquist stable)' : `(${Z} RHP poles)`;
+                clpEl.classList.remove('text-danger', 'text-muted');
+            }
             updateStabilityIndicator(Z === 0);
             window.lastPoles = [];
             window.lastZeros = [];
@@ -796,18 +1071,25 @@ function updateClosedLoopPoles() {
 
     } catch (e) {
         console.log('CLP error:', e);
-        clpEl.textContent = 'Error: ' + e.message;
-        clpEl.classList.add('text-danger');
-        clpEl.classList.remove('text-muted');
-        indicator.textContent = '--';
-        indicator.className = 'badge bg-secondary';
+        if (clpEl) {
+            clpEl.textContent = 'Error: ' + e.message;
+            clpEl.classList.add('text-danger');
+            clpEl.classList.remove('text-muted');
+        }
+        if (indicator) {
+            indicator.textContent = '--';
+            indicator.className = 'badge bg-secondary';
+        }
         window.lastPoles = [];
         window.lastZeros = [];
     }
 }
 
 function updateStabilityIndicator(isStable) {
-    let indicator = document.getElementById('stability-indicator');
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let indicator = document.getElementById(prefix + 'stability-indicator');
+    if (!indicator) return;
+
     if (isStable) {
         indicator.textContent = 'Stable';
         indicator.className = 'badge bg-success';
@@ -818,7 +1100,10 @@ function updateStabilityIndicator(isStable) {
 }
 
 function displayClosedLoopPoles(roots, isStableByNyquist) {
-    let clpEl = document.getElementById('clp-display');
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let clpEl = document.getElementById(prefix + 'clp-display');
+    if (!clpEl) return;
+
     if (!roots || roots[0].length === 0) {
         clpEl.textContent = 'No poles';
         clpEl.classList.add('text-muted');
@@ -875,10 +1160,15 @@ function displayClosedLoopPoles(roots, isStableByNyquist) {
 function updatePolePlot() {
     let canvas = document.getElementById('pole-canvas');
     let wrapper = document.getElementById('pole-wrapper');
+
+    if (!canvas || !wrapper) return;
+
     let ctx = canvas.getContext('2d');
 
     const width = wrapper.clientWidth;
     const height = wrapper.clientHeight;
+
+    if (width === 0 || height === 0) return;
 
     canvas.width = width * devicePixelRatio;
     canvas.height = height * devicePixelRatio;
@@ -890,19 +1180,60 @@ function updatePolePlot() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
-    let poles = window.lastPoles || [];
-    let zeros = window.lastZeros || [];
-    if (poles.length === 0 && zeros.length === 0) return;
+    // T(s) closed-loop poles and zeros (from stability calculation)
+    let Tpoles = window.lastPoles || [];
+    let Tzeros = window.lastZeros || [];
 
-    // Calculate scale based on both poles and zeros
+    // L(s) open-loop poles and zeros (from Lrat)
+    let Lpoles = [];
+    let Lzeros = [];
+
+    // Calculate L(s) poles and zeros from Lrat
+    let Lrat = currentVars.Lrat;
+    if (Lrat) {
+        // Get poles from denominator
+        try {
+            let denStr = Lrat.denominator.toString();
+            let denPoly = math.rationalize(denStr, true);
+            if (denPoly.coefficients && denPoly.coefficients.length > 1) {
+                let denRoots = findRoots(denPoly.coefficients);
+                Lpoles = root2math(denRoots);
+            }
+        } catch (e) {
+            console.log('Error getting L poles:', e);
+        }
+
+        // Get zeros from numerator
+        try {
+            let numStr = Lrat.numerator.toString();
+            let numPoly = math.rationalize(numStr, true);
+            if (numPoly.coefficients && numPoly.coefficients.length > 1) {
+                let numRoots = findRoots(numPoly.coefficients);
+                Lzeros = root2math(numRoots);
+            }
+        } catch (e) {
+            console.log('Error getting L zeros:', e);
+        }
+    }
+
+    // Collect all points to display based on visibility settings
+    let allPoints = [];
+    if (showLpz) {
+        Lpoles.forEach(p => allPoints.push(p));
+        Lzeros.forEach(z => allPoints.push(z));
+    }
+    if (showTpz) {
+        Tpoles.forEach(p => allPoints.push(p));
+        Tzeros.forEach(z => allPoints.push(z));
+    }
+
+    if (allPoints.length === 0) return;
+
+    // Calculate scale based on all visible poles and zeros
     let maxRe = 0, maxIm = 0;
-    poles.forEach(p => {
+    allPoints.forEach(p => {
         maxRe = Math.max(maxRe, Math.abs(p.re));
         maxIm = Math.max(maxIm, Math.abs(p.im));
-    });
-    zeros.forEach(z => {
-        maxRe = Math.max(maxRe, Math.abs(z.re));
-        maxIm = Math.max(maxIm, Math.abs(z.im));
     });
     maxRe = Math.max(maxRe, 1) * 1.5;
     maxIm = Math.max(maxIm, 1) * 1.5;
@@ -917,7 +1248,7 @@ function updatePolePlot() {
     let centerY = height / 2;
 
     // Calculate nice circular grid radii
-    let maxRadius = Math.sqrt(maxRe * maxRe + maxIm * maxIm) / 1.5;  // Remove the 1.5 factor added earlier
+    let maxRadius = Math.sqrt(maxRe * maxRe + maxIm * maxIm) / 1.5;
     maxRadius = Math.max(maxRadius, 1);
 
     // Find a nice step size (1, 2, 5, 10, 20, 50, ...)
@@ -930,8 +1261,8 @@ function updatePolePlot() {
     else niceStep = magnitude * 5;
 
     // Draw circular grid
-    ctx.strokeStyle = '#e0e0e0';
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = '#c0c0c0';
+    ctx.lineWidth = 1;
 
     let maxCircleRadius = Math.ceil(maxScale / niceStep) * niceStep;
     for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
@@ -962,7 +1293,7 @@ function updatePolePlot() {
     ctx.lineTo(centerX, height - margin);
     ctx.stroke();
 
-    ctx.strokeStyle = '#cc0000';
+    ctx.strokeStyle = '#333333';
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 5]);
     ctx.beginPath();
@@ -982,32 +1313,31 @@ function updatePolePlot() {
     ctx.textBaseline = 'top';
     for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
         let px = centerX + r * scale;
-        if (px < width - margin - 10) {  // Don't overlap with 'Re' label
+        if (px < width - margin - 10) {
             let label = (r >= 1 || r === 0) ? r.toFixed(0) : r.toPrecision(1);
             ctx.fillText(label, px, centerY + 5);
         }
     }
 
-    const poleZeroColor = '#22aa22';  // Green (same as T in Bode plot)
+    const colorL = '#0088aa';  // L(s) color (same as Bode plot)
+    const colorT = '#dd6600';  // T(s) color (same as Bode plot)
 
-    // Draw zeros as circles (○)
-    zeros.forEach(z => {
+    // Helper function to draw a zero (circle)
+    function drawZero(z, color) {
         let px = centerX + z.re * scale;
         let py = centerY - z.im * scale;
-
-        ctx.strokeStyle = poleZeroColor;
+        ctx.strokeStyle = color;
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.arc(px, py, 6, 0, 2 * Math.PI);
         ctx.stroke();
-    });
+    }
 
-    // Draw poles as crosses (×)
-    poles.forEach(p => {
+    // Helper function to draw a pole (cross)
+    function drawPole(p, color) {
         let px = centerX + p.re * scale;
         let py = centerY - p.im * scale;
-
-        ctx.strokeStyle = poleZeroColor;
+        ctx.strokeStyle = color;
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.moveTo(px - 5, py - 5);
@@ -1015,15 +1345,231 @@ function updatePolePlot() {
         ctx.moveTo(px + 5, py - 5);
         ctx.lineTo(px - 5, py + 5);
         ctx.stroke();
+    }
+
+    // Draw L(s) poles and zeros (if visible)
+    if (showLpz) {
+        Lzeros.forEach(z => drawZero(z, colorL));
+        Lpoles.forEach(p => drawPole(p, colorL));
+    }
+
+    // Draw T(s) poles and zeros (if visible)
+    if (showTpz) {
+        Tzeros.forEach(z => drawZero(z, colorT));
+        Tpoles.forEach(p => drawPole(p, colorT));
+    }
+}
+
+// Narrow layout pole-zero plot (separate function to handle narrow-specific element IDs)
+function updateNarrowPolePlot() {
+    let canvas = document.getElementById('narrow-pole-canvas');
+    let wrapper = document.getElementById('narrow-pole-wrapper');
+
+    if (!canvas || !wrapper) return;
+
+    let ctx = canvas.getContext('2d');
+
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+
+    if (width === 0 || height === 0) return;
+
+    canvas.width = width * devicePixelRatio;
+    canvas.height = height * devicePixelRatio;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    // T(s) closed-loop poles and zeros (from stability calculation)
+    let Tpoles = window.lastPoles || [];
+    let Tzeros = window.lastZeros || [];
+
+    // L(s) open-loop poles and zeros (from Lrat)
+    let Lpoles = [];
+    let Lzeros = [];
+
+    // Calculate L(s) poles and zeros from Lrat
+    let Lrat = currentVars.Lrat;
+    if (Lrat) {
+        try {
+            let denStr = Lrat.denominator.toString();
+            let denPoly = math.rationalize(denStr, true);
+            if (denPoly.coefficients && denPoly.coefficients.length > 1) {
+                let denRoots = findRoots(denPoly.coefficients);
+                Lpoles = root2math(denRoots);
+            }
+        } catch (e) {
+            console.log('Error getting L poles:', e);
+        }
+
+        try {
+            let numStr = Lrat.numerator.toString();
+            let numPoly = math.rationalize(numStr, true);
+            if (numPoly.coefficients && numPoly.coefficients.length > 1) {
+                let numRoots = findRoots(numPoly.coefficients);
+                Lzeros = root2math(numRoots);
+            }
+        } catch (e) {
+            console.log('Error getting L zeros:', e);
+        }
+    }
+
+    // Get visibility settings from narrow layout checkboxes
+    let narrowShowLpz = document.getElementById('narrow-chk-show-L-pz')?.checked ?? true;
+    let narrowShowTpz = document.getElementById('narrow-chk-show-T-pz')?.checked ?? true;
+
+    // Collect all points to display based on visibility settings
+    let allPoints = [];
+    if (narrowShowLpz) {
+        Lpoles.forEach(p => allPoints.push(p));
+        Lzeros.forEach(z => allPoints.push(z));
+    }
+    if (narrowShowTpz) {
+        Tpoles.forEach(p => allPoints.push(p));
+        Tzeros.forEach(z => allPoints.push(z));
+    }
+
+    if (allPoints.length === 0) return;
+
+    // Calculate scale based on all visible poles and zeros
+    let maxRe = 0, maxIm = 0;
+    allPoints.forEach(p => {
+        maxRe = Math.max(maxRe, Math.abs(p.re));
+        maxIm = Math.max(maxIm, Math.abs(p.im));
     });
+    maxRe = Math.max(maxRe, 1) * 1.5;
+    maxIm = Math.max(maxIm, 1) * 1.5;
+    let maxScale = Math.max(maxRe, maxIm);
+
+    const margin = 40;
+    const plotWidth = width - 2 * margin;
+    const plotHeight = height - 2 * margin;
+    const scale = Math.min(plotWidth, plotHeight) / (2 * maxScale);
+
+    let centerX = width / 2;
+    let centerY = height / 2;
+
+    // Calculate nice circular grid radii
+    let maxRadius = Math.sqrt(maxRe * maxRe + maxIm * maxIm) / 1.5;
+    maxRadius = Math.max(maxRadius, 1);
+
+    let magnitude = Math.pow(10, Math.floor(Math.log10(maxRadius)));
+    let normalized = maxRadius / magnitude;
+    let niceStep;
+    if (normalized <= 1) niceStep = magnitude * 0.5;
+    else if (normalized <= 2) niceStep = magnitude;
+    else if (normalized <= 5) niceStep = magnitude * 2;
+    else niceStep = magnitude * 5;
+
+    // Draw circular grid
+    ctx.strokeStyle = '#c0c0c0';
+    ctx.lineWidth = 1;
+
+    let maxCircleRadius = Math.ceil(maxScale / niceStep) * niceStep;
+    for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
+        let pixelRadius = r * scale;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, pixelRadius, 0, 2 * Math.PI);
+        ctx.stroke();
+    }
+
+    // Draw radial lines (every 45 degrees)
+    for (let angle = 0; angle < Math.PI; angle += Math.PI / 4) {
+        let dx = Math.cos(angle) * maxCircleRadius * scale;
+        let dy = Math.sin(angle) * maxCircleRadius * scale;
+        ctx.beginPath();
+        ctx.moveTo(centerX - dx, centerY + dy);
+        ctx.lineTo(centerX + dx, centerY - dy);
+        ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#999999';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(margin, centerY);
+    ctx.lineTo(width - margin, centerY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(centerX, margin);
+    ctx.lineTo(centerX, height - margin);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#333333';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(centerX, margin);
+    ctx.lineTo(centerX, height - margin);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#333333';
+    ctx.font = '12px Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Re', width - margin + 15, centerY + 4);
+    ctx.fillText('Im', centerX, margin - 10);
+
+    // Draw tick labels on positive real axis
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
+        let px = centerX + r * scale;
+        if (px < width - margin - 10) {
+            let label = (r >= 1 || r === 0) ? r.toFixed(0) : r.toPrecision(1);
+            ctx.fillText(label, px, centerY + 5);
+        }
+    }
+
+    const colorL = '#0088aa';
+    const colorT = '#dd6600';
+
+    function drawZero(z, color) {
+        let px = centerX + z.re * scale;
+        let py = centerY - z.im * scale;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, 2 * Math.PI);
+        ctx.stroke();
+    }
+
+    function drawPole(p, color) {
+        let px = centerX + p.re * scale;
+        let py = centerY - p.im * scale;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(px - 5, py - 5);
+        ctx.lineTo(px + 5, py + 5);
+        ctx.moveTo(px + 5, py - 5);
+        ctx.lineTo(px - 5, py + 5);
+        ctx.stroke();
+    }
+
+    if (narrowShowLpz) {
+        Lzeros.forEach(z => drawZero(z, colorL));
+        Lpoles.forEach(p => drawPole(p, colorL));
+    }
+
+    if (narrowShowTpz) {
+        Tzeros.forEach(z => drawZero(z, colorT));
+        Tpoles.forEach(p => drawPole(p, colorT));
+    }
 }
 
 function updateMargins() {
     let margins = window.lastMargins;
     if (!margins) return;
 
-    let gmDisplay = document.getElementById('gm-display');
-    let pmDisplay = document.getElementById('pm-display');
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let gmDisplay = document.getElementById(prefix + 'gm-display');
+    let pmDisplay = document.getElementById(prefix + 'pm-display');
+
+    if (!gmDisplay || !pmDisplay) return;
 
     if (margins.gainMargins.length > 0) {
         let gm = margins.gainMargins[0];
@@ -1031,7 +1577,7 @@ function updateMargins() {
         gmDisplay.textContent = gmStr;
         gmDisplay.className = gm.margin > 0 ? 'text-success' : 'text-danger';
     } else {
-        gmDisplay.textContent = '∞';
+        gmDisplay.textContent = '\u221e';
         gmDisplay.className = 'text-success';
     }
 
@@ -1148,8 +1694,10 @@ function autoAdjustFrequencyRange() {
         }
 
         // Update UI
-        document.getElementById('field-freq-min').value = design.freqMin;
-        document.getElementById('field-freq-max').value = design.freqMax;
+        const freqMinField = document.getElementById('field-freq-min');
+        const freqMaxField = document.getElementById('field-freq-max');
+        if (freqMinField) freqMinField.value = design.freqMin;
+        if (freqMaxField) freqMaxField.value = design.freqMax;
 
     } catch (e) {
         console.log('Auto frequency range error:', e);
@@ -1159,9 +1707,8 @@ function autoAdjustFrequencyRange() {
 function saveToUrl() {
     saveDesign();
 
-    // Create a copy of design without layout (leftPanelWidth, bodeHeight)
+    // Create a copy of design for saving (excluding layout info)
     let saveData = { ...design };
-    delete saveData.layout;
 
     // Don't save freqMin/freqMax if autoFreq is enabled
     if (saveData.autoFreq) {
@@ -1224,14 +1771,6 @@ function loadFromUrl() {
             if (json && json.charAt(0) === '{') {
                 let loaded = JSON.parse(json);
                 Object.assign(design, loaded);
-                // Ensure layout defaults exist
-                if (!design.layout) {
-                    design.layout = { leftPanelWidth: 350 };
-                }
-                // Ensure collapsed defaults exist
-                if (!design.collapsed) {
-                    design.collapsed = {};
-                }
             }
         } catch (e) {
             console.log('Failed to load from URL:', e);
@@ -1239,4 +1778,174 @@ function loadFromUrl() {
     }
 }
 
+// Reset layout to default
+function resetLayout() {
+    if (dockviewApi) {
+        dockviewApi.clear();
+        createDefaultLayout();
+    }
+}
+
+// View menu functions
+function initializeViewMenu() {
+    const viewMenuBtn = document.getElementById('btn-view-menu');
+    const viewMenu = document.getElementById('view-menu');
+
+    if (!viewMenuBtn || !viewMenu) return;
+
+    // Toggle menu on button click
+    viewMenuBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        viewMenu.classList.toggle('show');
+        updateViewMenuItems();
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!viewMenu.contains(e.target) && e.target !== viewMenuBtn) {
+            viewMenu.classList.remove('show');
+        }
+    });
+
+    // Initial population
+    updateViewMenuItems();
+}
+
+function updateViewMenuItems() {
+    const viewMenu = document.getElementById('view-menu');
+    if (!viewMenu) return;
+
+    viewMenu.innerHTML = '';
+
+    // Add panel items
+    PANEL_DEFINITIONS.forEach(panel => {
+        const isOpen = isPanelOpen(panel.id);
+        const item = document.createElement('div');
+        item.className = 'dropdown-item' + (isOpen ? ' checked' : '');
+        item.innerHTML = `<span class="check-mark">${isOpen ? '✓' : ''}</span>${panel.title}`;
+        item.addEventListener('click', function() {
+            if (isOpen) {
+                closePanel(panel.id);
+            } else {
+                openPanel(panel.id);
+            }
+            updateViewMenuItems();
+        });
+        viewMenu.appendChild(item);
+    });
+
+    // Add separator
+    const separator = document.createElement('div');
+    separator.className = 'dropdown-separator';
+    viewMenu.appendChild(separator);
+
+    // Add reset layout option
+    const resetItem = document.createElement('div');
+    resetItem.className = 'dropdown-item';
+    resetItem.innerHTML = '<span class="check-mark"></span>Reset Layout';
+    resetItem.addEventListener('click', function() {
+        resetLayout();
+        setTimeout(() => {
+            initializeUI();
+            setupEventListeners();
+            updateAll();
+        }, 100);
+        viewMenu.classList.remove('show');
+    });
+    viewMenu.appendChild(resetItem);
+}
+
+function isPanelOpen(panelId) {
+    if (!dockviewApi) return false;
+    try {
+        const panel = dockviewApi.getPanel(panelId);
+        return panel !== undefined && panel !== null;
+    } catch (e) {
+        return false;
+    }
+}
+
+function openPanel(panelId) {
+    if (!dockviewApi || isPanelOpen(panelId)) return;
+
+    const panelDef = PANEL_DEFINITIONS.find(p => p.id === panelId);
+    if (!panelDef) return;
+
+    const options = {
+        id: panelDef.id,
+        component: panelDef.component,
+        title: panelDef.title
+    };
+
+    // Determine best position based on panel type
+    if (panelId === 'bode' || panelId === 'pole-zero') {
+        // Plot panels: prefer right side or below existing plots
+        if (isPanelOpen('bode') && panelId === 'pole-zero') {
+            options.position = { referencePanel: 'bode', direction: 'below' };
+        } else if (isPanelOpen('pole-zero') && panelId === 'bode') {
+            options.position = { referencePanel: 'pole-zero', direction: 'above' };
+        } else if (isPanelOpen('system-definition')) {
+            options.position = { referencePanel: 'system-definition', direction: 'right' };
+        }
+    } else if (panelId === 'system-definition') {
+        // System Definition: left side
+        if (isPanelOpen('bode')) {
+            options.position = { referencePanel: 'bode', direction: 'left' };
+        }
+    } else if (panelId === 'parameters' || panelId === 'frequency') {
+        // Parameters/Frequency: tab together or below System Definition
+        if (isPanelOpen('parameters') && panelId === 'frequency') {
+            options.position = { referencePanel: 'parameters', direction: 'within' };
+        } else if (isPanelOpen('frequency') && panelId === 'parameters') {
+            options.position = { referencePanel: 'frequency', direction: 'within' };
+        } else if (isPanelOpen('system-definition')) {
+            options.position = { referencePanel: 'system-definition', direction: 'below' };
+        }
+    } else if (panelId === 'stability') {
+        // Stability: below parameters or left of pole-zero
+        if (isPanelOpen('parameters')) {
+            options.position = { referencePanel: 'parameters', direction: 'below' };
+        } else if (isPanelOpen('frequency')) {
+            options.position = { referencePanel: 'frequency', direction: 'below' };
+        } else if (isPanelOpen('pole-zero')) {
+            options.position = { referencePanel: 'pole-zero', direction: 'left' };
+        }
+    }
+
+    // Fallback: add as tab to first available panel
+    if (!options.position) {
+        for (const def of PANEL_DEFINITIONS) {
+            if (isPanelOpen(def.id)) {
+                options.position = { referencePanel: def.id, direction: 'within' };
+                break;
+            }
+        }
+    }
+
+    dockviewApi.addPanel(options);
+
+    // Re-initialize UI for the new panel
+    setTimeout(() => {
+        initializeUI();
+        setupEventListeners();
+        updateAll();
+    }, 50);
+}
+
+function closePanel(panelId) {
+    if (!dockviewApi) return;
+
+    try {
+        const panel = dockviewApi.getPanel(panelId);
+        if (panel) {
+            panel.api.close();
+        }
+    } catch (e) {
+        console.log('Error closing panel:', e);
+    }
+}
+
 window.addSlider = addSlider;
+window.resetLayout = resetLayout;
+window.openPanel = openPanel;
+window.closePanel = closePanel;

@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LoopShaper</title>
 
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Dockview CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/dockview-core@4.13.1/dist/styles/dockview.css">
 
     <!-- KaTeX CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
@@ -15,175 +15,221 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="main-container">
-        <!-- Left Panel: Code Input and Sliders -->
-        <div class="left-panel" id="left-panel">
-                <!-- Code Input -->
-                <div class="card mb-2">
-                    <div class="card-header collapsible" data-target="#collapse-code">
-                        <h6 class="mb-0">
-                            <span class="collapse-icon"></span>
-                            System Definition
-                        </h6>
-                    </div>
-                    <div class="collapse show" id="collapse-code">
-                        <div class="card-body">
-                            <textarea class="form-control font-monospace" id="field-code" rows="3" spellcheck="false"></textarea>
-                            <div class="tf-row mt-2">
-                                <span id="eq-L-display" class="eq-display-inline"></span>
-                            </div>
-                            <div class="tf-row">
-                                <span id="eq-T-display" class="eq-display-inline"></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Parameter Sliders -->
-                <div class="card mb-2">
-                    <div class="card-header collapsible d-flex justify-content-between align-items-center" data-target="#collapse-sliders">
-                        <h6 class="mb-0">
-                            <span class="collapse-icon"></span>
-                            Parameters
-                        </h6>
-                        <button class="btn btn-sm btn-primary" id="btn-add-slider" onclick="event.stopPropagation()">+ Add</button>
-                    </div>
-                    <div class="collapse show" id="collapse-sliders">
-                        <div class="card-body">
-                            <div class="slider-header">
-                                <span>Name</span>
-                                <span>Min</span>
-                                <span>Max</span>
-                                <span>Log</span>
-                                <span></span>
-                            </div>
-                            <div id="sliders-container"></div>
-                        </div>
-                    </div>
-                </div>
-
+    <!-- Toolbar -->
+    <div id="toolbar">
+        <div class="toolbar-left">
+            <span class="app-title">LoopShaper</span>
         </div>
-
-        <!-- Resize Handle -->
-        <div class="resize-handle-v" id="resize-handle-v"></div>
-
-        <!-- Right Panel: Plots and Results -->
-        <div class="right-panel" id="right-panel">
-            <!-- Bode Plot -->
-                <div class="card mb-2">
-                    <div class="card-header collapsible d-flex justify-content-between align-items-center" data-target="#collapse-bode">
-                        <h6 class="mb-0">
-                            <span class="collapse-icon"></span>
-                            Bode Plot
-                        </h6>
-                        <div class="bode-options" onclick="event.stopPropagation()">
-                            <div class="form-check form-check-inline mb-0">
-                                <input class="form-check-input" type="checkbox" id="chk-show-L" checked>
-                                <label class="form-check-label bode-label-L" for="chk-show-L">&mdash; L(s)</label>
-                            </div>
-                            <div class="form-check form-check-inline mb-0">
-                                <input class="form-check-input" type="checkbox" id="chk-show-T" checked>
-                                <label class="form-check-label bode-label-T" for="chk-show-T">&mdash; T(s)</label>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="collapse show" id="collapse-bode">
-                        <div class="card-body p-0">
-                            <div id="bode-wrapper" class="plot-wrapper">
-                                <canvas id="bode-canvas"></canvas>
-                            </div>
-                            <div class="resize-handle-h" id="resize-handle-h"></div>
-                        </div>
-                    </div>
+        <div class="toolbar-right">
+            <div class="dropdown">
+                <button class="btn btn-sm btn-toolbar" id="btn-view-menu">
+                    View ▾
+                </button>
+                <div class="dropdown-menu" id="view-menu">
+                    <!-- Menu items will be populated by JavaScript -->
                 </div>
-
-            <!-- Stability/Frequency and Pole-Zero Map side by side -->
-                <div class="row g-2">
-                    <!-- Left column: Stability + Frequency Range stacked -->
-                    <div class="col-12 col-md-6">
-                        <!-- Stability Info -->
-                        <div class="card mb-2">
-                            <div class="card-header collapsible d-flex justify-content-between align-items-center" data-target="#collapse-stability">
-                                <h6 class="mb-0">
-                                    <span class="collapse-icon"></span>
-                                    Stability
-                                </h6>
-                                <span id="stability-indicator" class="badge bg-secondary">--</span>
-                            </div>
-                            <div class="collapse show" id="collapse-stability">
-                                <div class="card-body">
-                                    <div class="row g-1 small">
-                                        <div class="col-12 col-sm-6">
-                                            <strong>GM:</strong>
-                                            <span id="gm-display" class="text-muted">--</span>
-                                        </div>
-                                        <div class="col-12 col-sm-6">
-                                            <strong>PM:</strong>
-                                            <span id="pm-display" class="text-muted">--</span>
-                                        </div>
-                                    </div>
-                                    <div class="mt-1 small">
-                                        <strong>Poles:</strong>
-                                        <span id="clp-display" class="text-muted"></span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Frequency Range -->
-                        <div class="card mb-2">
-                            <div class="card-header collapsible d-flex justify-content-between align-items-center" data-target="#collapse-freq">
-                                <h6 class="mb-0">
-                                    <span class="collapse-icon"></span>
-                                    Frequency Range
-                                </h6>
-                                <div class="form-check mb-0" onclick="event.stopPropagation()">
-                                    <input class="form-check-input" type="checkbox" id="chk-freq-auto" checked>
-                                    <label class="form-check-label" for="chk-freq-auto">Auto</label>
-                                </div>
-                            </div>
-                            <div class="collapse show" id="collapse-freq">
-                                <div class="card-body">
-                                    <div class="row g-2">
-                                        <div class="col-6">
-                                            <div class="input-group input-group-sm">
-                                                <span class="input-group-text">Min</span>
-                                                <input type="number" class="form-control" id="field-freq-min" value="-2" step="0.5">
-                                            </div>
-                                        </div>
-                                        <div class="col-6">
-                                            <div class="input-group input-group-sm">
-                                                <span class="input-group-text">Max</span>
-                                                <input type="number" class="form-control" id="field-freq-max" value="3" step="0.5">
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Right column: Pole-Zero Map -->
-                    <div class="col-12 col-md-6">
-                        <div class="card mb-2">
-                            <div class="card-header collapsible" data-target="#collapse-poles">
-                                <h6 class="mb-0">
-                                    <span class="collapse-icon"></span>
-                                    Pole-Zero Map
-                                </h6>
-                            </div>
-                            <div class="collapse show" id="collapse-poles">
-                                <div class="card-body p-0">
-                                    <div id="pole-wrapper" class="plot-wrapper-small">
-                                        <canvas id="pole-canvas"></canvas>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
             </div>
         </div>
     </div>
+
+    <!-- Dockview Container (for wide screens) -->
+    <div id="dockview-container" class="dockview-theme-light"></div>
+
+    <!-- Narrow Screen Layout (for mobile) -->
+    <div id="narrow-layout">
+        <div class="narrow-panel">
+            <div class="narrow-panel-header">System Definition</div>
+            <div class="panel-content">
+                <textarea class="form-control font-monospace" id="narrow-field-code" rows="3" spellcheck="false"></textarea>
+                <div class="tf-row mt-2">
+                    <span id="narrow-eq-L-display" class="eq-display-inline"></span>
+                </div>
+                <div class="tf-row">
+                    <span id="narrow-eq-T-display" class="eq-display-inline"></span>
+                </div>
+            </div>
+        </div>
+        <div class="narrow-panel">
+            <div class="narrow-panel-header">Parameters</div>
+            <div class="panel-content">
+                <div class="slider-header">
+                    <span>Name</span>
+                    <span>Min</span>
+                    <span>Max</span>
+                    <span>Log</span>
+                    <span></span>
+                </div>
+                <div id="narrow-sliders-container"></div>
+                <button class="btn btn-sm btn-primary mt-2" id="narrow-btn-add-slider">+ Add</button>
+            </div>
+        </div>
+        <div class="narrow-panel">
+            <div class="narrow-plot-tabs">
+                <button class="narrow-tab-btn active" data-tab="bode">Bode Plot</button>
+                <button class="narrow-tab-btn" data-tab="pole-zero">Pole-Zero Map</button>
+            </div>
+            <div class="panel-content panel-plot" id="narrow-tab-bode">
+                <div class="bode-options">
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="narrow-chk-show-L" checked>
+                        <label class="form-check-label bode-label-L" for="narrow-chk-show-L">&#9473; $L(s)$</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="narrow-chk-show-T" checked>
+                        <label class="form-check-label bode-label-T" for="narrow-chk-show-T">&#9473; $T(s)$</label>
+                    </div>
+                </div>
+                <div id="narrow-bode-wrapper" class="plot-wrapper narrow-plot-wrapper">
+                    <canvas id="narrow-bode-canvas"></canvas>
+                </div>
+            </div>
+            <div class="panel-content panel-plot" id="narrow-tab-pole-zero" style="display: none;">
+                <div class="pole-options">
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="narrow-chk-show-L-pz" checked>
+                        <label class="form-check-label pole-label-L" for="narrow-chk-show-L-pz">L(s)</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="narrow-chk-show-T-pz" checked>
+                        <label class="form-check-label pole-label-T" for="narrow-chk-show-T-pz">T(s)</label>
+                    </div>
+                </div>
+                <div id="narrow-pole-wrapper" class="plot-wrapper narrow-plot-wrapper">
+                    <canvas id="narrow-pole-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="narrow-panel">
+            <div class="narrow-panel-header">Stability</div>
+            <div class="panel-content">
+                <div class="stability-header">
+                    <span class="stability-label">Stability</span>
+                    <span id="narrow-stability-indicator" class="badge bg-secondary">--</span>
+                </div>
+                <div class="stability-info">
+                    <div class="info-row">
+                        <strong>GM:</strong>
+                        <span id="narrow-gm-display" class="text-muted">--</span>
+                    </div>
+                    <div class="info-row">
+                        <strong>PM:</strong>
+                        <span id="narrow-pm-display" class="text-muted">--</span>
+                    </div>
+                </div>
+                <div class="poles-section">
+                    <strong>Poles:</strong>
+                    <span id="narrow-clp-display" class="text-muted"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Panel Templates -->
+    <template id="template-system-definition">
+        <div class="panel-content">
+            <textarea class="form-control font-monospace" id="field-code" rows="3" spellcheck="false"></textarea>
+            <div class="tf-row mt-2">
+                <span id="eq-L-display" class="eq-display-inline"></span>
+            </div>
+            <div class="tf-row">
+                <span id="eq-T-display" class="eq-display-inline"></span>
+            </div>
+        </div>
+    </template>
+
+    <template id="template-parameters">
+        <div class="panel-content">
+            <div class="slider-header">
+                <span>Name</span>
+                <span>Min</span>
+                <span>Max</span>
+                <span>Log</span>
+                <span></span>
+            </div>
+            <div id="sliders-container"></div>
+            <button class="btn btn-sm btn-primary mt-2" id="btn-add-slider">+ Add</button>
+        </div>
+    </template>
+
+    <template id="template-bode">
+        <div class="panel-content panel-plot">
+            <div class="bode-options">
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="checkbox" id="chk-show-L" checked>
+                    <label class="form-check-label bode-label-L" for="chk-show-L">&#9473; $L(s)$</label>
+                </div>
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="checkbox" id="chk-show-T" checked>
+                    <label class="form-check-label bode-label-T" for="chk-show-T">&#9473; $T(s)$</label>
+                </div>
+            </div>
+            <div id="bode-wrapper" class="plot-wrapper">
+                <canvas id="bode-canvas"></canvas>
+            </div>
+        </div>
+    </template>
+
+    <template id="template-stability">
+        <div class="panel-content">
+            <div class="stability-header">
+                <span class="stability-label">Stability</span>
+                <span id="stability-indicator" class="badge bg-secondary">--</span>
+            </div>
+            <div class="stability-info">
+                <div class="info-row">
+                    <strong>GM:</strong>
+                    <span id="gm-display" class="text-muted">--</span>
+                </div>
+                <div class="info-row">
+                    <strong>PM:</strong>
+                    <span id="pm-display" class="text-muted">--</span>
+                </div>
+            </div>
+            <div class="poles-section">
+                <strong>Poles:</strong>
+                <span id="clp-display" class="text-muted"></span>
+            </div>
+        </div>
+    </template>
+
+    <template id="template-frequency">
+        <div class="panel-content">
+            <div class="freq-header">
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="checkbox" id="chk-freq-auto" checked>
+                    <label class="form-check-label" for="chk-freq-auto">Auto</label>
+                </div>
+            </div>
+            <div class="freq-inputs">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">Min</span>
+                    <input type="number" class="form-control" id="field-freq-min" value="-2" step="0.5">
+                </div>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">Max</span>
+                    <input type="number" class="form-control" id="field-freq-max" value="3" step="0.5">
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="template-pole-zero">
+        <div class="panel-content panel-plot">
+            <div class="pole-options">
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="checkbox" id="chk-show-L-pz" checked>
+                    <label class="form-check-label pole-label-L" for="chk-show-L-pz">L(s)</label>
+                </div>
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="checkbox" id="chk-show-T-pz" checked>
+                    <label class="form-check-label pole-label-T" for="chk-show-T-pz">T(s)</label>
+                </div>
+            </div>
+            <div id="pole-wrapper" class="plot-wrapper">
+                <canvas id="pole-canvas"></canvas>
+            </div>
+        </div>
+    </template>
 
     <!-- KaTeX JS -->
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -192,8 +238,8 @@
     <!-- Math.js -->
     <script src="https://unpkg.com/mathjs@15.1.0/lib/browser/math.js"></script>
 
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Dockview JS -->
+    <script src="https://unpkg.com/dockview-core@4.13.1/dist/dockview-core.js"></script>
 
     <!-- Pako (zlib) for URL compression -->
     <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>

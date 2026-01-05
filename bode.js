@@ -146,7 +146,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         ctx.fillText((math.pow(10, i)).toFixed(Math.max(0, -i)), x, p2y(pmin) + 5);
 
         // Major grid lines
-        ctx.strokeStyle = options.majorGridColor || '#cccccc';
+        ctx.strokeStyle = options.majorGridColor || '#c0c0c0';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x, g2y(gmin));
@@ -158,7 +158,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         // Minor grid lines
         for (let k = 2; k < 10; k++) {
             if (i + math.log10(k) >= wmax) break;
-            ctx.strokeStyle = options.minorGridColor || '#e0e0e0';
+            ctx.strokeStyle = options.minorGridColor || '#c0c0c0';
             ctx.lineWidth = 0.5;
             let xk = w2x(i + math.log10(k));
             ctx.beginPath();
@@ -173,7 +173,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     // Draw gain crossover lines (only for L) - red
     wgc.forEach((wc) => {
         let x = w2x(math.log10(wc));
-        ctx.strokeStyle = '#cc0000';
+        ctx.strokeStyle = '#333333';
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
@@ -225,11 +225,11 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         ctx.fillStyle = options.textColor || '#333333';
         ctx.fillText(g.toFixed(0), w2x(wmin) - 5, y);
         if (g === 0) {
-            ctx.strokeStyle = '#cc0000';
+            ctx.strokeStyle = '#333333';
             ctx.lineWidth = 1;
             ctx.setLineDash([5, 5]);
         } else {
-            ctx.strokeStyle = options.majorGridColor || '#cccccc';
+            ctx.strokeStyle = options.majorGridColor || '#c0c0c0';
             ctx.lineWidth = 1;
             ctx.setLineDash([]);
         }
@@ -248,11 +248,11 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         ctx.fillStyle = options.textColor || '#333333';
         ctx.fillText(p.toFixed(0), w2x(wmin) - 5, y);
         if (p === -180 || p === 180) {
-            ctx.strokeStyle = '#cc0000';
+            ctx.strokeStyle = '#333333';
             ctx.lineWidth = 1;
             ctx.setLineDash([5, 5]);
         } else {
-            ctx.strokeStyle = options.majorGridColor || '#cccccc';
+            ctx.strokeStyle = options.majorGridColor || '#c0c0c0';
             ctx.lineWidth = 1;
             ctx.setLineDash([]);
         }
