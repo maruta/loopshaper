@@ -3,7 +3,7 @@
 // Default design
 let design = {
     code: `K = Kp*(1 + Td*s)
-P = 1/(s*s*(s + 1))
+P = 1/(s^2*(s + 1))
 L = K * P`,
     sliders: [
         { name: 'Kp', min: 0.01, max: 10, logScale: true, currentValue: 1 },
