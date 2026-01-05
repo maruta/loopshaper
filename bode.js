@@ -108,6 +108,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     let wmax = math.log10(math.max(w));
 
     // Use continuous values with small margin (5% of range or minimum 5 units)
+    // Clamp gain to ±80dB and phase to ±1080°
     let gRange = gmaxAll - gminAll;
     let gMargin = Math.max(5, gRange * 0.05);
     let gmin = clip(gminAll - gMargin, -210, 210);
@@ -115,8 +116,8 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
 
     let pRange = pmaxAll - pminAll;
     let pMargin = Math.max(10, pRange * 0.05);
-    let pmin = pminAll - pMargin;
-    let pmax = pmaxAll + pMargin;
+    let pmin = clip(pminAll - pMargin, -1080, 1080);
+    let pmax = clip(pmaxAll + pMargin, -1080, 1080);
 
     const leftMargin = 70;
     const rightMargin = 20;

@@ -72,6 +72,304 @@ function nextPow2(n) {
     return n + 1;
 }
 
+// Calculate winding number around (-1, 0) for Nyquist stability criterion
+// Handles poles on imaginary axis using small semicircular indentations
+function calculateWindingNumber(Lcompiled, wArray, imagAxisPoles) {
+    imagAxisPoles = imagAxisPoles || [];
+
+    // Sort pole frequencies and remove duplicates
+    let poleFreqs = imagAxisPoles
+        .map(p => Math.abs(p.im))
+        .sort((a, b) => a - b);
+    poleFreqs = [...new Set(poleFreqs.map(f => parseFloat(f.toFixed(10))))];
+
+    const epsilon = 1e-4;
+    const hasOriginPole = poleFreqs.some(f => f < 1e-9);
+
+    // Build frequency segments that avoid poles
+    let freqSegments = [];
+    let currentStart = hasOriginPole ? epsilon : wArray[0];
+    if (wArray[0] > currentStart) currentStart = wArray[0];
+
+    for (let poleFreq of poleFreqs) {
+        if (poleFreq > currentStart + epsilon && poleFreq < wArray[wArray.length - 1]) {
+            freqSegments.push({
+                wStart: currentStart,
+                wEnd: poleFreq - epsilon,
+                poleAfter: poleFreq
+            });
+            currentStart = poleFreq + epsilon;
+        }
+    }
+    freqSegments.push({
+        wStart: currentStart,
+        wEnd: wArray[wArray.length - 1],
+        poleAfter: null
+    });
+
+    let totalAngleChange = 0;
+    let prevAngle = null;
+
+    // Accumulate angle change with unwrapping
+    function accumulateAngle(complexVal) {
+        let shiftedRe = complexVal.re + 1;
+        let shiftedIm = complexVal.im;
+        if (!isFinite(shiftedRe) || !isFinite(shiftedIm)) return;
+
+        let angle = Math.atan2(shiftedIm, shiftedRe);
+        if (prevAngle !== null) {
+            let deltaAngle = angle - prevAngle;
+            while (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+            while (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+            totalAngleChange += deltaAngle;
+        }
+        prevAngle = angle;
+    }
+
+    // Handle origin pole indentation (semicircle in RHP from -jε to +jε)
+    if (hasOriginPole) {
+        const nIndentPoints = 50;
+        for (let k = 0; k <= nIndentPoints; k++) {
+            let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
+            let sReal = epsilon * Math.cos(theta);
+            let sImag = epsilon * Math.sin(theta);
+            try {
+                let Ls = Lcompiled.evaluate({ 's': math.complex(sReal, sImag) });
+                accumulateAngle(Ls);
+            } catch (e) { continue; }
+        }
+    }
+
+    let originIndentAngle = totalAngleChange;
+    totalAngleChange = 0;
+    prevAngle = null;
+
+    // Sweep positive frequencies with pole indentations
+    for (let seg of freqSegments) {
+        let segFreqs = wArray.filter(w => w >= seg.wStart && w <= seg.wEnd);
+
+        for (let omega of segFreqs) {
+            try {
+                let Ljw = Lcompiled.evaluate({ 's': math.complex(0, omega) });
+                accumulateAngle(Ljw);
+            } catch (e) { continue; }
+        }
+
+        // Indentation around non-origin pole (clockwise semicircle in RHP)
+        if (seg.poleAfter !== null) {
+            let pFreq = seg.poleAfter;
+            const nIndentPoints = 50;
+            for (let k = 0; k <= nIndentPoints; k++) {
+                let theta = Math.PI / 2 - (k * Math.PI / nIndentPoints);
+                let sReal = epsilon * Math.cos(theta);
+                let sImag = pFreq + epsilon * Math.sin(theta);
+                try {
+                    let Ls = Lcompiled.evaluate({ 's': math.complex(sReal, sImag) });
+                    accumulateAngle(Ls);
+                } catch (e) { continue; }
+            }
+        }
+    }
+
+    let positivePathAngle = totalAngleChange;
+
+    // Total = 2 * (positive path) + origin indentation (symmetry for real systems)
+    let finalTotalAngle = (positivePathAngle * 2) + originIndentAngle;
+    let N = Math.round(finalTotalAngle / (2 * Math.PI));
+
+    return N;
+}
+
+// Find poles on or near the imaginary axis from a rational function
+function findImaginaryAxisPoles(rationalNode) {
+    try {
+        let rat = util_rationalize(rationalNode);
+        if (!rat || !rat.denominator) return [];
+
+        let denStr = rat.denominator.toString();
+        let denPoly = math.rationalize(denStr, true);
+        if (!denPoly.coefficients || denPoly.coefficients.length <= 1) return [];
+
+        let roots = findRoots(denPoly.coefficients);
+        let poles = root2math(roots);
+
+        // Return poles that are on or very close to the imaginary axis
+        let imagPoles = poles.filter(p => Math.abs(p.re) < 1e-6);
+        return imagPoles;
+    } catch (e) {
+        console.log('Error finding imaginary axis poles:', e);
+        return [];
+    }
+}
+
+// Count poles on the imaginary axis (these need special handling)
+function countImaginaryAxisPoles(rationalNode) {
+    let imagPoles = findImaginaryAxisPoles(rationalNode);
+    return imagPoles.length;
+}
+
+// Analyze L(s) structure to determine if it's:
+// 1. Rational function: L(s) = N(s)/D(s)
+// 2. Rational * exp(-Ts): L(s) = R(s) * exp(-T*s) where R(s) is rational
+// 3. Other (cannot determine P)
+// Returns: { type: 'rational'|'rational_delay'|'unknown', rationalPart: node|null, delayTime: number|null }
+function analyzeLstructure(Lnode) {
+    // Helper to check if a node is exp(-T*s) form
+    function isDelayExp(node) {
+        if (!node.isFunctionNode || node.fn.name !== 'exp') return null;
+        if (node.args.length !== 1) return null;
+
+        let arg = node.args[0];
+        // Check for -T*s or -s*T or -(T*s)
+        if (arg.isOperatorNode && arg.op === '-' && arg.fn === 'unaryMinus') {
+            arg = arg.args[0];
+        } else if (arg.isOperatorNode && arg.op === '*') {
+            // Check if one factor is negative
+            let hasNegative = false;
+            let factors = [];
+            for (let a of arg.args) {
+                if (a.isOperatorNode && a.op === '-' && a.fn === 'unaryMinus') {
+                    hasNegative = true;
+                    factors.push(a.args[0]);
+                } else if (a.isConstantNode && a.value < 0) {
+                    hasNegative = true;
+                    factors.push(new math.ConstantNode(-a.value));
+                } else {
+                    factors.push(a);
+                }
+            }
+            if (!hasNegative) return null;
+            arg = factors.length === 1 ? factors[0] :
+                  new math.OperatorNode('*', 'multiply', factors);
+        } else {
+            return null;
+        }
+
+        // Now arg should be T*s or s*T or just s
+        let delayTime = null;
+        if (arg.isSymbolNode && arg.name === 's') {
+            delayTime = 1;
+        } else if (arg.isOperatorNode && arg.op === '*') {
+            let hasS = false;
+            let timeValue = 1;
+            for (let a of arg.args) {
+                if (a.isSymbolNode && a.name === 's') {
+                    hasS = true;
+                } else if (a.isConstantNode) {
+                    timeValue *= a.value;
+                } else {
+                    return null; // Complex expression, can't analyze
+                }
+            }
+            if (hasS) delayTime = timeValue;
+        }
+
+        return delayTime;
+    }
+
+    // Helper to check if node contains exp(-T*s)
+    function findDelayInProduct(node) {
+        if (node.isFunctionNode) {
+            let delay = isDelayExp(node);
+            if (delay !== null) {
+                return { delayNode: node, delayTime: delay };
+            }
+        }
+        if (node.isOperatorNode && node.op === '*') {
+            for (let arg of node.args) {
+                let result = findDelayInProduct(arg);
+                if (result) return result;
+            }
+        }
+        if (node.isOperatorNode && node.op === '/') {
+            // Only check numerator for delay
+            let result = findDelayInProduct(node.args[0]);
+            if (result) return result;
+        }
+        return null;
+    }
+
+    // Helper to remove delay from expression
+    function removeDelay(node, delayNode) {
+        if (node === delayNode) {
+            return new math.ConstantNode(1);
+        }
+        if (node.isOperatorNode && node.op === '*') {
+            let newArgs = [];
+            for (let arg of node.args) {
+                let cleaned = removeDelay(arg, delayNode);
+                if (!(cleaned.isConstantNode && cleaned.value === 1)) {
+                    newArgs.push(cleaned);
+                }
+            }
+            if (newArgs.length === 0) return new math.ConstantNode(1);
+            if (newArgs.length === 1) return newArgs[0];
+            return new math.OperatorNode('*', 'multiply', newArgs);
+        }
+        if (node.isOperatorNode && node.op === '/') {
+            let num = removeDelay(node.args[0], delayNode);
+            let den = node.args[1];
+            return new math.OperatorNode('/', 'divide', [num, den]);
+        }
+        return node.clone();
+    }
+
+    // First, check if it's a pure rational function
+    try {
+        let rat = util_rationalize(Lnode);
+        if (rat) {
+            return { type: 'rational', rationalPart: Lnode, delayTime: null };
+        }
+    } catch (e) {
+        // Not purely rational, continue checking
+    }
+
+    // Check for R(s) * exp(-Ts) form
+    let delayInfo = findDelayInProduct(Lnode);
+    if (delayInfo) {
+        let rationalPart = removeDelay(Lnode, delayInfo.delayNode);
+        // Verify the remaining part is rational
+        try {
+            let rat = util_rationalize(rationalPart);
+            if (rat) {
+                return {
+                    type: 'rational_delay',
+                    rationalPart: rationalPart,
+                    delayTime: delayInfo.delayTime
+                };
+            }
+        } catch (e) {
+            // Rational part is not actually rational
+        }
+    }
+
+    return { type: 'unknown', rationalPart: null, delayTime: null };
+}
+
+// Count open-loop poles in the right half plane
+function countRHPpoles(rationalNode) {
+    try {
+        let rat = util_rationalize(rationalNode);
+        if (!rat || !rat.denominator) return 0;
+
+        let denStr = rat.denominator.toString();
+        let denPoly = math.rationalize(denStr, true);
+        if (!denPoly.coefficients || denPoly.coefficients.length <= 1) return 0;
+
+        let roots = findRoots(denPoly.coefficients);
+        let poles = root2math(roots);
+
+        let rhpCount = 0;
+        for (let p of poles) {
+            if (p.re > 1e-10) rhpCount++;
+        }
+        return rhpCount;
+    } catch (e) {
+        console.log('Error counting RHP poles:', e);
+        return null; // Cannot determine
+    }
+}
+
 // Durand-Kerner method for finding polynomial roots
 // coeffs: polynomial coefficients [a0, a1, ..., an] for a0 + a1*s + ... + an*s^n
 function findRoots(coeffs, complexCoeffs, maxIterations, tolerance) {

@@ -512,24 +512,23 @@ function updateAll() {
         return;
     }
 
-    // Check for undefined symbols in L
-    let undefinedSymbols = [];
+    // Check if L can be evaluated by substituting a test value for s
+    let evaluationError = null;
     if (currentVars.L && currentVars.L.isNode) {
-        let definedVars = new Set(Object.keys(currentVars));
-        definedVars.add('s');
-        design.sliders.forEach(s => definedVars.add(s.name));
-
-        currentVars.L.traverse(node => {
-            if (node.isSymbolNode && !definedVars.has(node.name)) {
-                if (!undefinedSymbols.includes(node.name)) {
-                    undefinedSymbols.push(node.name);
-                }
+        try {
+            let testResult = currentVars.L.compile().evaluate({ 's': math.complex(0, 1) });
+            // Check if result is a valid number or complex
+            if (testResult === undefined || testResult === null ||
+                (typeof testResult === 'number' && !isFinite(testResult))) {
+                evaluationError = 'L(s) evaluation returned invalid result';
             }
-        });
+        } catch (e) {
+            evaluationError = e.message;
+        }
     }
 
     // Check if L is defined and valid
-    let hasErrors = parseErrors.length > 0 || undefinedSymbols.length > 0;
+    let hasErrors = parseErrors.length > 0 || evaluationError !== null;
     if (currentVars.L && !hasErrors) {
         document.getElementById('field-code').classList.remove('is-invalid');
         document.getElementById('field-code').classList.add('is-valid');
@@ -548,8 +547,8 @@ function updateAll() {
         let errorMsg = '';
         if (parseErrors.length > 0) {
             errorMsg = 'Parse error at line ' + parseErrors[0].line + ': ' + parseErrors[0].message;
-        } else if (undefinedSymbols.length > 0) {
-            errorMsg = 'Undefined variable(s): ' + undefinedSymbols.join(', ');
+        } else if (evaluationError) {
+            errorMsg = 'Evaluation error: ' + evaluationError;
         }
         document.getElementById('eq-L-display').innerHTML =
             '<span class="text-danger">' + errorMsg + '</span>';
@@ -603,23 +602,24 @@ function syncSlidersFromVars() {
 }
 
 function calculateClosedLoopTF() {
-    // Numerical T calculation (for Bode plot and closed-loop poles)
-    try {
-        let L = currentVars.L;
-        if (L && L.isNode) {
-            // Rationalize L first: L = num/den
-            let Lrat = util_rationalize(L);
+    // T calculation (for Bode plot and closed-loop poles)
+    let L = currentVars.L;
+    if (!L || !L.isNode) return;
 
-            // T = L/(1+L) = num / (den + num)
-            let charPoly = new math.OperatorNode('+', 'add', [Lrat.denominator.clone(), Lrat.numerator.clone()]);
-            let T = new math.OperatorNode('/', 'divide', [Lrat.numerator.clone(), charPoly]);
-            currentVars.T = T;
-            currentVars.Lrat = Lrat;  // Store for closed-loop poles calculation
-        }
+    // Always create T = L / (1 + L) symbolically (works for any L including exp, sin, etc.)
+    let one = new math.ConstantNode(1);
+    let onePlusL = new math.OperatorNode('+', 'add', [one, L.clone()]);
+    let T = new math.OperatorNode('/', 'divide', [L.clone(), onePlusL]);
+    currentVars.T = T;
+
+    // Try to rationalize L for pole-zero calculation (may fail for non-rational L)
+    try {
+        let Lrat = util_rationalize(L);
+        currentVars.Lrat = Lrat;  // Store for closed-loop poles calculation
     } catch (e) {
-        console.log('Error calculating numerical T:', e);
+        currentVars.Lrat = null;
+        console.log('L is not a rational function, pole-zero calculation disabled:', e.message);
     }
-    // Note: Symbolic T calculation is now cached in updateAll() for efficiency
 }
 
 function displayTransferFunctions() {
@@ -641,11 +641,14 @@ function displayTransferFunctions() {
     }
 
     try {
-        // Display cached simplified symbolic T
+        // Display T: use simplified form if available, otherwise show L/(1+L)
         let TsymSimplified = cachedSymbolic.TsymSimplified;
         if (TsymSimplified && TsymSimplified.isNode) {
             let texString = TsymSimplified.toTex({ parenthesis: 'auto', implicit: 'hide' });
             katex.render('T(s) = \\frac{L(s)}{1+L(s)} = ' + texString, displayT, { displayMode: false, throwOnError: false });
+        } else if (cachedSymbolic.Lsym && cachedSymbolic.Lsym.isNode) {
+            // L is not rational, just show T = L/(1+L) without simplification
+            katex.render('T(s) = \\frac{L(s)}{1+L(s)}', displayT, { displayMode: false, throwOnError: false });
         } else {
             displayT.innerHTML = '<span class="text-muted">--</span>';
         }
@@ -693,77 +696,146 @@ function updateBodePlot() {
 }
 
 function updateClosedLoopPoles() {
+    let clpEl = document.getElementById('clp-display');
+    let indicator = document.getElementById('stability-indicator');
+
     try {
-        let Lrat = currentVars.Lrat;
-        if (!Lrat) {
-            document.getElementById('clp-display').textContent = '--';
-            document.getElementById('stability-indicator').textContent = '--';
-            document.getElementById('stability-indicator').className = 'badge bg-secondary';
+        let L = currentVars.L;
+        if (!L || !L.isNode) {
+            clpEl.textContent = '--';
+            indicator.textContent = '--';
+            indicator.className = 'badge bg-secondary';
+            window.lastPoles = [];
             window.lastZeros = [];
             return;
         }
 
-        // Get characteristic polynomial: 1 + L = 0
-        // L = num/den, so 1 + num/den = 0 => den + num = 0
-        // Characteristic polynomial: den + num
-        let charPolyNode = new math.OperatorNode('+', 'add', [Lrat.denominator.clone(), Lrat.numerator.clone()]);
+        // Analyze L structure to determine stability calculation method
+        let structure = analyzeLstructure(L);
+        console.log('L structure:', structure.type);
 
-        // Convert to string and rationalize to get coefficients
-        let charPolyStr = charPolyNode.toString();
-        let charPoly = math.rationalize(charPolyStr, true);
-
-        let coeffs = charPoly.coefficients;
-        if (coeffs && coeffs.length > 0) {
-            let roots = findRoots(coeffs);
-            displayClosedLoopPoles(roots);
-        } else {
-            document.getElementById('clp-display').textContent = 'No poles';
+        if (structure.type === 'unknown') {
+            // Cannot determine P, skip stability calculation
+            clpEl.textContent = '--';
+            indicator.textContent = '--';
+            indicator.className = 'badge bg-secondary';
+            window.lastPoles = [];
+            window.lastZeros = [];
+            return;
         }
 
-        // Calculate zeros from L's numerator
-        try {
-            let numStr = Lrat.numerator.toString();
-            let numPoly = math.rationalize(numStr, true);
-            if (numPoly.coefficients && numPoly.coefficients.length > 1) {
-                let numRoots = findRoots(numPoly.coefficients);
-                window.lastZeros = root2math(numRoots);
-            } else {
-                window.lastZeros = [];
+        // Calculate P (number of open-loop RHP poles)
+        let P = countRHPpoles(structure.rationalPart);
+        if (P === null) {
+            clpEl.textContent = '--';
+            indicator.textContent = '--';
+            indicator.className = 'badge bg-secondary';
+            window.lastPoles = [];
+            window.lastZeros = [];
+            return;
+        }
+        console.log('Open-loop RHP poles P:', P);
+
+        // Find poles on imaginary axis (need special handling in Nyquist)
+        let imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
+        console.log('Imaginary axis poles:', imagAxisPoles);
+
+        // Calculate N (winding number) using Nyquist criterion
+        // Use a wide frequency range for accurate winding number calculation
+        let wNyquist = logspace(-4, 6, 2000);
+        let Lcompiled = L.compile();
+        let N = calculateWindingNumber(Lcompiled, wNyquist, imagAxisPoles);
+        console.log('Winding number N:', N);
+
+        // Nyquist criterion: Z = N + P
+        // Z = number of closed-loop RHP poles
+        // System is stable if Z = 0
+        let Z = N + P;
+        console.log('Closed-loop RHP poles Z:', Z);
+
+        // Display closed-loop poles if L is rational (can calculate exactly)
+        if (structure.type === 'rational') {
+            let Lrat = currentVars.Lrat;
+            if (Lrat) {
+                // Get characteristic polynomial: 1 + L = 0
+                let charPolyNode = new math.OperatorNode('+', 'add', [Lrat.denominator.clone(), Lrat.numerator.clone()]);
+                let charPolyStr = charPolyNode.toString();
+                let charPoly = math.rationalize(charPolyStr, true);
+
+                let coeffs = charPoly.coefficients;
+                if (coeffs && coeffs.length > 0) {
+                    let roots = findRoots(coeffs);
+                    displayClosedLoopPoles(roots, Z === 0);
+                } else {
+                    clpEl.textContent = 'No poles';
+                    updateStabilityIndicator(Z === 0);
+                }
+
+                // Calculate zeros from L's numerator
+                try {
+                    let numStr = Lrat.numerator.toString();
+                    let numPoly = math.rationalize(numStr, true);
+                    if (numPoly.coefficients && numPoly.coefficients.length > 1) {
+                        let numRoots = findRoots(numPoly.coefficients);
+                        window.lastZeros = root2math(numRoots);
+                    } else {
+                        window.lastZeros = [];
+                    }
+                } catch (e) {
+                    window.lastZeros = [];
+                }
             }
-        } catch (e) {
+        } else {
+            // For rational_delay, show Nyquist-based stability only
+            clpEl.textContent = Z === 0 ? '(Nyquist stable)' : `(${Z} RHP poles)`;
+            clpEl.classList.remove('text-danger', 'text-muted');
+            updateStabilityIndicator(Z === 0);
+            window.lastPoles = [];
             window.lastZeros = [];
         }
 
     } catch (e) {
         console.log('CLP error:', e);
-        let clpEl = document.getElementById('clp-display');
         clpEl.textContent = 'Error: ' + e.message;
         clpEl.classList.add('text-danger');
         clpEl.classList.remove('text-muted');
+        indicator.textContent = '--';
+        indicator.className = 'badge bg-secondary';
+        window.lastPoles = [];
         window.lastZeros = [];
     }
 }
 
-function displayClosedLoopPoles(roots) {
+function updateStabilityIndicator(isStable) {
+    let indicator = document.getElementById('stability-indicator');
+    if (isStable) {
+        indicator.textContent = 'Stable';
+        indicator.className = 'badge bg-success';
+    } else {
+        indicator.textContent = 'Unstable';
+        indicator.className = 'badge bg-danger';
+    }
+}
+
+function displayClosedLoopPoles(roots, isStableByNyquist) {
     let clpEl = document.getElementById('clp-display');
     if (!roots || roots[0].length === 0) {
         clpEl.textContent = 'No poles';
         clpEl.classList.add('text-muted');
         clpEl.classList.remove('text-danger');
+        updateStabilityIndicator(isStableByNyquist);
         return;
     }
 
     let poles = root2math(roots);
     let poleStrings = [];
-    let isStable = true;
 
     for (let i = 0; i < poles.length; i++) {
         let p = poles[i];
         let poleStr = '';
-        let isUnstable = p.re > 1e-10;
+        let isUnstablePole = p.re > 1e-10;
 
-        if (isUnstable) {
-            isStable = false;
+        if (isUnstablePole) {
             poleStr = '\\color{red}{';
         }
 
@@ -780,7 +852,7 @@ function displayClosedLoopPoles(roots) {
             poleStr += num2tex(p.re, 3) + (p.im >= 0 ? '+' : '') + num2tex(p.im, 3) + 'j';
         }
 
-        if (isUnstable) {
+        if (isUnstablePole) {
             poleStr += '}';
         }
 
@@ -794,14 +866,8 @@ function displayClosedLoopPoles(roots) {
         throwOnError: false
     });
 
-    let indicator = document.getElementById('stability-indicator');
-    if (isStable) {
-        indicator.textContent = 'Stable';
-        indicator.className = 'badge bg-success';
-    } else {
-        indicator.textContent = 'Unstable';
-        indicator.className = 'badge bg-danger';
-    }
+    // Use Nyquist-based stability determination
+    updateStabilityIndicator(isStableByNyquist);
 
     window.lastPoles = poles;
 }
@@ -850,22 +916,38 @@ function updatePolePlot() {
     let centerX = width / 2;
     let centerY = height / 2;
 
+    // Calculate nice circular grid radii
+    let maxRadius = Math.sqrt(maxRe * maxRe + maxIm * maxIm) / 1.5;  // Remove the 1.5 factor added earlier
+    maxRadius = Math.max(maxRadius, 1);
+
+    // Find a nice step size (1, 2, 5, 10, 20, 50, ...)
+    let magnitude = Math.pow(10, Math.floor(Math.log10(maxRadius)));
+    let normalized = maxRadius / magnitude;
+    let niceStep;
+    if (normalized <= 1) niceStep = magnitude * 0.5;
+    else if (normalized <= 2) niceStep = magnitude;
+    else if (normalized <= 5) niceStep = magnitude * 2;
+    else niceStep = magnitude * 5;
+
+    // Draw circular grid
     ctx.strokeStyle = '#e0e0e0';
     ctx.lineWidth = 0.5;
 
-    for (let x = -Math.ceil(maxScale); x <= Math.ceil(maxScale); x++) {
-        let px = centerX + x * scale;
+    let maxCircleRadius = Math.ceil(maxScale / niceStep) * niceStep;
+    for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
+        let pixelRadius = r * scale;
         ctx.beginPath();
-        ctx.moveTo(px, margin);
-        ctx.lineTo(px, height - margin);
+        ctx.arc(centerX, centerY, pixelRadius, 0, 2 * Math.PI);
         ctx.stroke();
     }
 
-    for (let y = -Math.ceil(maxScale); y <= Math.ceil(maxScale); y++) {
-        let py = centerY - y * scale;
+    // Draw radial lines (every 45 degrees)
+    for (let angle = 0; angle < Math.PI; angle += Math.PI / 4) {
+        let dx = Math.cos(angle) * maxCircleRadius * scale;
+        let dy = Math.sin(angle) * maxCircleRadius * scale;
         ctx.beginPath();
-        ctx.moveTo(margin, py);
-        ctx.lineTo(width - margin, py);
+        ctx.moveTo(centerX - dx, centerY + dy);
+        ctx.lineTo(centerX + dx, centerY - dy);
         ctx.stroke();
     }
 
@@ -894,6 +976,17 @@ function updatePolePlot() {
     ctx.textAlign = 'center';
     ctx.fillText('Re', width - margin + 15, centerY + 4);
     ctx.fillText('Im', centerX, margin - 10);
+
+    // Draw tick labels on positive real axis (at circle intersections)
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
+        let px = centerX + r * scale;
+        if (px < width - margin - 10) {  // Don't overlap with 'Re' label
+            let label = (r >= 1 || r === 0) ? r.toFixed(0) : r.toPrecision(1);
+            ctx.fillText(label, px, centerY + 5);
+        }
+    }
 
     const poleZeroColor = '#22aa22';  // Green (same as T in Bode plot)
 
