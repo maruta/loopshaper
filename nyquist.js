@@ -761,6 +761,11 @@ function renderNyquistFrame(canvas, ctx, points, cumulativeLength,
             }
         }
     }
+
+    // Update Pole-Zero Map to show current s point
+    if (typeof updatePolePlot === 'function' && wrapperId === 'nyquist-wrapper') {
+        updatePolePlot();
+    }
 }
 
 // Setup play/pause button and seek bar event handlers
@@ -852,4 +857,18 @@ function drawNyquistStatic(Lcompiled, imagAxisPoles, options) {
     options = options || {};
     options.animate = false;
     return drawNyquist(Lcompiled, imagAxisPoles, options);
+}
+
+// Get the current s value from Nyquist animation for Pole-Zero Map display
+function getCurrentNyquistSValue() {
+    if (!nyquistAnimationData) return null;
+
+    const d = nyquistAnimationData;
+    const currentArcLength = nyquistAnimationProgress * d.totalLength;
+    const p = getPointAtArcLength(d.points, d.cumulativeLength, currentArcLength);
+
+    if (p && p.s) {
+        return { re: p.s.re, im: p.s.im };
+    }
+    return null;
 }

@@ -1393,12 +1393,12 @@ function updatePolePlot() {
         let px = centerX + p.re * scale;
         let py = centerY - p.im * scale;
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.moveTo(px - 5, py - 5);
-        ctx.lineTo(px + 5, py + 5);
-        ctx.moveTo(px + 5, py - 5);
-        ctx.lineTo(px - 5, py + 5);
+        ctx.moveTo(px - 8, py - 8);
+        ctx.lineTo(px + 8, py + 8);
+        ctx.moveTo(px + 8, py - 8);
+        ctx.lineTo(px - 8, py + 8);
         ctx.stroke();
     }
 
@@ -1412,6 +1412,23 @@ function updatePolePlot() {
     if (showTpz) {
         Tzeros.forEach(z => drawZero(z, colorT));
         Tpoles.forEach(p => drawPole(p, colorT));
+    }
+
+    // Draw current s point from Nyquist animation
+    if (showLpz && nyquistAnimationData && isPanelOpen('nyquist')) {
+        let currentS = getCurrentNyquistSValue();
+        if (currentS) {
+            let px = centerX + currentS.re * scale;
+            let py = centerY - currentS.im * scale;
+
+            ctx.fillStyle = '#0066ff';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(px, py, 7, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.stroke();
+        }
     }
 }
 
@@ -1596,12 +1613,12 @@ function updateNarrowPolePlot() {
         let px = centerX + p.re * scale;
         let py = centerY - p.im * scale;
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.moveTo(px - 5, py - 5);
-        ctx.lineTo(px + 5, py + 5);
-        ctx.moveTo(px + 5, py - 5);
-        ctx.lineTo(px - 5, py + 5);
+        ctx.moveTo(px - 8, py - 8);
+        ctx.lineTo(px + 8, py + 8);
+        ctx.moveTo(px + 8, py - 8);
+        ctx.lineTo(px - 8, py + 8);
         ctx.stroke();
     }
 
