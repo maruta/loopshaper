@@ -38,7 +38,8 @@ const PANEL_DEFINITIONS = [
     { id: 'bode', component: 'bode', title: 'Bode Plot' },
     { id: 'stability', component: 'stability', title: 'Stability' },
     { id: 'frequency', component: 'frequency', title: 'Frequency Range' },
-    { id: 'pole-zero', component: 'pole-zero', title: 'Pole-Zero Map' }
+    { id: 'pole-zero', component: 'pole-zero', title: 'Pole-Zero Map' },
+    { id: 'nyquist', component: 'nyquist', title: 'Nyquist Plot' }
 ];
 
 // Get dockview-core from global scope (UMD build uses window["dockview-core"])
@@ -127,19 +128,31 @@ function initializeDockview() {
 
     // Listen for layout changes to save and redraw canvases
     dockviewApi.onDidLayoutChange(() => {
+        // Stop Nyquist animation during layout changes
+        stopNyquistAnimation();
+
         debouncedSaveToUrl();
         // Delay redraw to allow layout to settle
         setTimeout(() => {
             updateBodePlot();
             updatePolePlot();
+            updateNyquistPlot();
         }, 50);
     });
 
     // Listen for panel activation to reinitialize UI elements
-    dockviewApi.onDidActivePanelChange(() => {
+    dockviewApi.onDidActivePanelChange((event) => {
+        // Stop Nyquist animation when switching away from it
+        stopNyquistAnimation();
+
         setTimeout(() => {
             initializeUI();
             setupEventListeners();
+
+            // Redraw Nyquist plot if it becomes active
+            if (event && event.panel && event.panel.id === 'nyquist') {
+                updateNyquistPlot();
+            }
         }, 50);
     });
 }
@@ -189,6 +202,14 @@ function createDefaultLayout() {
         component: 'pole-zero',
         title: 'Pole-Zero Map',
         position: { referencePanel: 'stability', direction: 'right' }
+    });
+
+    // Add Nyquist plot as a tab with Pole-Zero Map
+    dockviewApi.addPanel({
+        id: 'nyquist',
+        component: 'nyquist',
+        title: 'Nyquist Plot',
+        position: { referencePanel: 'pole-zero', direction: 'within' }
     });
 
     // Adjust panel proportions after layout is created
@@ -256,12 +277,15 @@ function initializeNarrowLayout() {
             // Show/hide tab content
             document.getElementById('narrow-tab-bode').style.display = tabName === 'bode' ? 'flex' : 'none';
             document.getElementById('narrow-tab-pole-zero').style.display = tabName === 'pole-zero' ? 'flex' : 'none';
+            document.getElementById('narrow-tab-nyquist').style.display = tabName === 'nyquist' ? 'flex' : 'none';
 
             // Redraw the visible plot
             if (tabName === 'bode') {
                 updateBodePlot();
-            } else {
+            } else if (tabName === 'pole-zero') {
                 updateNarrowPolePlot();
+            } else if (tabName === 'nyquist') {
+                updateNarrowNyquistPlot();
             }
         });
     });
@@ -286,6 +310,9 @@ function initializeNarrowLayout() {
             updateBodePlot();
             if (document.getElementById('narrow-tab-pole-zero').style.display !== 'none') {
                 updateNarrowPolePlot();
+            }
+            if (document.getElementById('narrow-tab-nyquist').style.display !== 'none') {
+                updateNarrowNyquistPlot();
             }
         });
         resizeListenerAttached = true;
@@ -426,6 +453,19 @@ function setupEventListeners() {
             });
             chkTpz.dataset.listenerAttached = 'true';
         }
+
+        // Nyquist plot mouse wheel for compression radius
+        const nyquistWrapper = document.getElementById('nyquist-wrapper');
+        if (nyquistWrapper && !nyquistWrapper.dataset.wheelListenerAttached) {
+            nyquistWrapper.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                // Adjust compression radius with mouse wheel
+                const delta = e.deltaY > 0 ? -0.5 : 0.5;
+                nyquistCompressionRadius = Math.max(0.5, Math.min(100, nyquistCompressionRadius + delta));
+                updateNyquistPlot();
+            }, { passive: false });
+            nyquistWrapper.dataset.wheelListenerAttached = 'true';
+        }
     }
 
     // Window resize listener (only attach once)
@@ -434,6 +474,7 @@ function setupEventListeners() {
             updateBodePlot();
             if (!isNarrowLayout) {
                 updatePolePlot();
+                updateNyquistPlot();
             }
         });
         resizeListenerAttached = true;
@@ -783,14 +824,20 @@ function updateAll() {
         updateBodePlot();
         if (!isNarrowLayout) {
             updatePolePlot();
+            updateNyquistPlot();
         } else {
-            // Update narrow pole-zero plot if the tab is visible
+            // Update narrow plots if the tab is visible
             let narrowPoleTab = document.getElementById('narrow-tab-pole-zero');
             if (narrowPoleTab && narrowPoleTab.style.display !== 'none') {
                 updateNarrowPolePlot();
             }
+            let narrowNyquistTab = document.getElementById('narrow-tab-nyquist');
+            if (narrowNyquistTab && narrowNyquistTab.style.display !== 'none') {
+                updateNarrowNyquistPlot();
+            }
         }
         updateMargins();
+        updateNyquistInfo();
     } else if (hasErrors) {
         // Show error state
         if (codeField) {
@@ -1561,6 +1608,134 @@ function updateNarrowPolePlot() {
     }
 }
 
+function updateNarrowNyquistPlot() {
+    let wrapper = document.getElementById('narrow-nyquist-wrapper');
+    let canvas = document.getElementById('narrow-nyquist-canvas');
+
+    if (!wrapper || !canvas) return;
+
+    // Update the mapping formula display with current R value
+    updateNarrowNyquistMappingFormula();
+
+    let L = currentVars.L;
+    if (!L || !L.isNode) {
+        // Clear canvas if L is not defined
+        let ctx = canvas.getContext('2d');
+        const width = wrapper.clientWidth;
+        const height = wrapper.clientHeight;
+        if (width === 0 || height === 0) return;
+        canvas.width = width * devicePixelRatio;
+        canvas.height = height * devicePixelRatio;
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        return;
+    }
+
+    try {
+        let Lcompiled = L.compile();
+
+        // Analyze L structure to get imaginary axis poles
+        let structure = analyzeLstructure(L);
+        let imagAxisPoles = [];
+        if (structure.type !== 'unknown' && structure.rationalPart) {
+            imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
+        }
+
+        drawNyquist(Lcompiled, imagAxisPoles, {
+            wrapperId: 'narrow-nyquist-wrapper',
+            canvasId: 'narrow-nyquist-canvas',
+            animate: true
+        });
+    } catch (e) {
+        console.log('Narrow Nyquist plot error:', e);
+    }
+}
+
+function updateNarrowNyquistMappingFormula() {
+    let formulaEl = document.getElementById('narrow-nyquist-mapping-formula');
+    if (!formulaEl) return;
+
+    const R = nyquistCompressionRadius;
+    const RStr = R % 1 === 0 ? R.toFixed(0) : R.toFixed(1);
+
+    try {
+        katex.render(
+            `z \\mapsto \\frac{z}{1 + |z|/${RStr}}`,
+            formulaEl,
+            { throwOnError: false, displayMode: false }
+        );
+    } catch (e) {
+        formulaEl.textContent = `z → z/(1+|z|/${RStr})`;
+    }
+}
+
+function updateNyquistPlot() {
+    let wrapper = document.getElementById('nyquist-wrapper');
+    let canvas = document.getElementById('nyquist-canvas');
+
+    if (!wrapper || !canvas) return;
+
+    // Update the mapping formula display with current R value
+    updateNyquistMappingFormula();
+
+    let L = currentVars.L;
+    if (!L || !L.isNode) {
+        // Clear canvas if L is not defined
+        let ctx = canvas.getContext('2d');
+        const width = wrapper.clientWidth;
+        const height = wrapper.clientHeight;
+        if (width === 0 || height === 0) return;
+        canvas.width = width * devicePixelRatio;
+        canvas.height = height * devicePixelRatio;
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        return;
+    }
+
+    try {
+        let Lcompiled = L.compile();
+
+        // Analyze L structure to get imaginary axis poles
+        let structure = analyzeLstructure(L);
+        let imagAxisPoles = [];
+        if (structure.type !== 'unknown' && structure.rationalPart) {
+            imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
+        }
+
+        drawNyquist(Lcompiled, imagAxisPoles, {
+            wrapperId: 'nyquist-wrapper',
+            canvasId: 'nyquist-canvas',
+            animate: true
+        });
+    } catch (e) {
+        console.log('Nyquist plot error:', e);
+    }
+}
+
+function updateNyquistMappingFormula() {
+    let formulaEl = document.getElementById('nyquist-mapping-formula');
+    if (!formulaEl) return;
+
+    const R = nyquistCompressionRadius;
+    const RStr = R % 1 === 0 ? R.toFixed(0) : R.toFixed(1);
+
+    try {
+        katex.render(
+            `z \\mapsto \\frac{z}{1 + |z|/${RStr}}`,
+            formulaEl,
+            { throwOnError: false, displayMode: false }
+        );
+    } catch (e) {
+        formulaEl.textContent = `z → z/(1+|z|/${RStr})`;
+    }
+}
+
 function updateMargins() {
     let margins = window.lastMargins;
     if (!margins) return;
@@ -1589,6 +1764,78 @@ function updateMargins() {
     } else {
         pmDisplay.textContent = 'N/A';
         pmDisplay.className = 'text-muted';
+    }
+}
+
+function updateNyquistInfo() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let openLoopDisplay = document.getElementById(prefix + 'open-loop-unstable-display');
+    let windingDisplay = document.getElementById(prefix + 'winding-number-display');
+
+    // If elements not found, exit silently
+    if (!openLoopDisplay || !windingDisplay) {
+        return;
+    }
+
+    let L = currentVars.L;
+    if (!L || !L.isNode) {
+        openLoopDisplay.textContent = '--';
+        openLoopDisplay.className = 'text-muted';
+        windingDisplay.textContent = '--';
+        windingDisplay.className = 'text-muted';
+        return;
+    }
+
+    try {
+        // Analyze L structure to get rational part and imaginary axis poles
+        let structure = analyzeLstructure(L);
+        if (structure.type === 'unknown' || !structure.rationalPart) {
+            openLoopDisplay.textContent = '--';
+            openLoopDisplay.className = 'text-muted';
+            windingDisplay.textContent = '--';
+            windingDisplay.className = 'text-muted';
+            return;
+        }
+
+        // Get imaginary axis poles for proper Nyquist contour handling
+        let imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
+
+        // Count unstable open-loop poles (Re > 0) using countRHPpoles
+        let P = countRHPpoles(structure.rationalPart);
+        if (P === null) {
+            openLoopDisplay.textContent = '--';
+            openLoopDisplay.className = 'text-muted';
+            windingDisplay.textContent = '--';
+            windingDisplay.className = 'text-muted';
+            return;
+        }
+
+        // Calculate winding number
+        let Lcompiled = L.compile();
+        let wArray = logspace(-4, 6, 2000);
+        let N = calculateWindingNumber(Lcompiled, wArray, imagAxisPoles);
+
+        // Display P (number of unstable open-loop poles)
+        openLoopDisplay.textContent = P.toString();
+        openLoopDisplay.className = P === 0 ? 'text-success' : 'text-warning';
+
+        // Display N (winding number)
+        // For stability: N + P should equal 0 (Z = N + P = 0 closed-loop unstable poles)
+        // Note: N is typically negative when encircling -1 CCW
+        windingDisplay.textContent = N.toString();
+        let Z = N + P;
+        if (Z === 0) {
+            windingDisplay.className = 'text-success';
+        } else {
+            windingDisplay.className = 'text-danger';
+        }
+
+    } catch (e) {
+        console.log('Nyquist info error:', e);
+        openLoopDisplay.textContent = '--';
+        openLoopDisplay.className = 'text-muted';
+        windingDisplay.textContent = '--';
+        windingDisplay.className = 'text-muted';
     }
 }
 
@@ -1878,12 +2125,21 @@ function openPanel(panelId) {
     };
 
     // Determine best position based on panel type
-    if (panelId === 'bode' || panelId === 'pole-zero') {
+    if (panelId === 'bode' || panelId === 'pole-zero' || panelId === 'nyquist') {
         // Plot panels: prefer right side or below existing plots
         if (isPanelOpen('bode') && panelId === 'pole-zero') {
             options.position = { referencePanel: 'bode', direction: 'below' };
         } else if (isPanelOpen('pole-zero') && panelId === 'bode') {
             options.position = { referencePanel: 'pole-zero', direction: 'above' };
+        } else if (panelId === 'nyquist') {
+            // Nyquist: tab with pole-zero if open, otherwise below bode
+            if (isPanelOpen('pole-zero')) {
+                options.position = { referencePanel: 'pole-zero', direction: 'within' };
+            } else if (isPanelOpen('bode')) {
+                options.position = { referencePanel: 'bode', direction: 'below' };
+            } else if (isPanelOpen('system-definition')) {
+                options.position = { referencePanel: 'system-definition', direction: 'right' };
+            }
         } else if (isPanelOpen('system-definition')) {
             options.position = { referencePanel: 'system-definition', direction: 'right' };
         }

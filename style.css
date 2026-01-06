@@ -470,6 +470,28 @@ textarea.form-control {
     font-size: 13px;
 }
 
+/* Nyquist Plot Mapping Overlay */
+.nyquist-mapping-overlay {
+    position: absolute;
+    bottom: 8px;
+    right: 10px;
+    font-size: 11px;
+    color: #666;
+    background: rgba(255, 255, 255, 0.85);
+    padding: 2px 6px;
+    border-radius: 3px;
+    pointer-events: none;
+}
+
+.nyquist-mapping-text {
+    color: #888;
+}
+
+#nyquist-wrapper,
+#narrow-nyquist-wrapper {
+    position: relative;
+}
+
 /* Stability Panel */
 .stability-header {
     display: flex;
@@ -482,7 +504,8 @@ textarea.form-control {
     font-weight: 600;
 }
 
-.stability-info {
+.stability-info,
+.nyquist-info {
     display: flex;
     flex-wrap: wrap;
     gap: 4px 16px;

@@ -73,11 +73,10 @@ function nextPow2(n) {
 }
 
 // Calculate winding number around (-1, 0) for Nyquist stability criterion
-// Handles poles on imaginary axis using small semicircular indentations
 function calculateWindingNumber(Lcompiled, wArray, imagAxisPoles) {
     imagAxisPoles = imagAxisPoles || [];
 
-    // Sort pole frequencies and remove duplicates
+    // Sort pole frequencies
     let poleFreqs = imagAxisPoles
         .map(p => Math.abs(p.im))
         .sort((a, b) => a - b);
@@ -86,98 +85,117 @@ function calculateWindingNumber(Lcompiled, wArray, imagAxisPoles) {
     const epsilon = 1e-4;
     const hasOriginPole = poleFreqs.some(f => f < 1e-9);
 
-    // Build frequency segments that avoid poles
-    let freqSegments = [];
-    let currentStart = hasOriginPole ? epsilon : wArray[0];
-    if (wArray[0] > currentStart) currentStart = wArray[0];
-
-    for (let poleFreq of poleFreqs) {
-        if (poleFreq > currentStart + epsilon && poleFreq < wArray[wArray.length - 1]) {
-            freqSegments.push({
-                wStart: currentStart,
-                wEnd: poleFreq - epsilon,
-                poleAfter: poleFreq
-            });
-            currentStart = poleFreq + epsilon;
-        }
-    }
-    freqSegments.push({
-        wStart: currentStart,
-        wEnd: wArray[wArray.length - 1],
-        poleAfter: null
-    });
-
-    let totalAngleChange = 0;
-    let prevAngle = null;
-
-    // Accumulate angle change with unwrapping
-    function accumulateAngle(complexVal) {
-        let shiftedRe = complexVal.re + 1;
-        let shiftedIm = complexVal.im;
-        if (!isFinite(shiftedRe) || !isFinite(shiftedIm)) return;
-
-        let angle = Math.atan2(shiftedIm, shiftedRe);
-        if (prevAngle !== null) {
-            let deltaAngle = angle - prevAngle;
-            while (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
-            while (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
-            totalAngleChange += deltaAngle;
-        }
-        prevAngle = angle;
-    }
-
-    // Handle origin pole indentation (semicircle in RHP from -jε to +jε)
+    // --- Part 1: Origin Indentation (Count ONCE) ---
+    // Calculates angle change from s = -j*eps to s = +j*eps via RHP semicircle
+    let originAngleChange = 0;
+    
     if (hasOriginPole) {
+        let originPoints = [];
         const nIndentPoints = 50;
+        // Sweep from -PI/2 to +PI/2 (Bottom to Top around origin in RHP)
         for (let k = 0; k <= nIndentPoints; k++) {
             let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
             let sReal = epsilon * Math.cos(theta);
             let sImag = epsilon * Math.sin(theta);
-            try {
-                let Ls = Lcompiled.evaluate({ 's': math.complex(sReal, sImag) });
-                accumulateAngle(Ls);
-            } catch (e) { continue; }
+            originPoints.push(math.complex(sReal, sImag));
         }
+        originAngleChange = calculatePathAngleChange(Lcompiled, originPoints);
     }
 
-    let originIndentAngle = totalAngleChange;
-    totalAngleChange = 0;
-    prevAngle = null;
 
-    // Sweep positive frequencies with pole indentations
-    for (let seg of freqSegments) {
+    // --- Part 2: Positive Frequency Sweep (Count TWICE) ---
+    // Calculates angle change from s = +j*eps to s = +j*inf
+    let posPoints = [];
+    
+    // Determine start frequency
+    let currentStart = hasOriginPole ? epsilon : wArray[0];
+    if (wArray[0] > currentStart) currentStart = wArray[0];
+
+    // Build segments avoiding non-origin poles
+    let segments = [];
+    for (let poleFreq of poleFreqs) {
+        // Skip origin pole as it's handled in Part 1
+        if (poleFreq < 1e-9) continue; 
+
+        if (poleFreq > currentStart + epsilon && poleFreq < wArray[wArray.length - 1]) {
+            segments.push({
+                wStart: currentStart,
+                wEnd: poleFreq - epsilon,
+                poleFreq: poleFreq
+            });
+            currentStart = poleFreq + epsilon;
+        }
+    }
+    segments.push({
+        wStart: currentStart,
+        wEnd: wArray[wArray.length - 1],
+        poleFreq: null
+    });
+
+    // Generate points for positive sweep
+    for (let seg of segments) {
+        // Normal frequency points
         let segFreqs = wArray.filter(w => w >= seg.wStart && w <= seg.wEnd);
-
         for (let omega of segFreqs) {
-            try {
-                let Ljw = Lcompiled.evaluate({ 's': math.complex(0, omega) });
-                accumulateAngle(Ljw);
-            } catch (e) { continue; }
+            posPoints.push(math.complex(0, omega));
         }
 
-        // Indentation around non-origin pole (clockwise semicircle in RHP)
-        if (seg.poleAfter !== null) {
-            let pFreq = seg.poleAfter;
+        // Indentation around non-origin pole (Semicircle in RHP)
+        if (seg.poleFreq !== null) {
+            let pFreq = seg.poleFreq;
             const nIndentPoints = 50;
+            // Sweep from -PI/2 to +PI/2 relative to the pole
             for (let k = 0; k <= nIndentPoints; k++) {
-                let theta = Math.PI / 2 - (k * Math.PI / nIndentPoints);
+                let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
                 let sReal = epsilon * Math.cos(theta);
                 let sImag = pFreq + epsilon * Math.sin(theta);
-                try {
-                    let Ls = Lcompiled.evaluate({ 's': math.complex(sReal, sImag) });
-                    accumulateAngle(Ls);
-                } catch (e) { continue; }
+                posPoints.push(math.complex(sReal, sImag));
             }
         }
     }
 
-    let positivePathAngle = totalAngleChange;
+    let posPathAngleChange = calculatePathAngleChange(Lcompiled, posPoints);
 
-    // Total = 2 * (positive path) + origin indentation (symmetry for real systems)
-    let finalTotalAngle = (positivePathAngle * 2) + originIndentAngle;
-    let N = Math.round(finalTotalAngle / (2 * Math.PI));
+
+    // --- Combine Results ---
+    // Total = Origin(once) + PositivePath(twice for symmetry)
+    let totalAngle = originAngleChange + (2 * posPathAngleChange);
+
+    // FIX: N is Clockwise positive, but atan2 is Counter-Clockwise positive.
+    // So we invert the sign.
+    let N = Math.round(-totalAngle / (2 * Math.PI));
 
     return N;
+}
+
+// Helper function to calculate accumulated angle change along a path
+function calculatePathAngleChange(Lcompiled, points) {
+    let totalDelta = 0;
+    let prevAngle = null;
+
+    for (let s of points) {
+        try {
+            let Lval = Lcompiled.evaluate({ 's': s });
+            
+            // Vector from (-1, 0) to L(s) is L(s) - (-1) = L(s) + 1
+            let shiftedRe = Lval.re + 1;
+            let shiftedIm = Lval.im;
+            
+            if (!isFinite(shiftedRe) || !isFinite(shiftedIm)) continue;
+
+            let angle = Math.atan2(shiftedIm, shiftedRe);
+            
+            if (prevAngle !== null) {
+                let deltaAngle = angle - prevAngle;
+                // Unwrap angle
+                while (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+                while (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+                totalDelta += deltaAngle;
+            }
+            prevAngle = angle;
+        } catch (e) { continue; }
+    }
+    return totalDelta;
 }
 
 // Find poles on or near the imaginary axis from a rational function

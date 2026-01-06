@@ -1,0 +1,597 @@
+// Nyquist plot drawing for loop shaping tool
+
+// Animation state
+let nyquistAnimationId = null;
+let nyquistAnimationProgress = 0;  // Progress as fraction (0 to 1), preserved across updates
+
+// Compression radius (adjustable via mouse wheel)
+let nyquistCompressionRadius = 3;
+
+// Draw Nyquist plot with z/(1+|z|/R) mapping
+// Lcompiled: compiled transfer function L(s)
+// imagAxisPoles: poles on imaginary axis (for indentation)
+// options: { wrapperId, canvasId, animate }
+function drawNyquist(Lcompiled, imagAxisPoles, options) {
+    options = options || {};
+    const wrapperId = options.wrapperId || 'nyquist-wrapper';
+    const canvasId = options.canvasId || 'nyquist-canvas';
+    const R = nyquistCompressionRadius;  // Use global compression radius
+    const animate = options.animate !== false;
+
+    let wrapper = document.getElementById(wrapperId);
+    let canvas = document.getElementById(canvasId);
+    if (!wrapper || !canvas) return null;
+
+    let ctx = canvas.getContext('2d');
+
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+
+    if (width === 0 || height === 0) return null;
+
+    canvas.width = width * devicePixelRatio;
+    canvas.height = height * devicePixelRatio;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+
+    // Clear canvas
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    // Calculate Nyquist data
+    const nyquistData = calculateNyquistData(Lcompiled, imagAxisPoles, R);
+    if (!nyquistData || nyquistData.points.length === 0) return null;
+
+    // Calculate plot bounds (in compressed coordinates)
+    const margin = 50;
+    const plotWidth = width - 2 * margin;
+    const plotHeight = height - 2 * margin;
+
+    // The compressed mapping z/(1+|z|/R) maps everything to |z'| < R
+    // So we need to show at least radius R
+    const maxRadius = R * 1.1;  // Add small margin
+
+    // Use same scale for both axes to maintain aspect ratio
+    const scale = Math.min(plotWidth, plotHeight) / (2 * maxRadius);
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    // Coordinate transforms (compressed space to canvas)
+    const toCanvasX = (x) => centerX + x * scale;
+    const toCanvasY = (y) => centerY - y * scale;  // Flip y for standard orientation
+
+    // Draw polar grid
+    drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R);
+
+    // Draw critical point at -1
+    const criticalX = toCanvasX(compressPoint(-1, 0, R).x);
+    const criticalY = toCanvasY(compressPoint(-1, 0, R).y);
+    drawCriticalPoint(ctx, criticalX, criticalY);
+
+    // Draw Nyquist curve
+    drawNyquistCurve(ctx, nyquistData.points, toCanvasX, toCanvasY);
+
+    // Draw axis labels
+    ctx.fillStyle = '#333333';
+    ctx.font = '12px Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Re', width - margin + 20, centerY + 4);
+    ctx.fillText('Im', centerX, margin - 15);
+
+    // Start animation if enabled
+    if (animate) {
+        startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R, wrapperId);
+    }
+
+    return nyquistData;
+}
+
+// Compress a complex point using z/(1+|z|/R) mapping
+function compressPoint(re, im, R) {
+    const mag = Math.sqrt(re * re + im * im);
+    if (mag < 1e-10) return { x: 0, y: 0 };
+    const factor = 1 / (1 + mag / R);
+    return { x: re * factor, y: im * factor };
+}
+
+// Calculate Nyquist curve data with pole indentation
+function calculateNyquistData(Lcompiled, imagAxisPoles, R) {
+    imagAxisPoles = imagAxisPoles || [];
+    R = R || 10;
+
+    // Sort pole frequencies
+    let poleFreqs = imagAxisPoles
+        .map(p => Math.abs(p.im))
+        .sort((a, b) => a - b);
+    poleFreqs = [...new Set(poleFreqs.map(f => parseFloat(f.toFixed(10))))];
+
+    const epsilon = 1e-4;  // Indentation radius
+    const hasOriginPole = poleFreqs.some(f => f < 1e-9);
+
+    // Generate frequency points
+    const wMin = 1e-4;
+    const wMax = 1e6;
+    const nPoints = 500;
+    
+    // logspace helper (if not defined elsewhere)
+    function logspace(start, end, num) {
+        const arr = [];
+        const step = (end - start) / (num - 1);
+        for (let i = 0; i < num; i++) arr.push(Math.pow(10, start + i * step));
+        return arr;
+    }
+
+    let wArray = logspace(Math.log10(wMin), Math.log10(wMax), nPoints);
+
+    // Build frequency segments that avoid poles
+    let freqSegments = [];
+    let currentStart = hasOriginPole ? epsilon : 0; // Start from 0 if no origin pole (or epsilon)
+
+    // Filter poles to only strictly positive ones for the sweep segments
+    let positivePoles = poleFreqs.filter(f => f > 1e-9);
+
+    for (let poleFreq of positivePoles) {
+        if (poleFreq > currentStart + epsilon && poleFreq < wMax) {
+            freqSegments.push({
+                wStart: currentStart,
+                wEnd: poleFreq - epsilon,
+                poleAfter: poleFreq
+            });
+            currentStart = poleFreq + epsilon;
+        }
+    }
+    freqSegments.push({
+        wStart: currentStart,
+        wEnd: wMax,
+        poleAfter: null
+    });
+
+    let posPoints = []; // Only strictly positive frequency points (and non-origin indentations)
+
+    // Helper to add a point
+    function addPointTo(targetArray, re, im) {
+        const compressed = compressPoint(re, im, R);
+        targetArray.push({ x: re, y: im, cx: compressed.x, cy: compressed.y });
+    }
+
+    // Sweep positive frequencies
+    for (let seg of freqSegments) {
+        let segFreqs = wArray.filter(w => w >= seg.wStart && w <= seg.wEnd);
+
+        // Add segment points
+        for (let omega of segFreqs) {
+            try {
+                // Skip w=0 if we don't have origin pole (handled separately) but allow close to 0
+                if (omega < 1e-9 && hasOriginPole) continue;
+
+                let Ljw = Lcompiled.evaluate({ 's': math.complex(0, omega) });
+                if (typeof Ljw.re === 'number' && isFinite(Ljw.re) && isFinite(Ljw.im)) {
+                    addPointTo(posPoints, Ljw.re, Ljw.im);
+                }
+            } catch (e) { continue; }
+        }
+
+        // Indentation around non-origin pole (RHP semicircle)
+        if (seg.poleAfter !== null) {
+            let pFreq = seg.poleAfter;
+            const nIndentPoints = 30;
+            for (let k = 0; k <= nIndentPoints; k++) {
+                let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
+                
+                let sReal = epsilon * Math.cos(theta);
+                let sImag = pFreq + epsilon * Math.sin(theta);
+                try {
+                    let Ls = Lcompiled.evaluate({ 's': math.complex(sReal, sImag) });
+                    if (typeof Ls.re === 'number' && isFinite(Ls.re) && isFinite(Ls.im)) {
+                        addPointTo(posPoints, Ls.re, Ls.im);
+                    }
+                } catch (e) { continue; }
+            }
+        }
+    }
+
+    // Negative frequency points (conjugate of positive)
+    let negPoints = [];
+    for (let i = posPoints.length - 1; i >= 0; i--) {
+        let p = posPoints[i];
+        const compressed = compressPoint(p.x, -p.y, R);
+        negPoints.push({ x: p.x, y: -p.y, cx: compressed.x, cy: compressed.y });
+    }
+
+    // Origin indentation points
+    let originPoints = [];
+    if (hasOriginPole) {
+        const nIndentPoints = 30;
+        for (let k = 0; k <= nIndentPoints; k++) {
+            let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
+            let sReal = epsilon * Math.cos(theta);
+            let sImag = epsilon * Math.sin(theta);
+            try {
+                let Ls = Lcompiled.evaluate({ 's': math.complex(sReal, sImag) });
+                if (typeof Ls.re === 'number' && isFinite(Ls.re) && isFinite(Ls.im)) {
+                    addPointTo(originPoints, Ls.re, Ls.im);
+                }
+            } catch (e) { continue; }
+        }
+    }
+
+    // Combine: negative -> origin -> positive
+    let allPoints = negPoints.concat(originPoints).concat(posPoints);
+
+    // Calculate cumulative arc length
+    let cumulativeLength = [0];
+    for (let i = 1; i < allPoints.length; i++) {
+        const dx = allPoints[i].cx - allPoints[i - 1].cx;
+        const dy = allPoints[i].cy - allPoints[i - 1].cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const clampedDist = dist > 5 ? 0 : dist;
+        cumulativeLength.push(cumulativeLength[i - 1] + clampedDist);
+    }
+    const totalLength = cumulativeLength[cumulativeLength.length - 1];
+
+    return {
+        points: allPoints,
+        cumulativeLength: cumulativeLength,
+        totalLength: totalLength,
+        hasOriginPole: hasOriginPole,
+        poleFreqs: poleFreqs
+    };
+}
+
+// Draw polar grid with unit circle highlighted
+function drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R) {
+    // Draw radial lines (every 15 degrees)
+    for (let deg = 0; deg < 180; deg += 15) {
+        const angle = deg * Math.PI / 180;
+        const dx = Math.cos(angle) * maxRadius * scale;
+        const dy = Math.sin(angle) * maxRadius * scale;
+
+        if (deg % 45 === 0) {
+            ctx.strokeStyle = '#c0c0c0';
+            ctx.lineWidth = 1;
+        } else {
+            ctx.strokeStyle = '#e8e8e8';
+            ctx.lineWidth = 0.5;
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(centerX - dx, centerY + dy);
+        ctx.lineTo(centerX + dx, centerY - dy);
+        ctx.stroke();
+    }
+
+    // Draw angle labels at 45 degree intervals (on the outer edge)
+    ctx.fillStyle = '#888888';
+    ctx.font = '10px Consolas, monospace';
+    const labelRadius = maxRadius * scale + 12;
+
+    const angleLabels = [
+        { deg: 0, label: '0°' },
+        { deg: 45, label: '45°' },
+        { deg: 90, label: '90°' },
+        { deg: 135, label: '135°' },
+        { deg: 180, label: '180°' },
+        { deg: -45, label: '-45°' },
+        { deg: -90, label: '-90°' },
+        { deg: -135, label: '-135°' }
+    ];
+
+    for (let item of angleLabels) {
+        const angle = item.deg * Math.PI / 180;
+        const lx = centerX + Math.cos(angle) * labelRadius;
+        const ly = centerY - Math.sin(angle) * labelRadius;
+
+        if (Math.abs(item.deg) === 90) {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = item.deg > 0 ? 'bottom' : 'top';
+        } else if (item.deg === 0 || item.deg === 180) {
+            ctx.textAlign = item.deg === 0 ? 'left' : 'right';
+            ctx.textBaseline = 'middle';
+        } else if (item.deg > 0) {
+            ctx.textAlign = item.deg < 90 ? 'left' : 'right';
+            ctx.textBaseline = 'bottom';
+        } else {
+            ctx.textAlign = item.deg > -90 ? 'left' : 'right';
+            ctx.textBaseline = 'top';
+        }
+
+        ctx.fillText(item.label, lx, ly);
+    }
+
+    // Draw concentric circles in compressed space
+    // We want to show circles at original radii: 0.5, 1, 2, 5, 10, etc.
+    const originalRadii = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100];
+
+    for (let r of originalRadii) {
+        // Compress the radius
+        const compressedR = r / (1 + r / R);
+        if (compressedR > maxRadius) continue;
+
+        const pixelRadius = compressedR * scale;
+
+        if (Math.abs(r - 1) < 0.001) {
+            // Unit circle - black dashed
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([5, 5]);
+        } else {
+            ctx.strokeStyle = '#c0c0c0';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]);
+        }
+
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, pixelRadius, 0, 2 * Math.PI);
+        ctx.stroke();
+
+        // Draw radius label on positive real axis
+        if (r >= 0.5 && r !== 1) {
+            ctx.fillStyle = '#999999';
+            ctx.font = '10px Consolas, monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.setLineDash([]);
+            let labelX = centerX + pixelRadius + 3;
+            let labelText = r >= 1 ? r.toString() : r.toFixed(1);
+            ctx.fillText(labelText, labelX, centerY - 2);
+        }
+    }
+    ctx.setLineDash([]);
+
+    // Draw axes
+    ctx.strokeStyle = '#999999';
+    ctx.lineWidth = 1;
+
+    // Real axis
+    ctx.beginPath();
+    ctx.moveTo(centerX - maxRadius * scale, centerY);
+    ctx.lineTo(centerX + maxRadius * scale, centerY);
+    ctx.stroke();
+
+    // Imaginary axis
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - maxRadius * scale);
+    ctx.lineTo(centerX, centerY + maxRadius * scale);
+    ctx.stroke();
+}
+
+// Draw critical point at -1
+function drawCriticalPoint(ctx, x, y) {
+    ctx.strokeStyle = '#dc3545';
+    ctx.lineWidth = 2.5;
+    const size = 8;
+
+    // Draw X mark
+    ctx.beginPath();
+    ctx.moveTo(x - size, y - size);
+    ctx.lineTo(x + size, y + size);
+    ctx.moveTo(x + size, y - size);
+    ctx.lineTo(x - size, y + size);
+    ctx.stroke();
+
+    // Label
+    ctx.fillStyle = '#dc3545';
+    ctx.font = '12px Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('-1', x, y + size + 3);
+}
+
+// Draw the Nyquist curve
+function drawNyquistCurve(ctx, points, toCanvasX, toCanvasY) {
+    if (points.length < 2) return;
+
+    ctx.strokeStyle = '#0088aa';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(points[0].cx), toCanvasY(points[0].cy));
+
+    for (let i = 1; i < points.length; i++) {
+        // Skip if points are too far apart (discontinuity)
+        let dx = points[i].cx - points[i - 1].cx;
+        let dy = points[i].cy - points[i - 1].cy;
+        if (Math.sqrt(dx * dx + dy * dy) > 5) {
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(toCanvasX(points[i].cx), toCanvasY(points[i].cy));
+        } else {
+            ctx.lineTo(toCanvasX(points[i].cx), toCanvasY(points[i].cy));
+        }
+    }
+    ctx.stroke();
+
+    // Draw arrows to indicate direction (at a few points along the curve)
+    const arrowPositions = [0.1, 0.25, 0.4, 0.6, 0.75, 0.9];
+    for (let pos of arrowPositions) {
+        const idx = Math.floor(pos * points.length);
+        if (idx > 0 && idx < points.length - 1) {
+            drawArrow(ctx, points, idx, toCanvasX, toCanvasY);
+        }
+    }
+}
+
+// Draw arrow at a point along the curve
+function drawArrow(ctx, points, idx, toCanvasX, toCanvasY) {
+    const p0 = points[Math.max(0, idx - 1)];
+    const p1 = points[idx];
+
+    const dx = p1.cx - p0.cx;
+    const dy = p1.cy - p0.cy;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.001) return;
+
+    const x = toCanvasX(p1.cx);
+    const y = toCanvasY(p1.cy);
+
+    // Direction of arrow (in canvas coordinates)
+    const dirX = dx / len;
+    const dirY = -dy / len;  // Flip y
+
+    const arrowSize = 6;
+    const angle = Math.PI / 6;
+
+    ctx.fillStyle = '#0088aa';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(
+        x - arrowSize * (dirX * Math.cos(angle) - dirY * Math.sin(angle)),
+        y - arrowSize * (dirY * Math.cos(angle) + dirX * Math.sin(angle))
+    );
+    ctx.lineTo(
+        x - arrowSize * (dirX * Math.cos(-angle) - dirY * Math.sin(-angle)),
+        y - arrowSize * (dirY * Math.cos(-angle) + dirX * Math.sin(-angle))
+    );
+    ctx.closePath();
+    ctx.fill();
+}
+
+// Find point position at a given arc length using binary search
+function getPointAtArcLength(points, cumulativeLength, targetLength) {
+    // Binary search to find the segment containing targetLength
+    let lo = 0, hi = cumulativeLength.length - 1;
+    while (lo < hi - 1) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (cumulativeLength[mid] <= targetLength) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+
+    // Interpolate between points[lo] and points[hi]
+    const segmentStart = cumulativeLength[lo];
+    const segmentEnd = cumulativeLength[hi];
+    const segmentLength = segmentEnd - segmentStart;
+
+    if (segmentLength < 1e-10) {
+        return { cx: points[lo].cx, cy: points[lo].cy };
+    }
+
+    const t = (targetLength - segmentStart) / segmentLength;
+    const cx = points[lo].cx + t * (points[hi].cx - points[lo].cx);
+    const cy = points[lo].cy + t * (points[hi].cy - points[lo].cy);
+
+    return { cx, cy };
+}
+
+// Start animation of moving point on the curve
+function startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R, wrapperId) {
+    // Stop any existing animation (preserves progress in nyquistAnimationProgress)
+    stopNyquistAnimation();
+
+    const points = nyquistData.points;
+    const cumulativeLength = nyquistData.cumulativeLength;
+    const totalLength = nyquistData.totalLength;
+
+    if (points.length < 2 || totalLength < 1e-10) return;
+
+    // Calculate speed to complete one cycle in approximately 3 seconds (180 frames at 60fps)
+    const cycleDuration = 180;  // frames
+    const speed = totalLength / cycleDuration;
+
+    // Initialize current arc length from preserved progress (0 to 1 fraction)
+    let currentArcLength = nyquistAnimationProgress * totalLength;
+
+    function animate() {
+        // Check if canvas is still valid and visible
+        if (!canvas || !canvas.parentElement || canvas.width === 0 || canvas.height === 0) {
+            stopNyquistAnimation();
+            return;
+        }
+
+        // Check if wrapper is still in DOM and visible
+        const wrapper = document.getElementById(wrapperId);
+        if (!wrapper || wrapper.clientWidth === 0 || wrapper.clientHeight === 0) {
+            stopNyquistAnimation();
+            return;
+        }
+
+        try {
+            // Redraw the entire plot
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.scale(devicePixelRatio, devicePixelRatio);
+
+            const width = canvas.width / devicePixelRatio;
+            const height = canvas.height / devicePixelRatio;
+
+            // Clear and redraw background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+
+            // Redraw grid
+            drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R);
+
+            // Redraw critical point
+            const criticalCompressed = compressPoint(-1, 0, R);
+            const criticalX = toCanvasX(criticalCompressed.x);
+            const criticalY = toCanvasY(criticalCompressed.y);
+            drawCriticalPoint(ctx, criticalX, criticalY);
+
+            // Redraw curve
+            drawNyquistCurve(ctx, points, toCanvasX, toCanvasY);
+
+            // Draw axis labels
+            ctx.fillStyle = '#333333';
+            ctx.font = '12px Consolas, monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('Re', width - 30, centerY + 4);
+            ctx.fillText('Im', centerX, 35);
+
+            // Get interpolated point position at current arc length
+            const p = getPointAtArcLength(points, cumulativeLength, currentArcLength);
+            const px = toCanvasX(p.cx);
+            const py = toCanvasY(p.cy);
+
+            // Draw point with glow effect
+            ctx.beginPath();
+            ctx.arc(px, py, 8, 0, 2 * Math.PI);
+            ctx.fillStyle = 'rgba(0, 136, 170, 0.3)';
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(px, py, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = '#0088aa';
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            // Update position based on arc length (uniform speed)
+            currentArcLength += speed;
+            if (currentArcLength >= totalLength) {
+                currentArcLength = currentArcLength - totalLength;
+            }
+
+            // Update global progress (0 to 1 fraction) for preservation across updates
+            nyquistAnimationProgress = currentArcLength / totalLength;
+
+            nyquistAnimationId = requestAnimationFrame(animate);
+        } catch (e) {
+            // If any error occurs, stop animation
+            console.log('Nyquist animation error:', e);
+            stopNyquistAnimation();
+        }
+    }
+
+    animate();
+}
+
+// Stop animation
+function stopNyquistAnimation() {
+    if (nyquistAnimationId !== null) {
+        cancelAnimationFrame(nyquistAnimationId);
+        nyquistAnimationId = null;
+    }
+}
+
+// Redraw Nyquist without animation (for static display)
+function drawNyquistStatic(Lcompiled, imagAxisPoles, options) {
+    options = options || {};
+    options.animate = false;
+    return drawNyquist(Lcompiled, imagAxisPoles, options);
+}

@@ -65,8 +65,9 @@
         </div>
         <div class="narrow-panel">
             <div class="narrow-plot-tabs">
-                <button class="narrow-tab-btn active" data-tab="bode">Bode Plot</button>
-                <button class="narrow-tab-btn" data-tab="pole-zero">Pole-Zero Map</button>
+                <button class="narrow-tab-btn active" data-tab="bode">Bode</button>
+                <button class="narrow-tab-btn" data-tab="pole-zero">Pole-Zero</button>
+                <button class="narrow-tab-btn" data-tab="nyquist">Nyquist</button>
             </div>
             <div class="panel-content panel-plot" id="narrow-tab-bode">
                 <div class="bode-options">
@@ -98,6 +99,15 @@
                     <canvas id="narrow-pole-canvas"></canvas>
                 </div>
             </div>
+            <div class="panel-content panel-plot" id="narrow-tab-nyquist" style="display: none;">
+                <div id="narrow-nyquist-wrapper" class="plot-wrapper narrow-plot-wrapper">
+                    <canvas id="narrow-nyquist-canvas"></canvas>
+                    <div class="nyquist-mapping-overlay">
+                        <span class="nyquist-mapping-text">Compressed: </span>
+                        <span id="narrow-nyquist-mapping-formula"></span>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="narrow-panel">
             <div class="narrow-panel-header">Stability</div>
@@ -116,8 +126,18 @@
                         <span id="narrow-pm-display" class="text-muted">--</span>
                     </div>
                 </div>
+                <div class="nyquist-info">
+                    <div class="info-row">
+                        <strong>P:</strong>
+                        <span id="narrow-open-loop-unstable-display" class="text-muted">--</span>
+                    </div>
+                    <div class="info-row">
+                        <strong>N:</strong>
+                        <span id="narrow-winding-number-display" class="text-muted">--</span>
+                    </div>
+                </div>
                 <div class="poles-section">
-                    <strong>Poles:</strong>
+                    <strong>Closed-loop poles:</strong>
                     <span id="narrow-clp-display" class="text-muted"></span>
                 </div>
             </div>
@@ -185,8 +205,18 @@
                     <span id="pm-display" class="text-muted">--</span>
                 </div>
             </div>
+            <div class="nyquist-info">
+                <div class="info-row">
+                    <strong>P:</strong>
+                    <span id="open-loop-unstable-display" class="text-muted">--</span>
+                </div>
+                <div class="info-row">
+                    <strong>N:</strong>
+                    <span id="winding-number-display" class="text-muted">--</span>
+                </div>
+            </div>
             <div class="poles-section">
-                <strong>Poles:</strong>
+                <strong>Closed-loop poles:</strong>
                 <span id="clp-display" class="text-muted"></span>
             </div>
         </div>
@@ -231,6 +261,18 @@
         </div>
     </template>
 
+    <template id="template-nyquist">
+        <div class="panel-content panel-plot">
+            <div id="nyquist-wrapper" class="plot-wrapper">
+                <canvas id="nyquist-canvas"></canvas>
+                <div class="nyquist-mapping-overlay">
+                    <span class="nyquist-mapping-text">Compressed: </span>
+                    <span id="nyquist-mapping-formula"></span>
+                </div>
+            </div>
+        </div>
+    </template>
+
     <!-- KaTeX JS -->
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
@@ -247,6 +289,7 @@
     <!-- Custom JS -->
     <script src="utils.js"></script>
     <script src="bode.js"></script>
+    <script src="nyquist.js"></script>
     <script src="main.js"></script>
 </body>
 </html>
