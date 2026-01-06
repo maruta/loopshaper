@@ -225,7 +225,7 @@ function createDefaultLayout() {
                 freqPanel.api.setSize({ height: 220 });
             }
         } catch (e) {
-            console.log('Could not adjust panel sizes:', e);
+            // Panel size adjustment may fail during layout changes
         }
     }, 100);
 }
@@ -290,16 +290,16 @@ function initializeNarrowLayout() {
         });
     });
 
-    // Set up Pole-Zero visibility checkboxes for narrow layout
+    // Set up Pole-Zero visibility checkboxes for narrow layout (Shoelace sl-checkbox uses 'sl-change' event)
     const chkLpz = document.getElementById('narrow-chk-show-L-pz');
     const chkTpz = document.getElementById('narrow-chk-show-T-pz');
     if (chkLpz) {
-        chkLpz.addEventListener('change', function() {
+        chkLpz.addEventListener('sl-change', function() {
             updateNarrowPolePlot();
         });
     }
     if (chkTpz) {
-        chkTpz.addEventListener('change', function() {
+        chkTpz.addEventListener('sl-change', function() {
             updateNarrowPolePlot();
         });
     }
@@ -325,6 +325,7 @@ function initializeUI() {
 
     const codeField = document.getElementById(prefix + 'field-code');
     if (codeField) {
+        // Shoelace sl-textarea uses 'value' property
         codeField.value = design.code;
     }
 
@@ -358,6 +359,7 @@ function initializeUI() {
     showT = design.showT !== undefined ? design.showT : true;
     const chkL = document.getElementById(prefix + 'chk-show-L');
     const chkT = document.getElementById(prefix + 'chk-show-T');
+    // Shoelace sl-checkbox uses 'checked' property
     if (chkL) chkL.checked = showL;
     if (chkT) chkT.checked = showT;
 }
@@ -370,7 +372,8 @@ function setupEventListeners() {
 
     // Use data attribute to prevent duplicate event listeners
     if (codeField && !codeField.dataset.listenerAttached) {
-        codeField.addEventListener('input', debounceUpdate);
+        // Shoelace sl-textarea uses 'sl-input' event
+        codeField.addEventListener('sl-input', debounceUpdate);
         codeField.dataset.listenerAttached = 'true';
     }
     if (addSliderBtn && !addSliderBtn.dataset.listenerAttached) {
@@ -378,11 +381,11 @@ function setupEventListeners() {
         addSliderBtn.dataset.listenerAttached = 'true';
     }
 
-    // Bode plot visibility checkboxes
+    // Bode plot visibility checkboxes (Shoelace sl-checkbox uses 'sl-change' event)
     const chkL = document.getElementById(prefix + 'chk-show-L');
     const chkT = document.getElementById(prefix + 'chk-show-T');
     if (chkL && !chkL.dataset.listenerAttached) {
-        chkL.addEventListener('change', function() {
+        chkL.addEventListener('sl-change', function() {
             showL = this.checked;
             design.showL = showL;
             updateBodePlot();
@@ -391,7 +394,7 @@ function setupEventListeners() {
         chkL.dataset.listenerAttached = 'true';
     }
     if (chkT && !chkT.dataset.listenerAttached) {
-        chkT.addEventListener('change', function() {
+        chkT.addEventListener('sl-change', function() {
             showT = this.checked;
             design.showT = showT;
             updateBodePlot();
@@ -405,19 +408,20 @@ function setupEventListeners() {
         const freqMinField = document.getElementById('field-freq-min');
         const freqMaxField = document.getElementById('field-freq-max');
 
+        // Shoelace sl-input uses 'sl-input' event
         if (freqMinField && !freqMinField.dataset.listenerAttached) {
-            freqMinField.addEventListener('input', debounceUpdate);
+            freqMinField.addEventListener('sl-input', debounceUpdate);
             freqMinField.dataset.listenerAttached = 'true';
         }
         if (freqMaxField && !freqMaxField.dataset.listenerAttached) {
-            freqMaxField.addEventListener('input', debounceUpdate);
+            freqMaxField.addEventListener('sl-input', debounceUpdate);
             freqMaxField.dataset.listenerAttached = 'true';
         }
 
-        // Auto frequency range checkbox
+        // Auto frequency range checkbox (Shoelace sl-checkbox uses 'sl-change' event)
         const chkAuto = document.getElementById('chk-freq-auto');
         if (chkAuto && !chkAuto.dataset.listenerAttached) {
-            chkAuto.addEventListener('change', function() {
+            chkAuto.addEventListener('sl-change', function() {
                 autoFreq = this.checked;
                 design.autoFreq = autoFreq;
                 const freqMinEl = document.getElementById('field-freq-min');
@@ -432,11 +436,11 @@ function setupEventListeners() {
             chkAuto.dataset.listenerAttached = 'true';
         }
 
-        // Pole-Zero Map visibility checkboxes
+        // Pole-Zero Map visibility checkboxes (Shoelace sl-checkbox uses 'sl-change' event)
         const chkLpz = document.getElementById('chk-show-L-pz');
         const chkTpz = document.getElementById('chk-show-T-pz');
         if (chkLpz && !chkLpz.dataset.listenerAttached) {
-            chkLpz.addEventListener('change', function() {
+            chkLpz.addEventListener('sl-change', function() {
                 showLpz = this.checked;
                 design.showLpz = showLpz;
                 updatePolePlot();
@@ -445,7 +449,7 @@ function setupEventListeners() {
             chkLpz.dataset.listenerAttached = 'true';
         }
         if (chkTpz && !chkTpz.dataset.listenerAttached) {
-            chkTpz.addEventListener('change', function() {
+            chkTpz.addEventListener('sl-change', function() {
                 showTpz = this.checked;
                 design.showTpz = showTpz;
                 updatePolePlot();
@@ -529,17 +533,14 @@ function createSliderElement(slider, index) {
 
     div.innerHTML = `
         <div class="slider-config">
-            <input type="text" class="form-control slider-name" placeholder="Name" value="${slider.name || ''}" data-index="${index}">
-            <input type="number" class="form-control slider-min" placeholder="Min" value="${slider.min || 0.1}" step="any" data-index="${index}">
-            <input type="number" class="form-control slider-max" placeholder="Max" value="${slider.max || 100}" step="any" data-index="${index}">
-            <div class="form-check">
-                <input type="checkbox" class="form-check-input slider-log" id="log-${index}" ${slider.logScale ? 'checked' : ''} data-index="${index}">
-                <label class="form-check-label" for="log-${index}">Log</label>
-            </div>
-            <button class="btn btn-sm btn-danger remove-slider" data-index="${index}">&times;</button>
+            <sl-input type="text" class="slider-name" placeholder="Name" value="${slider.name || ''}" data-index="${index}" size="small"></sl-input>
+            <sl-input type="number" class="slider-min" placeholder="Min" value="${slider.min || 0.1}" step="any" data-index="${index}" size="small"></sl-input>
+            <sl-input type="number" class="slider-max" placeholder="Max" value="${slider.max || 100}" step="any" data-index="${index}" size="small"></sl-input>
+            <sl-checkbox class="slider-log" id="log-${index}" ${slider.logScale ? 'checked' : ''} data-index="${index}" size="medium"></sl-checkbox>
+            <sl-icon-button class="remove-slider" name="x-lg" data-index="${index}" label="Remove"></sl-icon-button>
         </div>
         <div class="slider-control">
-            <input type="range" class="form-range slider-range" id="range-${index}" min="0" max="1000" value="${initialPos}" data-index="${index}">
+            <sl-range class="slider-range" id="range-${index}" min="0" max="1000" value="${initialPos}" data-index="${index}"></sl-range>
             <span class="slider-value" id="value-${index}">${formatValue(initialValue)}</span>
         </div>
     `;
@@ -552,28 +553,39 @@ function createSliderElement(slider, index) {
         let rangeInput = div.querySelector('.slider-range');
         let removeBtn = div.querySelector('.remove-slider');
 
-        nameInput.addEventListener('input', function() {
+        // Set tooltip formatter to show actual parameter value
+        rangeInput.tooltipFormatter = (pos) => {
+            const s = design.sliders[index];
+            if (!s) return pos;
+            const value = sliderPosToValue(pos, s.min, s.max, s.logScale);
+            return formatValue(value);
+        };
+
+        // Shoelace sl-input uses 'sl-input' event
+        nameInput.addEventListener('sl-input', function() {
             design.sliders[index].name = this.value;
             updateCodeFromSliders();
             debounceUpdate();
         });
 
-        minInput.addEventListener('input', function() {
+        minInput.addEventListener('sl-input', function() {
             design.sliders[index].min = parseFloat(this.value) || 0.1;
             updateSliderValue(index);
         });
 
-        maxInput.addEventListener('input', function() {
+        maxInput.addEventListener('sl-input', function() {
             design.sliders[index].max = parseFloat(this.value) || 100;
             updateSliderValue(index);
         });
 
-        logCheck.addEventListener('change', function() {
+        // Shoelace sl-checkbox uses 'sl-change' event
+        logCheck.addEventListener('sl-change', function() {
             design.sliders[index].logScale = this.checked;
             updateSliderValue(index);
         });
 
-        rangeInput.addEventListener('input', function() {
+        // Shoelace sl-range uses 'sl-input' event
+        rangeInput.addEventListener('sl-input', function() {
             updateSliderValue(index);
         });
 
@@ -1019,7 +1031,7 @@ function updateClosedLoopPoles() {
             if (clpEl) clpEl.textContent = '--';
             if (indicator) {
                 indicator.textContent = '--';
-                indicator.className = 'badge bg-secondary';
+                indicator.variant = 'neutral';
             }
             window.lastPoles = [];
             window.lastZeros = [];
@@ -1028,14 +1040,13 @@ function updateClosedLoopPoles() {
 
         // Analyze L structure to determine stability calculation method
         let structure = analyzeLstructure(L);
-        console.log('L structure:', structure.type);
 
         if (structure.type === 'unknown') {
             // Cannot determine P, skip stability calculation
             if (clpEl) clpEl.textContent = '--';
             if (indicator) {
                 indicator.textContent = '--';
-                indicator.className = 'badge bg-secondary';
+                indicator.variant = 'neutral';
             }
             window.lastPoles = [];
             window.lastZeros = [];
@@ -1048,30 +1059,26 @@ function updateClosedLoopPoles() {
             if (clpEl) clpEl.textContent = '--';
             if (indicator) {
                 indicator.textContent = '--';
-                indicator.className = 'badge bg-secondary';
+                indicator.variant = 'neutral';
             }
             window.lastPoles = [];
             window.lastZeros = [];
             return;
         }
-        console.log('Open-loop RHP poles P:', P);
 
         // Find poles on imaginary axis (need special handling in Nyquist)
         let imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
-        console.log('Imaginary axis poles:', imagAxisPoles);
 
         // Calculate N (winding number) using Nyquist criterion
         // Use a wide frequency range for accurate winding number calculation
         let wNyquist = logspace(-4, 6, 2000);
         let Lcompiled = L.compile();
         let N = calculateWindingNumber(Lcompiled, wNyquist, imagAxisPoles);
-        console.log('Winding number N:', N);
 
         // Nyquist criterion: Z = N + P
         // Z = number of closed-loop RHP poles
         // System is stable if Z = 0
         let Z = N + P;
-        console.log('Closed-loop RHP poles Z:', Z);
 
         // Display closed-loop poles if L is rational (can calculate exactly)
         if (structure.type === 'rational') {
@@ -1125,7 +1132,7 @@ function updateClosedLoopPoles() {
         }
         if (indicator) {
             indicator.textContent = '--';
-            indicator.className = 'badge bg-secondary';
+            indicator.variant = 'neutral';
         }
         window.lastPoles = [];
         window.lastZeros = [];
@@ -1137,12 +1144,13 @@ function updateStabilityIndicator(isStable) {
     let indicator = document.getElementById(prefix + 'stability-indicator');
     if (!indicator) return;
 
+    // Shoelace sl-badge uses 'variant' attribute
     if (isStable) {
         indicator.textContent = 'Stable';
-        indicator.className = 'badge bg-success';
+        indicator.variant = 'success';
     } else {
         indicator.textContent = 'Unstable';
-        indicator.className = 'badge bg-danger';
+        indicator.variant = 'danger';
     }
 }
 
@@ -1247,7 +1255,7 @@ function updatePolePlot() {
                 Lpoles = root2math(denRoots);
             }
         } catch (e) {
-            console.log('Error getting L poles:', e);
+            // Ignore errors
         }
 
         // Get zeros from numerator
@@ -1259,7 +1267,7 @@ function updatePolePlot() {
                 Lzeros = root2math(numRoots);
             }
         } catch (e) {
-            console.log('Error getting L zeros:', e);
+            // Ignore errors
         }
     }
 
@@ -1450,7 +1458,7 @@ function updateNarrowPolePlot() {
                 Lpoles = root2math(denRoots);
             }
         } catch (e) {
-            console.log('Error getting L poles:', e);
+            // Ignore errors
         }
 
         try {
@@ -1461,7 +1469,7 @@ function updateNarrowPolePlot() {
                 Lzeros = root2math(numRoots);
             }
         } catch (e) {
-            console.log('Error getting L zeros:', e);
+            // Ignore errors
         }
     }
 
@@ -1845,20 +1853,14 @@ function autoAdjustFrequencyRange() {
     try {
         let L = currentVars.L;
         if (!L || !L.isNode) {
-            console.log('autoAdjustFrequencyRange: L is not defined or not a node');
             return;
         }
 
         // Rationalize L to get numerator and denominator
         let Lrat = util_rationalize(L);
         if (!Lrat) {
-            console.log('autoAdjustFrequencyRange: Failed to rationalize L');
             return;
         }
-
-        console.log('autoAdjustFrequencyRange: Lrat =', Lrat);
-        console.log('  numerator:', Lrat.numerator.toString());
-        console.log('  denominator:', Lrat.denominator.toString());
 
         // Get poles from denominator and zeros from numerator
         let poles = [];
@@ -1868,28 +1870,24 @@ function autoAdjustFrequencyRange() {
         try {
             let denStr = Lrat.denominator.toString();
             let denPoly = math.rationalize(denStr, true);
-            console.log('  denPoly coefficients:', denPoly.coefficients);
             if (denPoly.coefficients && denPoly.coefficients.length > 1) {
                 let denRoots = findRoots(denPoly.coefficients);
                 poles = root2math(denRoots);
-                console.log('  poles:', poles);
             }
         } catch (e) {
-            console.log('  Error getting poles:', e);
+            // Ignore errors
         }
 
         // Get numerator coefficients for zeros
         try {
             let numStr = Lrat.numerator.toString();
             let numPoly = math.rationalize(numStr, true);
-            console.log('  numPoly coefficients:', numPoly.coefficients);
             if (numPoly.coefficients && numPoly.coefficients.length > 1) {
                 let numRoots = findRoots(numPoly.coefficients);
                 zeros = root2math(numRoots);
-                console.log('  zeros:', zeros);
             }
         } catch (e) {
-            console.log('  Error getting zeros:', e);
+            // Ignore errors
         }
 
         // Also get closed-loop poles (roots of 1+L)
@@ -1897,9 +1895,8 @@ function autoAdjustFrequencyRange() {
         try {
             let clPoles = window.lastPoles || [];
             closedLoopPoles = clPoles.map(p => ({ re: p.re, im: p.im }));
-            console.log('  closed-loop poles:', closedLoopPoles);
         } catch (e) {
-            console.log('  Error getting closed-loop poles:', e);
+            // Ignore errors
         }
 
         // Combine open-loop poles, zeros, and closed-loop poles
@@ -1908,11 +1905,8 @@ function autoAdjustFrequencyRange() {
             .map(p => Math.sqrt(p.re * p.re + p.im * p.im))  // absolute value
             .filter(f => f > 1e-6);  // exclude near-zero
 
-        console.log('  frequencies (including closed-loop):', frequencies);
-
         if (frequencies.length === 0) {
             // Default range if no poles/zeros found
-            console.log('  No frequencies found, using default range');
             design.freqMin = -2;
             design.freqMax = 3;
         } else {
@@ -1936,8 +1930,6 @@ function autoAdjustFrequencyRange() {
                 design.freqMin = center - 1.5;
                 design.freqMax = center + 1.5;
             }
-
-            console.log('  Calculated range:', design.freqMin, 'to', design.freqMax);
         }
 
         // Update UI
@@ -2035,22 +2027,35 @@ function resetLayout() {
 
 // View menu functions
 function initializeViewMenu() {
-    const viewMenuBtn = document.getElementById('btn-view-menu');
+    const viewDropdown = document.getElementById('view-dropdown');
     const viewMenu = document.getElementById('view-menu');
 
-    if (!viewMenuBtn || !viewMenu) return;
+    if (!viewDropdown || !viewMenu) return;
 
-    // Toggle menu on button click
-    viewMenuBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        viewMenu.classList.toggle('show');
+    // Update menu items when dropdown opens
+    viewDropdown.addEventListener('sl-show', function() {
         updateViewMenuItems();
     });
 
-    // Close menu when clicking outside
-    document.addEventListener('click', function(e) {
-        if (!viewMenu.contains(e.target) && e.target !== viewMenuBtn) {
-            viewMenu.classList.remove('show');
+    // Handle menu item selection
+    viewMenu.addEventListener('sl-select', function(e) {
+        const item = e.detail.item;
+        const panelId = item.dataset.panelId;
+        const action = item.dataset.action;
+
+        if (action === 'reset') {
+            resetLayout();
+            setTimeout(() => {
+                initializeUI();
+                setupEventListeners();
+                updateAll();
+            }, 100);
+        } else if (panelId) {
+            if (isPanelOpen(panelId)) {
+                closePanel(panelId);
+            } else {
+                openPanel(panelId);
+            }
         }
     });
 
@@ -2064,41 +2069,25 @@ function updateViewMenuItems() {
 
     viewMenu.innerHTML = '';
 
-    // Add panel items
+    // Add panel items using Shoelace sl-menu-item
     PANEL_DEFINITIONS.forEach(panel => {
         const isOpen = isPanelOpen(panel.id);
-        const item = document.createElement('div');
-        item.className = 'dropdown-item' + (isOpen ? ' checked' : '');
-        item.innerHTML = `<span class="check-mark">${isOpen ? '✓' : ''}</span>${panel.title}`;
-        item.addEventListener('click', function() {
-            if (isOpen) {
-                closePanel(panel.id);
-            } else {
-                openPanel(panel.id);
-            }
-            updateViewMenuItems();
-        });
+        const item = document.createElement('sl-menu-item');
+        item.dataset.panelId = panel.id;
+        item.type = 'checkbox';
+        item.checked = isOpen;
+        item.textContent = panel.title;
         viewMenu.appendChild(item);
     });
 
-    // Add separator
-    const separator = document.createElement('div');
-    separator.className = 'dropdown-separator';
+    // Add separator using Shoelace sl-divider
+    const separator = document.createElement('sl-divider');
     viewMenu.appendChild(separator);
 
     // Add reset layout option
-    const resetItem = document.createElement('div');
-    resetItem.className = 'dropdown-item';
-    resetItem.innerHTML = '<span class="check-mark"></span>Reset Layout';
-    resetItem.addEventListener('click', function() {
-        resetLayout();
-        setTimeout(() => {
-            initializeUI();
-            setupEventListeners();
-            updateAll();
-        }, 100);
-        viewMenu.classList.remove('show');
-    });
+    const resetItem = document.createElement('sl-menu-item');
+    resetItem.dataset.action = 'reset';
+    resetItem.textContent = 'Reset Layout';
     viewMenu.appendChild(resetItem);
 }
 

@@ -1,5 +1,5 @@
 /* Loop Shaping Control Design Tool Styles */
-/* Minimal custom styles - rely on Dockview defaults where possible */
+/* Using Shoelace components with custom overrides */
 
 * {
     box-sizing: border-box;
@@ -9,6 +9,7 @@ body {
     margin: 0;
     padding: 0;
     overflow: hidden;
+    font-family: var(--sl-font-sans);
 }
 
 /* Toolbar */
@@ -16,10 +17,10 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    height: 32px;
-    padding: 0 10px;
-    background-color: #f5f5f5;
-    border-bottom: 1px solid #ddd;
+    height: 36px;
+    padding: 0 12px;
+    background-color: var(--sl-color-neutral-100);
+    border-bottom: 1px solid var(--sl-color-neutral-200);
 }
 
 .toolbar-left {
@@ -30,7 +31,7 @@ body {
 .app-title {
     font-size: 14px;
     font-weight: 600;
-    color: #333;
+    color: var(--sl-color-neutral-900);
 }
 
 .toolbar-right {
@@ -39,73 +40,10 @@ body {
     gap: 8px;
 }
 
-.btn-toolbar {
-    background-color: transparent;
-    border: 1px solid transparent;
-    color: #333;
-    padding: 4px 10px;
-    font-size: 13px;
-    border-radius: 3px;
-    cursor: pointer;
-}
-
-.btn-toolbar:hover {
-    background-color: #e0e0e0;
-}
-
-/* Dropdown */
-.dropdown {
-    position: relative;
-}
-
-.dropdown-menu {
-    display: none;
-    position: absolute;
-    top: 100%;
-    right: 0;
-    min-width: 180px;
-    background-color: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
-    padding: 4px 0;
-}
-
-.dropdown-menu.show {
-    display: block;
-}
-
-.dropdown-item {
-    display: flex;
-    align-items: center;
-    padding: 6px 12px;
-    font-size: 13px;
-    color: #333;
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.dropdown-item:hover {
-    background-color: #f0f0f0;
-}
-
-.dropdown-item .check-mark {
-    width: 20px;
-    font-size: 12px;
-    color: #007acc;
-}
-
-.dropdown-separator {
-    height: 1px;
-    margin: 4px 0;
-    background-color: #ddd;
-}
-
 /* Dockview Container */
 #dockview-container {
     width: 100vw;
-    height: calc(100vh - 32px);
+    height: calc(100vh - 36px);
 }
 
 /* Panel Container */
@@ -129,90 +67,29 @@ body {
     flex-direction: column;
 }
 
-/* Form Controls - minimal styling */
-.form-control {
-    display: block;
-    width: 100%;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    font-size: 13px;
-    padding: 4px 8px;
-    outline: none;
+/* Shoelace component customizations */
+
+/* Code textarea styling */
+.code-textarea {
+    --sl-input-font-family: 'Consolas', 'Monaco', monospace;
+    --sl-input-font-size-small: 13px;
+    --sl-input-font-size-medium: 13px;
 }
 
-.form-control:focus {
-    border-color: #007acc;
-    box-shadow: 0 0 0 1px #007acc;
+.code-textarea::part(textarea) {
+    font-family: 'Consolas', 'Monaco', monospace;
 }
 
-.form-control.is-valid {
-    border-color: #28a745;
+/* Validation states for sl-textarea */
+sl-textarea.is-valid::part(base) {
+    border-color: var(--sl-color-success-600);
 }
 
-.form-control.is-invalid {
-    border-color: #dc3545;
+sl-textarea.is-invalid::part(base) {
+    border-color: var(--sl-color-danger-600);
 }
 
-textarea.form-control {
-    resize: vertical;
-    min-height: 60px;
-}
-
-.font-monospace {
-    font-family: 'Consolas', monospace;
-}
-
-/* Input Group */
-.input-group {
-    display: flex;
-    align-items: stretch;
-}
-
-.input-group-sm .form-control {
-    font-size: 12px;
-    padding: 2px 6px;
-}
-
-.input-group-text {
-    display: flex;
-    align-items: center;
-    padding: 4px 8px;
-    font-size: 12px;
-    background-color: #f0f0f0;
-    border: 1px solid #ccc;
-    border-radius: 3px 0 0 3px;
-    border-right: none;
-}
-
-.input-group .form-control {
-    border-radius: 0 3px 3px 0;
-}
-
-/* Form Check (Checkbox) */
-.form-check {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.form-check-inline {
-    display: inline-flex;
-    margin-right: 10px;
-}
-
-.form-check-input {
-    width: 14px;
-    height: 14px;
-    margin: 0;
-    cursor: pointer;
-}
-
-.form-check-label {
-    font-size: 13px;
-    cursor: pointer;
-    user-select: none;
-}
-
+/* Spacing utilities */
 .mb-0 {
     margin-bottom: 0;
 }
@@ -221,80 +98,21 @@ textarea.form-control {
     margin-top: 8px;
 }
 
-/* Buttons */
-.btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px 12px;
-    font-size: 13px;
-    border: 1px solid transparent;
-    border-radius: 3px;
-    cursor: pointer;
-}
-
-.btn-sm {
-    padding: 2px 8px;
-    font-size: 12px;
-}
-
-.btn-primary {
-    background-color: #007acc;
-    border-color: #007acc;
-    color: #fff;
-}
-
-.btn-primary:hover {
-    background-color: #005a9e;
-}
-
-.btn-danger {
-    background-color: #dc3545;
-    border-color: #dc3545;
-    color: #fff;
-}
-
-.btn-danger:hover {
-    background-color: #c82333;
-}
-
-/* Badge */
-.badge {
-    display: inline-block;
-    padding: 2px 6px;
-    font-size: 11px;
-    font-weight: 600;
-    border-radius: 3px;
-    color: #fff;
-}
-
-.bg-secondary {
-    background-color: #6c757d;
-}
-
-.bg-success {
-    background-color: #28a745;
-}
-
-.bg-danger {
-    background-color: #dc3545;
-}
-
-/* Text Colors */
+/* Text Colors using Shoelace variables */
 .text-success {
-    color: #28a745 !important;
+    color: var(--sl-color-success-600) !important;
 }
 
 .text-danger {
-    color: #dc3545 !important;
+    color: var(--sl-color-danger-600) !important;
 }
 
 .text-muted {
-    color: #6c757d !important;
+    color: var(--sl-color-neutral-500) !important;
 }
 
 .text-warning {
-    color: #856404 !important;
+    color: var(--sl-color-warning-600) !important;
 }
 
 /* Transfer Function Display */
@@ -319,15 +137,15 @@ textarea.form-control {
     padding: 4px 0;
     margin-bottom: 8px;
     font-size: 11px;
-    color: #666;
+    color: var(--sl-color-neutral-600);
     font-weight: 600;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--sl-color-neutral-200);
 }
 
 .slider-row {
     margin-bottom: 10px;
     padding-bottom: 10px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--sl-color-neutral-100);
 }
 
 .slider-row:last-child {
@@ -344,31 +162,26 @@ textarea.form-control {
     margin-bottom: 6px;
 }
 
-.slider-config input[type="text"],
-.slider-config input[type="number"] {
-    padding: 3px 6px;
-    font-size: 12px;
+/* Shoelace sl-input in slider config */
+.slider-config sl-input {
+    --sl-input-height-small: 26px;
 }
 
-.slider-config .form-check {
-    margin: 0;
+.slider-config sl-input::part(input) {
+    padding: 0 6px;
+}
+
+/* Shoelace sl-checkbox in slider config */
+.slider-config sl-checkbox {
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-.slider-config .form-check-input {
-    margin: 0;
-}
-
-.slider-config .form-check-label {
-    display: none;
-}
-
-.slider-config .remove-slider {
-    padding: 1px 5px;
-    font-size: 13px;
-    line-height: 1;
+/* Shoelace sl-icon-button for remove */
+.slider-config sl-icon-button {
+    font-size: 14px;
+    color: var(--sl-color-danger-600);
 }
 
 .slider-control {
@@ -377,36 +190,23 @@ textarea.form-control {
     gap: 8px;
 }
 
-.slider-range,
-.form-range {
+/* Shoelace sl-range in slider control */
+.slider-control sl-range {
     flex: 1;
-    height: 4px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: #ddd;
-    border-radius: 2px;
-    outline: none;
-}
 
-.slider-range::-webkit-slider-thumb,
-.form-range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 14px;
-    height: 14px;
-    background: #007acc;
-    border-radius: 50%;
-    cursor: pointer;
-}
+    /*
+      IMPORTANT:
+      Do NOT set `--sl-color-primary-600: var(--sl-color-primary-600);`
+      on the same element. That creates a cyclic custom-property reference
+      and effectively unsets the variable for this component, which can
+      make the thumb (knob) hard to see except during active interaction.
+    */
 
-.slider-range::-moz-range-thumb,
-.form-range::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    background: #007acc;
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
+    --thumb-size: 16px;
+
+    /* Ensure sufficient contrast even if theme variables change */
+    --track-color-active: var(--sl-color-primary-600);
+    --track-color-inactive: var(--sl-color-neutral-200);
 }
 
 .slider-value {
@@ -414,7 +214,7 @@ textarea.form-control {
     text-align: right;
     font-family: monospace;
     font-size: 12px;
-    color: #007acc;
+    color: var(--sl-color-primary-600);
 }
 
 /* Plot Wrapper */
@@ -433,18 +233,25 @@ textarea.form-control {
 /* Bode Plot Options */
 .bode-options {
     display: flex;
-    gap: 10px;
+    gap: 16px;
     padding: 6px 10px;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--sl-color-neutral-200);
 }
 
+/* Checkbox label colors for L(s) - cyan */
 .bode-label-L {
+    --sl-color-primary-600: #0088aa;
+}
+.bode-label-L::part(label) {
     color: #0088aa;
     font-weight: 600;
-    font-size: 13px;
 }
 
+/* Checkbox label colors for T(s) - orange */
 .bode-label-T {
+    --sl-color-primary-600: #dd6600;
+}
+.bode-label-T::part(label) {
     color: #dd6600;
     font-weight: 600;
     font-size: 13px;
@@ -453,21 +260,25 @@ textarea.form-control {
 /* Pole-Zero Plot Options */
 .pole-options {
     display: flex;
-    gap: 10px;
+    gap: 16px;
     padding: 6px 10px;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--sl-color-neutral-200);
 }
 
 .pole-label-L {
+    --sl-color-primary-600: #0088aa;
+}
+.pole-label-L::part(label) {
     color: #0088aa;
     font-weight: 600;
-    font-size: 13px;
 }
 
 .pole-label-T {
+    --sl-color-primary-600: #dd6600;
+}
+.pole-label-T::part(label) {
     color: #dd6600;
     font-weight: 600;
-    font-size: 13px;
 }
 
 /* Nyquist Plot Mapping Overlay */
@@ -490,6 +301,51 @@ textarea.form-control {
 #nyquist-wrapper,
 #narrow-nyquist-wrapper {
     position: relative;
+}
+
+.nyquist-s-value-overlay {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    font-size: 14px;
+    color: #0088aa;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 4px 8px;
+    border-radius: 4px;
+    pointer-events: none;
+    min-height: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.nyquist-s-value-overlay .katex {
+    font-size: 14px;
+}
+
+/* Nyquist Animation Controls */
+.nyquist-animation-controls {
+    position: absolute;
+    bottom: 8px;
+    left: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 4px 8px;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Shoelace sl-icon-button for play/pause */
+.nyquist-play-btn {
+    font-size: 1.2rem;
+    color: #0088aa;
+}
+
+/* Shoelace sl-range for seek bar */
+.nyquist-seek-bar {
+    width: 120px;
+    --sl-color-primary-600: #0088aa;
+    --thumb-size: 14px;
 }
 
 /* Stability Panel */
@@ -530,10 +386,9 @@ textarea.form-control {
     gap: 10px;
 }
 
-.freq-inputs .input-group {
+.freq-inputs sl-input {
     flex: 1;
 }
-
 
 /* Responsive adjustments for small panels */
 @media (max-width: 400px) {
@@ -541,12 +396,6 @@ textarea.form-control {
     .slider-config {
         grid-template-columns: 55px 50px 50px 32px 24px;
         gap: 4px;
-    }
-
-    .slider-config input[type="text"],
-    .slider-config input[type="number"] {
-        font-size: 11px;
-        padding: 2px 4px;
     }
 }
 
@@ -574,16 +423,16 @@ textarea.form-control {
     }
 
     .narrow-panel {
-        border-bottom: 1px solid #ddd;
+        border-bottom: 1px solid var(--sl-color-neutral-200);
     }
 
     .narrow-panel-header {
         padding: 8px 12px;
-        background-color: #f5f5f5;
+        background-color: var(--sl-color-neutral-100);
         font-size: 13px;
         font-weight: 600;
-        color: #333;
-        border-bottom: 1px solid #ddd;
+        color: var(--sl-color-neutral-900);
+        border-bottom: 1px solid var(--sl-color-neutral-200);
     }
 
     .narrow-panel .panel-content {
@@ -602,8 +451,8 @@ textarea.form-control {
 
     .narrow-plot-tabs {
         display: flex;
-        background-color: #f5f5f5;
-        border-bottom: 1px solid #ddd;
+        background-color: var(--sl-color-neutral-100);
+        border-bottom: 1px solid var(--sl-color-neutral-200);
     }
 
     .narrow-tab-btn {
@@ -613,19 +462,19 @@ textarea.form-control {
         background: transparent;
         font-size: 13px;
         font-weight: 600;
-        color: #666;
+        color: var(--sl-color-neutral-600);
         cursor: pointer;
         border-bottom: 2px solid transparent;
     }
 
     .narrow-tab-btn.active {
-        color: #007acc;
-        border-bottom-color: #007acc;
-        background-color: #fff;
+        color: var(--sl-color-primary-600);
+        border-bottom-color: var(--sl-color-primary-600);
+        background-color: var(--sl-color-neutral-0);
     }
 
     .narrow-tab-btn:not(.active):hover {
-        background-color: #e8e8e8;
+        background-color: var(--sl-color-neutral-200);
     }
 }
 

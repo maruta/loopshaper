@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LoopShaper</title>
 
+    <!-- Shoelace -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/light.css" />
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js"></script>
+
     <!-- Dockview CSS -->
     <link rel="stylesheet" href="https://unpkg.com/dockview-core@4.13.1/dist/styles/dockview.css">
 
@@ -21,14 +25,12 @@
             <span class="app-title">LoopShaper</span>
         </div>
         <div class="toolbar-right">
-            <div class="dropdown">
-                <button class="btn btn-sm btn-toolbar" id="btn-view-menu">
-                    View ▾
-                </button>
-                <div class="dropdown-menu" id="view-menu">
+            <sl-dropdown id="view-dropdown">
+                <sl-button slot="trigger" size="small" caret>View</sl-button>
+                <sl-menu id="view-menu">
                     <!-- Menu items will be populated by JavaScript -->
-                </div>
-            </div>
+                </sl-menu>
+            </sl-dropdown>
         </div>
     </div>
 
@@ -40,7 +42,7 @@
         <div class="narrow-panel">
             <div class="narrow-panel-header">System Definition</div>
             <div class="panel-content">
-                <textarea class="form-control font-monospace" id="narrow-field-code" rows="3" spellcheck="false"></textarea>
+                <sl-textarea id="narrow-field-code" rows="3" spellcheck="false" resize="auto" class="code-textarea"></sl-textarea>
                 <div class="tf-row mt-2">
                     <span id="narrow-eq-L-display" class="eq-display-inline"></span>
                 </div>
@@ -60,7 +62,7 @@
                     <span></span>
                 </div>
                 <div id="narrow-sliders-container"></div>
-                <button class="btn btn-sm btn-primary mt-2" id="narrow-btn-add-slider">+ Add</button>
+                <sl-button size="small" variant="primary" class="mt-2" id="narrow-btn-add-slider">+ Add</sl-button>
             </div>
         </div>
         <div class="narrow-panel">
@@ -71,14 +73,8 @@
             </div>
             <div class="panel-content panel-plot" id="narrow-tab-bode">
                 <div class="bode-options">
-                    <div class="form-check form-check-inline mb-0">
-                        <input class="form-check-input" type="checkbox" id="narrow-chk-show-L" checked>
-                        <label class="form-check-label bode-label-L" for="narrow-chk-show-L">&#9473; $L(s)$</label>
-                    </div>
-                    <div class="form-check form-check-inline mb-0">
-                        <input class="form-check-input" type="checkbox" id="narrow-chk-show-T" checked>
-                        <label class="form-check-label bode-label-T" for="narrow-chk-show-T">&#9473; $T(s)$</label>
-                    </div>
+                    <sl-checkbox id="narrow-chk-show-L" checked size="medium" class="bode-label-L">━ $L(s)$</sl-checkbox>
+                    <sl-checkbox id="narrow-chk-show-T" checked size="medium" class="bode-label-T">━ $T(s)$</sl-checkbox>
                 </div>
                 <div id="narrow-bode-wrapper" class="plot-wrapper narrow-plot-wrapper">
                     <canvas id="narrow-bode-canvas"></canvas>
@@ -86,14 +82,8 @@
             </div>
             <div class="panel-content panel-plot" id="narrow-tab-pole-zero" style="display: none;">
                 <div class="pole-options">
-                    <div class="form-check form-check-inline mb-0">
-                        <input class="form-check-input" type="checkbox" id="narrow-chk-show-L-pz" checked>
-                        <label class="form-check-label pole-label-L" for="narrow-chk-show-L-pz">L(s)</label>
-                    </div>
-                    <div class="form-check form-check-inline mb-0">
-                        <input class="form-check-input" type="checkbox" id="narrow-chk-show-T-pz" checked>
-                        <label class="form-check-label pole-label-T" for="narrow-chk-show-T-pz">T(s)</label>
-                    </div>
+                    <sl-checkbox id="narrow-chk-show-L-pz" checked size="medium" class="pole-label-L">L(s)</sl-checkbox>
+                    <sl-checkbox id="narrow-chk-show-T-pz" checked size="medium" class="pole-label-T">T(s)</sl-checkbox>
                 </div>
                 <div id="narrow-pole-wrapper" class="plot-wrapper narrow-plot-wrapper">
                     <canvas id="narrow-pole-canvas"></canvas>
@@ -106,6 +96,11 @@
                         <span class="nyquist-mapping-text">Compressed: </span>
                         <span id="narrow-nyquist-mapping-formula"></span>
                     </div>
+                    <div id="narrow-nyquist-s-value-overlay" class="nyquist-s-value-overlay"></div>
+                    <div class="nyquist-animation-controls">
+                        <sl-icon-button id="narrow-nyquist-play-btn" name="play-fill" label="Play/Pause" class="nyquist-play-btn"></sl-icon-button>
+                        <sl-range id="narrow-nyquist-seek-bar" min="0" max="1000" value="0" class="nyquist-seek-bar"></sl-range>
+                    </div>
                 </div>
             </div>
         </div>
@@ -114,7 +109,7 @@
             <div class="panel-content">
                 <div class="stability-header">
                     <span class="stability-label">Stability</span>
-                    <span id="narrow-stability-indicator" class="badge bg-secondary">--</span>
+                    <sl-badge id="narrow-stability-indicator" variant="neutral">--</sl-badge>
                 </div>
                 <div class="stability-info">
                     <div class="info-row">
@@ -147,7 +142,7 @@
     <!-- Panel Templates -->
     <template id="template-system-definition">
         <div class="panel-content">
-            <textarea class="form-control font-monospace" id="field-code" rows="3" spellcheck="false"></textarea>
+            <sl-textarea id="field-code" rows="3" spellcheck="false" resize="auto" class="code-textarea"></sl-textarea>
             <div class="tf-row mt-2">
                 <span id="eq-L-display" class="eq-display-inline"></span>
             </div>
@@ -167,21 +162,15 @@
                 <span></span>
             </div>
             <div id="sliders-container"></div>
-            <button class="btn btn-sm btn-primary mt-2" id="btn-add-slider">+ Add</button>
+            <sl-button size="small" variant="primary" class="mt-2" id="btn-add-slider">+ Add</sl-button>
         </div>
     </template>
 
     <template id="template-bode">
         <div class="panel-content panel-plot">
             <div class="bode-options">
-                <div class="form-check form-check-inline mb-0">
-                    <input class="form-check-input" type="checkbox" id="chk-show-L" checked>
-                    <label class="form-check-label bode-label-L" for="chk-show-L">&#9473; $L(s)$</label>
-                </div>
-                <div class="form-check form-check-inline mb-0">
-                    <input class="form-check-input" type="checkbox" id="chk-show-T" checked>
-                    <label class="form-check-label bode-label-T" for="chk-show-T">&#9473; $T(s)$</label>
-                </div>
+                <sl-checkbox id="chk-show-L" checked size="small" class="bode-label-L">━ $L(s)$</sl-checkbox>
+                <sl-checkbox id="chk-show-T" checked size="small" class="bode-label-T">━ $T(s)$</sl-checkbox>
             </div>
             <div id="bode-wrapper" class="plot-wrapper">
                 <canvas id="bode-canvas"></canvas>
@@ -193,7 +182,7 @@
         <div class="panel-content">
             <div class="stability-header">
                 <span class="stability-label">Stability</span>
-                <span id="stability-indicator" class="badge bg-secondary">--</span>
+                <sl-badge id="stability-indicator" variant="neutral">--</sl-badge>
             </div>
             <div class="stability-info">
                 <div class="info-row">
@@ -225,20 +214,11 @@
     <template id="template-frequency">
         <div class="panel-content">
             <div class="freq-header">
-                <div class="form-check mb-0">
-                    <input class="form-check-input" type="checkbox" id="chk-freq-auto" checked>
-                    <label class="form-check-label" for="chk-freq-auto">Auto</label>
-                </div>
+                <sl-checkbox id="chk-freq-auto" checked size="small">Auto</sl-checkbox>
             </div>
             <div class="freq-inputs">
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text">Min</span>
-                    <input type="number" class="form-control" id="field-freq-min" value="-2" step="0.5">
-                </div>
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text">Max</span>
-                    <input type="number" class="form-control" id="field-freq-max" value="3" step="0.5">
-                </div>
+                <sl-input type="number" id="field-freq-min" value="-2" step="0.5" size="small" label="Min"></sl-input>
+                <sl-input type="number" id="field-freq-max" value="3" step="0.5" size="small" label="Max"></sl-input>
             </div>
         </div>
     </template>
@@ -246,14 +226,8 @@
     <template id="template-pole-zero">
         <div class="panel-content panel-plot">
             <div class="pole-options">
-                <div class="form-check form-check-inline mb-0">
-                    <input class="form-check-input" type="checkbox" id="chk-show-L-pz" checked>
-                    <label class="form-check-label pole-label-L" for="chk-show-L-pz">L(s)</label>
-                </div>
-                <div class="form-check form-check-inline mb-0">
-                    <input class="form-check-input" type="checkbox" id="chk-show-T-pz" checked>
-                    <label class="form-check-label pole-label-T" for="chk-show-T-pz">T(s)</label>
-                </div>
+                <sl-checkbox id="chk-show-L-pz" checked size="small" class="pole-label-L">L(s)</sl-checkbox>
+                <sl-checkbox id="chk-show-T-pz" checked size="small" class="pole-label-T">T(s)</sl-checkbox>
             </div>
             <div id="pole-wrapper" class="plot-wrapper">
                 <canvas id="pole-canvas"></canvas>
@@ -268,6 +242,11 @@
                 <div class="nyquist-mapping-overlay">
                     <span class="nyquist-mapping-text">Compressed: </span>
                     <span id="nyquist-mapping-formula"></span>
+                </div>
+                <div id="nyquist-s-value-overlay" class="nyquist-s-value-overlay"></div>
+                <div class="nyquist-animation-controls">
+                    <sl-icon-button id="nyquist-play-btn" name="play-fill" label="Play/Pause" class="nyquist-play-btn"></sl-icon-button>
+                    <sl-range id="nyquist-seek-bar" min="0" max="1000" value="0" class="nyquist-seek-bar"></sl-range>
                 </div>
             </div>
         </div>

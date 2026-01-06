@@ -1,8 +1,101 @@
 // Nyquist plot drawing for loop shaping tool
 
+// Format a number for LaTeX display with appropriate precision
+function formatNumForLatex(x) {
+    const absX = Math.abs(x);
+    if (absX < 1e-6) return '0';
+    if (absX >= 1000) {
+        const exp = Math.floor(Math.log10(absX));
+        const mantissa = x / Math.pow(10, exp);
+        return `${mantissa.toFixed(2)} \\times 10^{${exp}}`;
+    }
+    if (absX >= 100) return x.toFixed(1);
+    if (absX >= 10) return x.toFixed(2);
+    if (absX >= 1) return x.toFixed(3);
+    if (absX >= 0.01) return x.toFixed(4);
+    const exp = Math.floor(Math.log10(absX));
+    const mantissa = x / Math.pow(10, exp);
+    return `${mantissa.toFixed(2)} \\times 10^{${exp}}`;
+}
+
+// Format s value as LaTeX string for KaTeX rendering
+// pointInfo contains: { s, indentation: { poleIm, theta } } or just { s }
+function formatSValueLatex(pointInfo) {
+    if (!pointInfo || !pointInfo.s) return '';
+
+    const s = pointInfo.s;
+    const indent = pointInfo.indentation;
+
+    // If this is an indentation point, show as: s = j*poleFreq + ε*exp(j*theta)
+    if (indent) {
+        const poleIm = indent.poleIm;
+        const theta = indent.theta;
+
+        // Format pole position
+        let poleStr;
+        if (Math.abs(poleIm) < 1e-9) {
+            poleStr = '0';  // Origin pole
+        } else {
+            const sign = poleIm >= 0 ? '' : '-';
+            poleStr = `${sign}j${formatNumForLatex(Math.abs(poleIm))}`;
+        }
+
+        // Format theta as fraction of pi
+        const thetaOverPi = theta / Math.PI;
+        let thetaStr;
+        if (Math.abs(thetaOverPi) < 0.001) {
+            thetaStr = '0';
+        } else if (Math.abs(thetaOverPi - 1) < 0.001) {
+            thetaStr = 'j\\pi';
+        } else if (Math.abs(thetaOverPi + 1) < 0.001) {
+            thetaStr = '-j\\pi';
+        } else if (Math.abs(thetaOverPi - 0.5) < 0.001) {
+            thetaStr = 'j\\frac{\\pi}{2}';
+        } else if (Math.abs(thetaOverPi + 0.5) < 0.001) {
+            thetaStr = '-j\\frac{\\pi}{2}';
+        } else {
+            // General case: show as decimal * pi
+            const sign = thetaOverPi >= 0 ? '' : '-';
+            thetaStr = `${sign}j${Math.abs(thetaOverPi).toFixed(2)}\\pi`;
+        }
+
+        if (Math.abs(poleIm) < 1e-9) {
+            // Origin pole: s = ε exp(jθ)
+            return `s = \\varepsilon \\exp(${thetaStr})`;
+        } else {
+            // Non-origin pole: s = j*poleFreq + ε exp(jθ)
+            return `s = ${poleStr} + \\varepsilon \\exp(${thetaStr})`;
+        }
+    }
+
+    // Regular point on imaginary axis: s = jω
+    const re = s.re;
+    const im = s.im;
+
+    if (Math.abs(re) < 1e-8) {
+        // Pure imaginary
+        if (Math.abs(im) < 1e-8) {
+            return 's = 0';
+        }
+        const sign = im >= 0 ? '' : '-';
+        return `s = ${sign}j${formatNumForLatex(Math.abs(im))}`;
+    }
+
+    // General case (should be rare in normal Nyquist)
+    const reStr = formatNumForLatex(re);
+    if (Math.abs(im) < 1e-8) {
+        return `s = ${reStr}`;
+    }
+    const sign = im >= 0 ? '+' : '-';
+    return `s = ${reStr} ${sign} j${formatNumForLatex(Math.abs(im))}`;
+}
+
 // Animation state
 let nyquistAnimationId = null;
 let nyquistAnimationProgress = 0;  // Progress as fraction (0 to 1), preserved across updates
+let nyquistAnimationPlaying = true;  // Whether animation is playing
+let nyquistAnimationData = null;  // Store current animation data for seeking
+let nyquistCurrentWrapperId = null;  // Current wrapper ID for UI updates
 
 // Compression radius (adjustable via mouse wheel)
 let nyquistCompressionRadius = 3;
@@ -150,10 +243,16 @@ function calculateNyquistData(Lcompiled, imagAxisPoles, R) {
 
     let posPoints = []; // Only strictly positive frequency points (and non-origin indentations)
 
-    // Helper to add a point
-    function addPointTo(targetArray, re, im) {
+    // Helper to add a point with s value and optional indentation info
+    // indentation: { poleIm, theta } for pole indentation points, or null for regular points
+    function addPointTo(targetArray, re, im, sValue, indentation) {
         const compressed = compressPoint(re, im, R);
-        targetArray.push({ x: re, y: im, cx: compressed.x, cy: compressed.y });
+        targetArray.push({
+            x: re, y: im,
+            cx: compressed.x, cy: compressed.y,
+            s: sValue,
+            indentation: indentation || null
+        });
     }
 
     // Sweep positive frequencies
@@ -166,9 +265,10 @@ function calculateNyquistData(Lcompiled, imagAxisPoles, R) {
                 // Skip w=0 if we don't have origin pole (handled separately) but allow close to 0
                 if (omega < 1e-9 && hasOriginPole) continue;
 
-                let Ljw = Lcompiled.evaluate({ 's': math.complex(0, omega) });
+                let sVal = math.complex(0, omega);
+                let Ljw = Lcompiled.evaluate({ 's': sVal });
                 if (typeof Ljw.re === 'number' && isFinite(Ljw.re) && isFinite(Ljw.im)) {
-                    addPointTo(posPoints, Ljw.re, Ljw.im);
+                    addPointTo(posPoints, Ljw.re, Ljw.im, sVal);
                 }
             } catch (e) { continue; }
         }
@@ -179,13 +279,14 @@ function calculateNyquistData(Lcompiled, imagAxisPoles, R) {
             const nIndentPoints = 30;
             for (let k = 0; k <= nIndentPoints; k++) {
                 let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
-                
+
                 let sReal = epsilon * Math.cos(theta);
                 let sImag = pFreq + epsilon * Math.sin(theta);
                 try {
-                    let Ls = Lcompiled.evaluate({ 's': math.complex(sReal, sImag) });
+                    let sVal = math.complex(sReal, sImag);
+                    let Ls = Lcompiled.evaluate({ 's': sVal });
                     if (typeof Ls.re === 'number' && isFinite(Ls.re) && isFinite(Ls.im)) {
-                        addPointTo(posPoints, Ls.re, Ls.im);
+                        addPointTo(posPoints, Ls.re, Ls.im, sVal, { poleIm: pFreq, theta: theta });
                     }
                 } catch (e) { continue; }
             }
@@ -197,7 +298,19 @@ function calculateNyquistData(Lcompiled, imagAxisPoles, R) {
     for (let i = posPoints.length - 1; i >= 0; i--) {
         let p = posPoints[i];
         const compressed = compressPoint(p.x, -p.y, R);
-        negPoints.push({ x: p.x, y: -p.y, cx: compressed.x, cy: compressed.y });
+        // s value is conjugate of the positive frequency s
+        const sConj = p.s ? math.complex(p.s.re, -p.s.im) : null;
+        // For indentation, conjugate the pole position and negate the theta
+        let indentConj = null;
+        if (p.indentation) {
+            indentConj = { poleIm: -p.indentation.poleIm, theta: -p.indentation.theta };
+        }
+        negPoints.push({
+            x: p.x, y: -p.y,
+            cx: compressed.x, cy: compressed.y,
+            s: sConj,
+            indentation: indentConj
+        });
     }
 
     // Origin indentation points
@@ -209,9 +322,10 @@ function calculateNyquistData(Lcompiled, imagAxisPoles, R) {
             let sReal = epsilon * Math.cos(theta);
             let sImag = epsilon * Math.sin(theta);
             try {
-                let Ls = Lcompiled.evaluate({ 's': math.complex(sReal, sImag) });
+                let sVal = math.complex(sReal, sImag);
+                let Ls = Lcompiled.evaluate({ 's': sVal });
                 if (typeof Ls.re === 'number' && isFinite(Ls.re) && isFinite(Ls.im)) {
-                    addPointTo(originPoints, Ls.re, Ls.im);
+                    addPointTo(originPoints, Ls.re, Ls.im, sVal, { poleIm: 0, theta: theta });
                 }
             } catch (e) { continue; }
         }
@@ -469,14 +583,39 @@ function getPointAtArcLength(points, cumulativeLength, targetLength) {
     const segmentLength = segmentEnd - segmentStart;
 
     if (segmentLength < 1e-10) {
-        return { cx: points[lo].cx, cy: points[lo].cy };
+        return {
+            cx: points[lo].cx,
+            cy: points[lo].cy,
+            s: points[lo].s,
+            indentation: points[lo].indentation
+        };
     }
 
     const t = (targetLength - segmentStart) / segmentLength;
     const cx = points[lo].cx + t * (points[hi].cx - points[lo].cx);
     const cy = points[lo].cy + t * (points[hi].cy - points[lo].cy);
 
-    return { cx, cy };
+    // Interpolate s value (complex number)
+    let s = null;
+    if (points[lo].s && points[hi].s) {
+        const sRe = points[lo].s.re + t * (points[hi].s.re - points[lo].s.re);
+        const sIm = points[lo].s.im + t * (points[hi].s.im - points[lo].s.im);
+        s = math.complex(sRe, sIm);
+    } else if (points[lo].s) {
+        s = points[lo].s;
+    }
+
+    // Interpolate indentation info (if both points have it with same pole)
+    let indentation = null;
+    if (points[lo].indentation && points[hi].indentation &&
+        Math.abs(points[lo].indentation.poleIm - points[hi].indentation.poleIm) < 1e-6) {
+        const theta = points[lo].indentation.theta + t * (points[hi].indentation.theta - points[lo].indentation.theta);
+        indentation = { poleIm: points[lo].indentation.poleIm, theta: theta };
+    } else if (points[lo].indentation) {
+        indentation = points[lo].indentation;
+    }
+
+    return { cx, cy, s, indentation };
 }
 
 // Start animation of moving point on the curve
@@ -490,12 +629,24 @@ function startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, c
 
     if (points.length < 2 || totalLength < 1e-10) return;
 
+    // Store animation data for seeking and UI updates
+    nyquistAnimationData = {
+        canvas, ctx, points, cumulativeLength, totalLength,
+        toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R
+    };
+    nyquistCurrentWrapperId = wrapperId;
+
     // Calculate speed to complete one cycle in approximately 3 seconds (180 frames at 60fps)
     const cycleDuration = 180;  // frames
     const speed = totalLength / cycleDuration;
 
     // Initialize current arc length from preserved progress (0 to 1 fraction)
     let currentArcLength = nyquistAnimationProgress * totalLength;
+
+    // Setup UI controls
+    setupNyquistAnimationControls(wrapperId);
+    updatePlayButtonIcon(wrapperId, nyquistAnimationPlaying);
+    updateSeekBar(wrapperId, nyquistAnimationProgress);
 
     function animate() {
         // Check if canvas is still valid and visible
@@ -512,63 +663,26 @@ function startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, c
         }
 
         try {
-            // Redraw the entire plot
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.scale(devicePixelRatio, devicePixelRatio);
+            // Get current arc length from global progress (may have been updated by seek bar)
+            currentArcLength = nyquistAnimationProgress * totalLength;
 
-            const width = canvas.width / devicePixelRatio;
-            const height = canvas.height / devicePixelRatio;
+            // Render current frame
+            renderNyquistFrame(canvas, ctx, points, cumulativeLength,
+                toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R, wrapperId, currentArcLength);
 
-            // Clear and redraw background
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, width, height);
+            // Update position based on arc length (uniform speed) only if playing
+            if (nyquistAnimationPlaying) {
+                currentArcLength += speed;
+                if (currentArcLength >= totalLength) {
+                    currentArcLength = currentArcLength - totalLength;
+                }
 
-            // Redraw grid
-            drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R);
+                // Update global progress (0 to 1 fraction) for preservation across updates
+                nyquistAnimationProgress = currentArcLength / totalLength;
 
-            // Redraw critical point
-            const criticalCompressed = compressPoint(-1, 0, R);
-            const criticalX = toCanvasX(criticalCompressed.x);
-            const criticalY = toCanvasY(criticalCompressed.y);
-            drawCriticalPoint(ctx, criticalX, criticalY);
-
-            // Redraw curve
-            drawNyquistCurve(ctx, points, toCanvasX, toCanvasY);
-
-            // Draw axis labels
-            ctx.fillStyle = '#333333';
-            ctx.font = '12px Consolas, monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText('Re', width - 30, centerY + 4);
-            ctx.fillText('Im', centerX, 35);
-
-            // Get interpolated point position at current arc length
-            const p = getPointAtArcLength(points, cumulativeLength, currentArcLength);
-            const px = toCanvasX(p.cx);
-            const py = toCanvasY(p.cy);
-
-            // Draw point with glow effect
-            ctx.beginPath();
-            ctx.arc(px, py, 8, 0, 2 * Math.PI);
-            ctx.fillStyle = 'rgba(0, 136, 170, 0.3)';
-            ctx.fill();
-
-            ctx.beginPath();
-            ctx.arc(px, py, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = '#0088aa';
-            ctx.fill();
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-
-            // Update position based on arc length (uniform speed)
-            currentArcLength += speed;
-            if (currentArcLength >= totalLength) {
-                currentArcLength = currentArcLength - totalLength;
+                // Update seek bar
+                updateSeekBar(wrapperId, nyquistAnimationProgress);
             }
-
-            // Update global progress (0 to 1 fraction) for preservation across updates
-            nyquistAnimationProgress = currentArcLength / totalLength;
 
             nyquistAnimationId = requestAnimationFrame(animate);
         } catch (e) {
@@ -581,11 +695,155 @@ function startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, c
     animate();
 }
 
+// Render a single frame of the Nyquist animation
+function renderNyquistFrame(canvas, ctx, points, cumulativeLength,
+    toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R, wrapperId, currentArcLength) {
+
+    // Redraw the entire plot
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+
+    const width = canvas.width / devicePixelRatio;
+    const height = canvas.height / devicePixelRatio;
+
+    // Clear and redraw background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    // Redraw grid
+    drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R);
+
+    // Redraw critical point
+    const criticalCompressed = compressPoint(-1, 0, R);
+    const criticalX = toCanvasX(criticalCompressed.x);
+    const criticalY = toCanvasY(criticalCompressed.y);
+    drawCriticalPoint(ctx, criticalX, criticalY);
+
+    // Redraw curve
+    drawNyquistCurve(ctx, points, toCanvasX, toCanvasY);
+
+    // Draw axis labels
+    ctx.fillStyle = '#333333';
+    ctx.font = '12px Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Re', width - 30, centerY + 4);
+    ctx.fillText('Im', centerX, 35);
+
+    // Get interpolated point position at current arc length
+    const p = getPointAtArcLength(points, cumulativeLength, currentArcLength);
+    const px = toCanvasX(p.cx);
+    const py = toCanvasY(p.cy);
+
+    // Draw point with glow effect
+    ctx.beginPath();
+    ctx.arc(px, py, 8, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(0, 136, 170, 0.3)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, 2 * Math.PI);
+    ctx.fillStyle = '#0088aa';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Display current s value using KaTeX overlay
+    const sOverlayId = wrapperId === 'narrow-nyquist-wrapper' ? 'narrow-nyquist-s-value-overlay' : 'nyquist-s-value-overlay';
+    const sOverlay = document.getElementById(sOverlayId);
+    if (sOverlay && p.s) {
+        const latexStr = formatSValueLatex({ s: p.s, indentation: p.indentation });
+        if (latexStr && typeof katex !== 'undefined') {
+            try {
+                katex.render(latexStr, sOverlay, { throwOnError: false });
+            } catch (e) {
+                sOverlay.textContent = latexStr;
+            }
+        }
+    }
+}
+
+// Setup play/pause button and seek bar event handlers
+function setupNyquistAnimationControls(wrapperId) {
+    const isNarrow = wrapperId === 'narrow-nyquist-wrapper';
+    const playBtnId = isNarrow ? 'narrow-nyquist-play-btn' : 'nyquist-play-btn';
+    const seekBarId = isNarrow ? 'narrow-nyquist-seek-bar' : 'nyquist-seek-bar';
+
+    const playBtn = document.getElementById(playBtnId);
+    const seekBar = document.getElementById(seekBarId);
+
+    if (playBtn && !playBtn._nyquistSetup) {
+        playBtn._nyquistSetup = true;
+        playBtn.addEventListener('click', () => {
+            nyquistAnimationPlaying = !nyquistAnimationPlaying;
+            updatePlayButtonIcon(wrapperId, nyquistAnimationPlaying);
+        });
+    }
+
+    if (seekBar && !seekBar._nyquistSetup) {
+        seekBar._nyquistSetup = true;
+
+        // Update progress when user drags the seek bar (Shoelace sl-range uses 'sl-input' event)
+        seekBar.addEventListener('sl-input', (e) => {
+            const value = parseFloat(e.target.value);
+            nyquistAnimationProgress = value / 1000;
+
+            // If paused, render the current frame immediately
+            if (!nyquistAnimationPlaying && nyquistAnimationData) {
+                const d = nyquistAnimationData;
+                const currentArcLength = nyquistAnimationProgress * d.totalLength;
+                renderNyquistFrame(d.canvas, d.ctx, d.points, d.cumulativeLength,
+                    d.toCanvasX, d.toCanvasY, d.centerX, d.centerY, d.scale, d.maxRadius, d.R,
+                    nyquistCurrentWrapperId, currentArcLength);
+            }
+        });
+    }
+}
+
+// Update play/pause button icon
+function updatePlayButtonIcon(wrapperId, isPlaying) {
+    const isNarrow = wrapperId === 'narrow-nyquist-wrapper';
+    const playBtnId = isNarrow ? 'narrow-nyquist-play-btn' : 'nyquist-play-btn';
+    const playBtn = document.getElementById(playBtnId);
+
+    if (playBtn) {
+        // Shoelace sl-icon-button uses 'name' attribute for icon
+        playBtn.name = isPlaying ? 'pause-fill' : 'play-fill';
+    }
+}
+
+// Update seek bar position
+function updateSeekBar(wrapperId, progress) {
+    const isNarrow = wrapperId === 'narrow-nyquist-wrapper';
+    const seekBarId = isNarrow ? 'narrow-nyquist-seek-bar' : 'nyquist-seek-bar';
+    const seekBar = document.getElementById(seekBarId);
+
+    if (seekBar && document.activeElement !== seekBar) {
+        seekBar.value = Math.round(progress * 1000);
+    }
+}
+
 // Stop animation
 function stopNyquistAnimation() {
     if (nyquistAnimationId !== null) {
         cancelAnimationFrame(nyquistAnimationId);
         nyquistAnimationId = null;
+    }
+}
+
+// Toggle play/pause (can be called externally)
+function toggleNyquistAnimation() {
+    nyquistAnimationPlaying = !nyquistAnimationPlaying;
+    if (nyquistCurrentWrapperId) {
+        updatePlayButtonIcon(nyquistCurrentWrapperId, nyquistAnimationPlaying);
+    }
+}
+
+// Seek to a specific position (0-1)
+function seekNyquistAnimation(progress) {
+    nyquistAnimationProgress = Math.max(0, Math.min(1, progress));
+    if (nyquistCurrentWrapperId) {
+        updateSeekBar(nyquistCurrentWrapperId, nyquistAnimationProgress);
     }
 }
 
