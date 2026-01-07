@@ -122,11 +122,11 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         pmin = clip(pminAll - pMargin, -1080, 1080);
         pmax = clip(pmaxAll + pMargin, -1080, 1080);
     } else {
-        // Fixed scale: gain -60 to 60 dB, phase -270 to 90 deg
-        gmin = -60;
-        gmax = 60;
-        pmin = -270;
-        pmax = 90;
+        // Use custom scale values if provided, otherwise use defaults
+        gmin = options.gainMin !== undefined ? options.gainMin : -60;
+        gmax = options.gainMax !== undefined ? options.gainMax : 60;
+        pmin = options.phaseMin !== undefined ? options.phaseMin : -270;
+        pmax = options.phaseMax !== undefined ? options.phaseMax : 90;
     }
 
     const leftMargin = 70;

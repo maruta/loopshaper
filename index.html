@@ -264,7 +264,31 @@
             <sl-menu-item type="checkbox" id="bode-opt-crossover-lines" value="crossover-lines" checked>Show crossover frequency lines</sl-menu-item>
             <sl-divider></sl-divider>
             <sl-menu-item type="checkbox" id="bode-opt-auto-scale" value="auto-scale" checked>Auto-scale vertical axis</sl-menu-item>
+            <div id="bode-custom-range-panel" class="bode-custom-range-panel" style="display: none;">
+                <div class="range-input-row">
+                    <span class="range-label">Gain [dB]:</span>
+                    <sl-input id="bode-gain-min" type="number" size="small" value="-60" class="range-input"></sl-input>
+                    <span class="range-separator">–</span>
+                    <sl-input id="bode-gain-max" type="number" size="small" value="60" class="range-input"></sl-input>
+                </div>
+                <div class="range-input-row">
+                    <span class="range-label">Phase [°]:</span>
+                    <sl-input id="bode-phase-min" type="number" size="small" value="-270" class="range-input"></sl-input>
+                    <span class="range-separator">–</span>
+                    <sl-input id="bode-phase-max" type="number" size="small" value="90" class="range-input"></sl-input>
+                </div>
+            </div>
+            <sl-divider></sl-divider>
             <sl-menu-item type="checkbox" id="bode-opt-auto-freq" value="auto-freq" checked>Auto frequency range</sl-menu-item>
+            <div id="bode-custom-freq-panel" class="bode-custom-range-panel" style="display: none;">
+                <div class="range-input-row">
+                    <span class="range-label">Freq [rad/s]:</span>
+                    <sl-input id="bode-freq-min" type="number" size="small" value="-2" class="range-input" step="0.5"></sl-input>
+                    <span class="range-separator">–</span>
+                    <sl-input id="bode-freq-max" type="number" size="small" value="3" class="range-input" step="0.5"></sl-input>
+                    <span class="range-unit">(10^x)</span>
+                </div>
+            </div>
         </sl-menu>
     </sl-popup>
 

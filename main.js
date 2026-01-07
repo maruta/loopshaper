@@ -32,7 +32,12 @@ let showTpz = true;  // Pole-Zero Map: show T(s)
 let bodeOptions = {
     showMarginLines: true,      // Show GM/PM lines
     showCrossoverLines: true,   // Show gain/phase crossover lines
-    autoScaleVertical: true     // Auto-scale vertical axis
+    autoScaleVertical: true,    // Auto-scale vertical axis
+    // Custom range values (used when autoScaleVertical is false)
+    gainMin: -60,
+    gainMax: 60,
+    phaseMin: -270,
+    phaseMax: 90
 };
 
 // Cached Nyquist analysis (evaluate L(s) once, reuse for both plot and stability info)
@@ -469,12 +474,64 @@ function setupBodeContextMenu() {
     const optCrossoverLines = document.getElementById('bode-opt-crossover-lines');
     const optAutoScale = document.getElementById('bode-opt-auto-scale');
     const optAutoFreq = document.getElementById('bode-opt-auto-freq');
+    const customRangePanel = document.getElementById('bode-custom-range-panel');
+    const gainMinInput = document.getElementById('bode-gain-min');
+    const gainMaxInput = document.getElementById('bode-gain-max');
+    const phaseMinInput = document.getElementById('bode-phase-min');
+    const phaseMaxInput = document.getElementById('bode-phase-max');
+    const customFreqPanel = document.getElementById('bode-custom-freq-panel');
+    const freqMinInput = document.getElementById('bode-freq-min');
+    const freqMaxInput = document.getElementById('bode-freq-max');
 
     // Initialize checkbox states
     if (optMarginLines) optMarginLines.checked = bodeOptions.showMarginLines;
     if (optCrossoverLines) optCrossoverLines.checked = bodeOptions.showCrossoverLines;
     if (optAutoScale) optAutoScale.checked = bodeOptions.autoScaleVertical;
     if (optAutoFreq) optAutoFreq.checked = autoFreq;
+
+    // Initialize custom range inputs and panel visibility
+    if (customRangePanel) {
+        customRangePanel.style.display = bodeOptions.autoScaleVertical ? 'none' : 'block';
+    }
+    if (gainMinInput) gainMinInput.value = bodeOptions.gainMin;
+    if (gainMaxInput) gainMaxInput.value = bodeOptions.gainMax;
+    if (phaseMinInput) phaseMinInput.value = bodeOptions.phaseMin;
+    if (phaseMaxInput) phaseMaxInput.value = bodeOptions.phaseMax;
+
+    // Initialize custom frequency range inputs and panel visibility
+    if (customFreqPanel) {
+        customFreqPanel.style.display = autoFreq ? 'none' : 'block';
+    }
+    if (freqMinInput) freqMinInput.value = design.freqMin;
+    if (freqMaxInput) freqMaxInput.value = design.freqMax;
+
+    // Setup gain/phase range input event listeners
+    [gainMinInput, gainMaxInput, phaseMinInput, phaseMaxInput].forEach(input => {
+        if (input && !input.dataset.listenerAttached) {
+            input.addEventListener('sl-change', () => {
+                bodeOptions.gainMin = parseFloat(gainMinInput.value) || -60;
+                bodeOptions.gainMax = parseFloat(gainMaxInput.value) || 60;
+                bodeOptions.phaseMin = parseFloat(phaseMinInput.value) || -270;
+                bodeOptions.phaseMax = parseFloat(phaseMaxInput.value) || 90;
+                updateBodePlot();
+            });
+            input.addEventListener('click', (e) => e.stopPropagation());
+            input.dataset.listenerAttached = 'true';
+        }
+    });
+
+    // Setup frequency range input event listeners
+    [freqMinInput, freqMaxInput].forEach(input => {
+        if (input && !input.dataset.listenerAttached) {
+            input.addEventListener('sl-change', () => {
+                design.freqMin = parseFloat(freqMinInput.value) || -2;
+                design.freqMax = parseFloat(freqMaxInput.value) || 3;
+                updateAll();
+            });
+            input.addEventListener('click', (e) => e.stopPropagation());
+            input.dataset.listenerAttached = 'true';
+        }
+    });
 
     // Show context menu on right-click
     bodeWrapper.addEventListener('contextmenu', (e) => {
@@ -535,11 +592,20 @@ function setupBodeContextMenu() {
                 bodeOptions.showCrossoverLines = item.checked;
             } else if (item.id === 'bode-opt-auto-scale') {
                 bodeOptions.autoScaleVertical = item.checked;
+                if (customRangePanel) {
+                    customRangePanel.style.display = item.checked ? 'none' : 'block';
+                }
             } else if (item.id === 'bode-opt-auto-freq') {
                 autoFreq = item.checked;
                 design.autoFreq = autoFreq;
+                if (customFreqPanel) {
+                    customFreqPanel.style.display = item.checked ? 'none' : 'block';
+                }
                 if (autoFreq) {
                     autoAdjustFrequencyRange();
+                } else {
+                    if (freqMinInput) freqMinInput.value = design.freqMin;
+                    if (freqMaxInput) freqMaxInput.value = design.freqMax;
                 }
             }
 
@@ -547,7 +613,7 @@ function setupBodeContextMenu() {
             contextMenu.active = false;
         });
 
-        // Keep the intended handler too (if sl-select is emitted)
+        // Fallback handler for sl-select event
         menuInner.addEventListener('sl-select', (e) => {
             const item = e.detail.item;
             if (!item) return;
@@ -560,11 +626,20 @@ function setupBodeContextMenu() {
                 bodeOptions.showCrossoverLines = item.checked;
             } else if (item.id === 'bode-opt-auto-scale') {
                 bodeOptions.autoScaleVertical = item.checked;
+                if (customRangePanel) {
+                    customRangePanel.style.display = item.checked ? 'none' : 'block';
+                }
             } else if (item.id === 'bode-opt-auto-freq') {
                 autoFreq = item.checked;
                 design.autoFreq = autoFreq;
+                if (customFreqPanel) {
+                    customFreqPanel.style.display = item.checked ? 'none' : 'block';
+                }
                 if (autoFreq) {
                     autoAdjustFrequencyRange();
+                } else {
+                    if (freqMinInput) freqMinInput.value = design.freqMin;
+                    if (freqMaxInput) freqMaxInput.value = design.freqMax;
                 }
             }
 
@@ -1098,7 +1173,11 @@ function updateBodePlot() {
         let margins = drawBodeMulti(transferFunctions, w, prefix + 'bode-wrapper', prefix + 'bode-canvas', {
             showMarginLines: bodeOptions.showMarginLines,
             showCrossoverLines: bodeOptions.showCrossoverLines,
-            autoScaleVertical: bodeOptions.autoScaleVertical
+            autoScaleVertical: bodeOptions.autoScaleVertical,
+            gainMin: bodeOptions.gainMin,
+            gainMax: bodeOptions.gainMax,
+            phaseMin: bodeOptions.phaseMin,
+            phaseMax: bodeOptions.phaseMax
         });
         window.lastMargins = margins;
 
