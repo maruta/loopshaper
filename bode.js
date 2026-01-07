@@ -107,17 +107,27 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     let wmin = math.log10(math.min(w));
     let wmax = math.log10(math.max(w));
 
-    // Use continuous values with small margin (5% of range or minimum 5 units)
-    // Clamp gain to ±80dB and phase to ±1080°
-    let gRange = gmaxAll - gminAll;
-    let gMargin = Math.max(5, gRange * 0.05);
-    let gmin = clip(gminAll - gMargin, -210, 210);
-    let gmax = clip(gmaxAll + gMargin, -210, 210);
+    let gmin, gmax, pmin, pmax;
 
-    let pRange = pmaxAll - pminAll;
-    let pMargin = Math.max(10, pRange * 0.05);
-    let pmin = clip(pminAll - pMargin, -1080, 1080);
-    let pmax = clip(pmaxAll + pMargin, -1080, 1080);
+    if (options.autoScaleVertical !== false) {
+        // Use continuous values with small margin (5% of range or minimum 5 units)
+        // Clamp gain to ±210dB and phase to ±1080°
+        let gRange = gmaxAll - gminAll;
+        let gMargin = Math.max(5, gRange * 0.05);
+        gmin = clip(gminAll - gMargin, -210, 210);
+        gmax = clip(gmaxAll + gMargin, -210, 210);
+
+        let pRange = pmaxAll - pminAll;
+        let pMargin = Math.max(10, pRange * 0.05);
+        pmin = clip(pminAll - pMargin, -1080, 1080);
+        pmax = clip(pmaxAll + pMargin, -1080, 1080);
+    } else {
+        // Fixed scale: gain -60 to 60 dB, phase -270 to 90 deg
+        gmin = -60;
+        gmax = 60;
+        pmin = -270;
+        pmax = 90;
+    }
 
     const leftMargin = 70;
     const rightMargin = 20;
@@ -170,31 +180,33 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         }
     }
 
-    // Draw gain crossover lines (only for L) - red
-    wgc.forEach((wc) => {
-        let x = w2x(math.log10(wc));
-        ctx.strokeStyle = '#333333';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(x, g2y(gmax));
-        ctx.lineTo(x, p2y(pmin));
-        ctx.stroke();
-        ctx.setLineDash([]);
-    });
+    // Draw gain crossover lines (only for L) - if enabled
+    if (options.showCrossoverLines !== false) {
+        wgc.forEach((wc) => {
+            let x = w2x(math.log10(wc));
+            ctx.strokeStyle = '#333333';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(x, g2y(gmax));
+            ctx.lineTo(x, p2y(pmin));
+            ctx.stroke();
+            ctx.setLineDash([]);
+        });
 
-    // Draw phase crossover lines (only for L) - blue
-    wpc.forEach((wc) => {
-        let x = w2x(math.log10(wc));
-        ctx.strokeStyle = '#0066cc';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(x, g2y(gmax));
-        ctx.lineTo(x, p2y(pmin));
-        ctx.stroke();
-        ctx.setLineDash([]);
-    });
+        // Draw phase crossover lines (only for L) - blue
+        wpc.forEach((wc) => {
+            let x = w2x(math.log10(wc));
+            ctx.strokeStyle = '#0066cc';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(x, g2y(gmax));
+            ctx.lineTo(x, p2y(pmin));
+            ctx.stroke();
+            ctx.setLineDash([]);
+        });
+    }
 
     // Axis labels
     ctx.fillStyle = options.textColor || '#333333';
@@ -336,38 +348,42 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
             }
         });
 
-        // Draw stability margin lines on the Bode plot
-        // Determine stability (all margins positive)
-        let isStable = gainMargins.every(gm => gm.margin > 0) && phaseMargins.every(pm => pm.margin > 0);
-        let marginColor = isStable ? '#000000' : '#cc0000';  // Black if stable, red if unstable
+        // Draw stability margin lines on the Bode plot - if enabled
+        if (options.showMarginLines !== false) {
+            // Determine stability (all margins positive)
+            let isStable = gainMargins.every(gm => gm.margin > 0) && phaseMargins.every(pm => pm.margin > 0);
 
-        ctx.save();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = marginColor;
+            // Only draw margin lines if the system is stable
+            if (isStable) {
+                ctx.save();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#000000';  // Black for stable system
 
-        // Draw gain margin lines (vertical lines from 0dB to gain at phase crossover)
-        gainMargins.forEach((gm) => {
-            let x = w2x(math.log10(gm.frequency));
-            let y0dB = g2y(0);
-            let yGain = g2y(gm.gainAtCrossover);
-            ctx.beginPath();
-            ctx.moveTo(x, y0dB);
-            ctx.lineTo(x, yGain);
-            ctx.stroke();
-        });
+                // Draw gain margin lines (vertical lines from 0dB to gain at phase crossover)
+                gainMargins.forEach((gm) => {
+                    let x = w2x(math.log10(gm.frequency));
+                    let y0dB = g2y(0);
+                    let yGain = g2y(gm.gainAtCrossover);
+                    ctx.beginPath();
+                    ctx.moveTo(x, y0dB);
+                    ctx.lineTo(x, yGain);
+                    ctx.stroke();
+                });
 
-        // Draw phase margin lines (vertical lines from phase at gain crossover to -180° reference)
-        phaseMargins.forEach((pm) => {
-            let x = w2x(math.log10(pm.frequency));
-            let yPhase = p2y(pm.phaseAtCrossover);
-            let yRef = p2y(pm.referencePhase);
-            ctx.beginPath();
-            ctx.moveTo(x, yPhase);
-            ctx.lineTo(x, yRef);
-            ctx.stroke();
-        });
+                // Draw phase margin lines (vertical lines from phase at gain crossover to -180° reference)
+                phaseMargins.forEach((pm) => {
+                    let x = w2x(math.log10(pm.frequency));
+                    let yPhase = p2y(pm.phaseAtCrossover);
+                    let yRef = p2y(pm.referencePhase);
+                    ctx.beginPath();
+                    ctx.moveTo(x, yPhase);
+                    ctx.lineTo(x, yRef);
+                    ctx.stroke();
+                });
 
-        ctx.restore();
+                ctx.restore();
+            }
+        }
     }
 
     return {

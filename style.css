@@ -125,8 +125,13 @@ sl-textarea.is-invalid::part(base) {
 }
 
 .eq-display-inline {
-    display: inline-block;
-    vertical-align: middle;
+    display: block;
+    text-align: center;
+    margin: 4px 0;
+}
+
+.eq-display-inline .katex {
+    font-size: 0.9em;
 }
 
 /* Slider Styles */
@@ -376,20 +381,6 @@ sl-textarea.is-invalid::part(base) {
     font-size: 13px;
 }
 
-/* Frequency Panel */
-.freq-header {
-    margin-bottom: 8px;
-}
-
-.freq-inputs {
-    display: flex;
-    gap: 10px;
-}
-
-.freq-inputs sl-input {
-    flex: 1;
-}
-
 /* Responsive adjustments for small panels */
 @media (max-width: 400px) {
     .slider-header,
@@ -476,5 +467,37 @@ sl-textarea.is-invalid::part(base) {
     .narrow-tab-btn:not(.active):hover {
         background-color: var(--sl-color-neutral-200);
     }
+}
+
+/* Context Menu */
+
+/* Anchor for sl-popup (moved to cursor position by JS) */
+.context-menu-anchor {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+#bode-context-menu {
+    /* Keep above Dockview (some overlays are transparent but still capture clicks). */
+    z-index: 2147483647 !important;
+    pointer-events: auto !important;
+}
+
+/* Primary: ensure the popup panel itself is above everything */
+#bode-context-menu::part(popup) {
+    z-index: 2147483647 !important;
+    pointer-events: auto !important;
+}
+
+#bode-context-menu-inner {
+    min-width: 220px;
+    background: var(--sl-color-neutral-0);
+    border: 1px solid var(--sl-color-neutral-200);
+    border-radius: var(--sl-border-radius-medium);
+    box-shadow: var(--sl-shadow-large);
 }
 

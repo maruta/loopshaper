@@ -211,17 +211,6 @@
         </div>
     </template>
 
-    <template id="template-frequency">
-        <div class="panel-content">
-            <div class="freq-header">
-                <sl-checkbox id="chk-freq-auto" checked size="small">Auto</sl-checkbox>
-            </div>
-            <div class="freq-inputs">
-                <sl-input type="number" id="field-freq-min" value="-2" step="0.5" size="small" label="Min"></sl-input>
-                <sl-input type="number" id="field-freq-max" value="3" step="0.5" size="small" label="Max"></sl-input>
-            </div>
-        </div>
-    </template>
 
     <template id="template-pole-zero">
         <div class="panel-content panel-plot">
@@ -264,6 +253,20 @@
 
     <!-- Pako (zlib) for URL compression -->
     <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+
+    <!-- Bode Plot Context Menu -->
+    <sl-popup id="bode-context-menu" placement="bottom-start" flip shift>
+        <!-- Invisible anchor that we move to the cursor position on right-click -->
+        <span id="bode-context-menu-anchor" slot="anchor" class="context-menu-anchor" aria-hidden="true"></span>
+
+        <sl-menu id="bode-context-menu-inner">
+            <sl-menu-item type="checkbox" id="bode-opt-margin-lines" value="margin-lines" checked>Show stability margin lines</sl-menu-item>
+            <sl-menu-item type="checkbox" id="bode-opt-crossover-lines" value="crossover-lines" checked>Show crossover frequency lines</sl-menu-item>
+            <sl-divider></sl-divider>
+            <sl-menu-item type="checkbox" id="bode-opt-auto-scale" value="auto-scale" checked>Auto-scale vertical axis</sl-menu-item>
+            <sl-menu-item type="checkbox" id="bode-opt-auto-freq" value="auto-freq" checked>Auto frequency range</sl-menu-item>
+        </sl-menu>
+    </sl-popup>
 
     <!-- Custom JS -->
     <script src="utils.js"></script>

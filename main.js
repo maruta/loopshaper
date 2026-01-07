@@ -28,6 +28,13 @@ let autoFreq = true;
 let showLpz = true;  // Pole-Zero Map: show L(s)
 let showTpz = true;  // Pole-Zero Map: show T(s)
 
+// Bode plot display options
+let bodeOptions = {
+    showMarginLines: true,      // Show GM/PM lines
+    showCrossoverLines: true,   // Show gain/phase crossover lines
+    autoScaleVertical: true     // Auto-scale vertical axis
+};
+
 // Cached Nyquist analysis (evaluate L(s) once, reuse for both plot and stability info)
 window.lastNyquistAnalysis = null;
 window.lastNyquistAnalysisKey = null;
@@ -43,7 +50,6 @@ const PANEL_DEFINITIONS = [
     { id: 'parameters', component: 'parameters', title: 'Parameters' },
     { id: 'bode', component: 'bode', title: 'Bode Plot' },
     { id: 'stability', component: 'stability', title: 'Stability' },
-    { id: 'frequency', component: 'frequency', title: 'Frequency Range' },
     { id: 'pole-zero', component: 'pole-zero', title: 'Pole-Zero Map' },
     { id: 'nyquist', component: 'nyquist', title: 'Nyquist Plot' }
 ];
@@ -180,19 +186,11 @@ function createDefaultLayout() {
         position: { referencePanel: 'system-definition', direction: 'right' }
     });
 
-    // Add frequency first, then parameters on top (so parameters is the active tab)
-    dockviewApi.addPanel({
-        id: 'frequency',
-        component: 'frequency',
-        title: 'Frequency Range',
-        position: { referencePanel: 'system-definition', direction: 'below' },
-    });
-
     dockviewApi.addPanel({
         id: 'parameters',
         component: 'parameters',
         title: 'Parameters',
-        position: { referencePanel: 'frequency', direction: 'within' },  // Tab with Frequency, Parameters becomes active
+        position: { referencePanel: 'system-definition', direction: 'below' },
     });
 
     // Bottom right: Stability + Pole-Zero Map
@@ -200,7 +198,7 @@ function createDefaultLayout() {
         id: 'stability',
         component: 'stability',
         title: 'Stability',
-        position: { referencePanel: 'frequency', direction: 'below' },
+        position: { referencePanel: 'parameters', direction: 'below' },
     });
 
     dockviewApi.addPanel({
@@ -223,12 +221,12 @@ function createDefaultLayout() {
         try {
             // Set System Definition to a smaller height
             const sysDefPanel = dockviewApi.getPanel('system-definition');
-            const freqPanel = dockviewApi.getPanel('frequency');
             if (sysDefPanel && sysDefPanel.api) {
                 sysDefPanel.api.setSize({ height: 280 });
             }
-            if (freqPanel && freqPanel.api) {
-                freqPanel.api.setSize({ height: 220 });
+            const paramsPanel = dockviewApi.getPanel('parameters');
+            if (paramsPanel && paramsPanel.api) {
+                paramsPanel.api.setSize({ height: 220 });
             }
         } catch (e) {
             // Panel size adjustment may fail during layout changes
@@ -335,20 +333,11 @@ function initializeUI() {
         codeField.value = design.code;
     }
 
-    // Frequency fields only exist in wide layout
+    // Apply auto frequency range setting
+    autoFreq = design.autoFreq !== undefined ? design.autoFreq : true;
+
+    // Wide layout only settings
     if (!isNarrowLayout) {
-        const freqMinField = document.getElementById('field-freq-min');
-        const freqMaxField = document.getElementById('field-freq-max');
-        if (freqMinField) freqMinField.value = design.freqMin;
-        if (freqMaxField) freqMaxField.value = design.freqMax;
-
-        // Apply auto frequency range setting
-        autoFreq = design.autoFreq !== undefined ? design.autoFreq : true;
-        const chkAuto = document.getElementById('chk-freq-auto');
-        if (chkAuto) chkAuto.checked = autoFreq;
-        if (freqMinField) freqMinField.disabled = autoFreq;
-        if (freqMaxField) freqMaxField.disabled = autoFreq;
-
         // Apply Pole-Zero Map visibility settings
         showLpz = design.showLpz !== undefined ? design.showLpz : true;
         showTpz = design.showTpz !== undefined ? design.showTpz : true;
@@ -411,37 +400,6 @@ function setupEventListeners() {
 
     // Wide layout only elements
     if (!isNarrowLayout) {
-        const freqMinField = document.getElementById('field-freq-min');
-        const freqMaxField = document.getElementById('field-freq-max');
-
-        // Shoelace sl-input uses 'sl-input' event
-        if (freqMinField && !freqMinField.dataset.listenerAttached) {
-            freqMinField.addEventListener('sl-input', debounceUpdate);
-            freqMinField.dataset.listenerAttached = 'true';
-        }
-        if (freqMaxField && !freqMaxField.dataset.listenerAttached) {
-            freqMaxField.addEventListener('sl-input', debounceUpdate);
-            freqMaxField.dataset.listenerAttached = 'true';
-        }
-
-        // Auto frequency range checkbox (Shoelace sl-checkbox uses 'sl-change' event)
-        const chkAuto = document.getElementById('chk-freq-auto');
-        if (chkAuto && !chkAuto.dataset.listenerAttached) {
-            chkAuto.addEventListener('sl-change', function() {
-                autoFreq = this.checked;
-                design.autoFreq = autoFreq;
-                const freqMinEl = document.getElementById('field-freq-min');
-                const freqMaxEl = document.getElementById('field-freq-max');
-                if (freqMinEl) freqMinEl.disabled = autoFreq;
-                if (freqMaxEl) freqMaxEl.disabled = autoFreq;
-                if (autoFreq) {
-                    autoAdjustFrequencyRange();
-                }
-                updateAll();
-            });
-            chkAuto.dataset.listenerAttached = 'true';
-        }
-
         // Pole-Zero Map visibility checkboxes (Shoelace sl-checkbox uses 'sl-change' event)
         const chkLpz = document.getElementById('chk-show-L-pz');
         const chkTpz = document.getElementById('chk-show-T-pz');
@@ -489,6 +447,133 @@ function setupEventListeners() {
         });
         resizeListenerAttached = true;
     }
+
+    // Bode plot context menu
+    setupBodeContextMenu();
+}
+
+function setupBodeContextMenu() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const bodeWrapper = document.getElementById(prefix + 'bode-wrapper');
+    const contextMenu = document.getElementById('bode-context-menu');
+    const contextAnchor = document.getElementById('bode-context-menu-anchor');
+
+    if (!bodeWrapper || !contextMenu || !contextAnchor) return;
+
+    // Prevent duplicate listeners
+    if (bodeWrapper.dataset.contextMenuAttached) return;
+    bodeWrapper.dataset.contextMenuAttached = 'true';
+
+    // Context menu items
+    const optMarginLines = document.getElementById('bode-opt-margin-lines');
+    const optCrossoverLines = document.getElementById('bode-opt-crossover-lines');
+    const optAutoScale = document.getElementById('bode-opt-auto-scale');
+    const optAutoFreq = document.getElementById('bode-opt-auto-freq');
+
+    // Initialize checkbox states
+    if (optMarginLines) optMarginLines.checked = bodeOptions.showMarginLines;
+    if (optCrossoverLines) optCrossoverLines.checked = bodeOptions.showCrossoverLines;
+    if (optAutoScale) optAutoScale.checked = bodeOptions.autoScaleVertical;
+    if (optAutoFreq) optAutoFreq.checked = autoFreq;
+
+    // Show context menu on right-click
+    bodeWrapper.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+
+        // sl-popup positions relative to its anchor via Floating UI.
+        // Move the (invisible) anchor to the cursor and ask sl-popup to reposition.
+        contextAnchor.style.left = e.clientX + 'px';
+        contextAnchor.style.top = e.clientY + 'px';
+
+        // Use a fixed strategy so coordinates are relative to the viewport.
+        contextMenu.strategy = 'fixed';
+        contextMenu.active = true;
+
+        // Ensure the floating UI run happens after the anchor style updates.
+        requestAnimationFrame(() => {
+            if (typeof contextMenu.reposition === 'function') {
+                contextMenu.reposition();
+            }
+        });
+    });
+
+    // Hide context menu when clicking elsewhere
+    document.addEventListener('click', (e) => {
+        if (!contextMenu.active) return;
+
+        // Use composedPath() so clicks inside the popup (shadow DOM) are treated as "inside".
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
+
+        const clickedInside =
+            (popupPart ? path.includes(popupPart) : false) ||
+            path.includes(contextMenu) ||
+            contextMenu.contains(e.target);
+
+        if (!clickedInside) {
+            contextMenu.active = false;
+        }
+    }, { capture: true });
+
+    // Handle menu item selection
+    // NOTE: In some environments, <sl-menu> may not emit sl-select reliably.
+    // We handle direct clicks as a fallback.
+    const menuInner = document.getElementById('bode-context-menu-inner');
+    if (menuInner && !menuInner.dataset.listenerAttached) {
+        menuInner.addEventListener('click', (e) => {
+            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+            const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
+            if (!item) return;
+
+            // Toggle the checkbox state
+            item.checked = !item.checked;
+
+            // Update options based on which item was clicked
+            if (item.id === 'bode-opt-margin-lines') {
+                bodeOptions.showMarginLines = item.checked;
+            } else if (item.id === 'bode-opt-crossover-lines') {
+                bodeOptions.showCrossoverLines = item.checked;
+            } else if (item.id === 'bode-opt-auto-scale') {
+                bodeOptions.autoScaleVertical = item.checked;
+            } else if (item.id === 'bode-opt-auto-freq') {
+                autoFreq = item.checked;
+                design.autoFreq = autoFreq;
+                if (autoFreq) {
+                    autoAdjustFrequencyRange();
+                }
+            }
+
+            updateBodePlot();
+            contextMenu.active = false;
+        });
+
+        // Keep the intended handler too (if sl-select is emitted)
+        menuInner.addEventListener('sl-select', (e) => {
+            const item = e.detail.item;
+            if (!item) return;
+
+            item.checked = !item.checked;
+
+            if (item.id === 'bode-opt-margin-lines') {
+                bodeOptions.showMarginLines = item.checked;
+            } else if (item.id === 'bode-opt-crossover-lines') {
+                bodeOptions.showCrossoverLines = item.checked;
+            } else if (item.id === 'bode-opt-auto-scale') {
+                bodeOptions.autoScaleVertical = item.checked;
+            } else if (item.id === 'bode-opt-auto-freq') {
+                autoFreq = item.checked;
+                design.autoFreq = autoFreq;
+                if (autoFreq) {
+                    autoAdjustFrequencyRange();
+                }
+            }
+
+            updateBodePlot();
+            contextMenu.active = false;
+        });
+
+        menuInner.dataset.listenerAttached = 'true';
+    }
 }
 
 function debounceUpdate() {
@@ -506,14 +591,6 @@ function saveDesign() {
     const codeField = document.getElementById(prefix + 'field-code');
 
     if (codeField) design.code = codeField.value;
-
-    // Frequency fields only exist in wide layout
-    if (!isNarrowLayout) {
-        const freqMinField = document.getElementById('field-freq-min');
-        const freqMaxField = document.getElementById('field-freq-max');
-        if (freqMinField) design.freqMin = parseFloat(freqMinField.value) || -2;
-        if (freqMaxField) design.freqMax = parseFloat(freqMaxField.value) || 3;
-    }
 }
 
 function rebuildSliders() {
@@ -1018,7 +1095,11 @@ function updateBodePlot() {
 
         // Draw Bode plot with multiple transfer functions
         const prefix = isNarrowLayout ? 'narrow-' : '';
-        let margins = drawBodeMulti(transferFunctions, w, prefix + 'bode-wrapper', prefix + 'bode-canvas');
+        let margins = drawBodeMulti(transferFunctions, w, prefix + 'bode-wrapper', prefix + 'bode-canvas', {
+            showMarginLines: bodeOptions.showMarginLines,
+            showCrossoverLines: bodeOptions.showCrossoverLines,
+            autoScaleVertical: bodeOptions.autoScaleVertical
+        });
         window.lastMargins = margins;
 
     } catch (e) {
@@ -2036,12 +2117,6 @@ function autoAdjustFrequencyRange() {
             }
         }
 
-        // Update UI
-        const freqMinField = document.getElementById('field-freq-min');
-        const freqMaxField = document.getElementById('field-freq-max');
-        if (freqMinField) freqMinField.value = design.freqMin;
-        if (freqMaxField) freqMaxField.value = design.freqMax;
-
     } catch (e) {
         console.log('Auto frequency range error:', e);
     }
@@ -2241,21 +2316,15 @@ function openPanel(panelId) {
         if (isPanelOpen('bode')) {
             options.position = { referencePanel: 'bode', direction: 'left' };
         }
-    } else if (panelId === 'parameters' || panelId === 'frequency') {
-        // Parameters/Frequency: tab together or below System Definition
-        if (isPanelOpen('parameters') && panelId === 'frequency') {
-            options.position = { referencePanel: 'parameters', direction: 'within' };
-        } else if (isPanelOpen('frequency') && panelId === 'parameters') {
-            options.position = { referencePanel: 'frequency', direction: 'within' };
-        } else if (isPanelOpen('system-definition')) {
+    } else if (panelId === 'parameters') {
+        // Parameters: below System Definition
+        if (isPanelOpen('system-definition')) {
             options.position = { referencePanel: 'system-definition', direction: 'below' };
         }
     } else if (panelId === 'stability') {
         // Stability: below parameters or left of pole-zero
         if (isPanelOpen('parameters')) {
             options.position = { referencePanel: 'parameters', direction: 'below' };
-        } else if (isPanelOpen('frequency')) {
-            options.position = { referencePanel: 'frequency', direction: 'below' };
         } else if (isPanelOpen('pole-zero')) {
             options.position = { referencePanel: 'pole-zero', direction: 'left' };
         }
