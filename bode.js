@@ -311,8 +311,9 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
             for (let i = 0; i < N - 1; i++) {
                 if (w[i] <= wc && w[i + 1] >= wc) {
                     let ratio = (wc - w[i]) / (w[i + 1] - w[i]);
-                    let gm = -(firstData.gain[i] + ratio * (firstData.gain[i + 1] - firstData.gain[i]));
-                    gainMargins.push({ frequency: wc, margin: gm });
+                    let gainAtWpc = firstData.gain[i] + ratio * (firstData.gain[i + 1] - firstData.gain[i]);
+                    let gm = -gainAtWpc;
+                    gainMargins.push({ frequency: wc, margin: gm, gainAtCrossover: gainAtWpc });
                     break;
                 }
             }
@@ -327,11 +328,46 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
                     // Normalize phase relative to -180 + n*360 to get correct PM
                     let n = Math.round((phase + 180) / 360);
                     let pm = 180 + phase - n * 360;
-                    phaseMargins.push({ frequency: wc, margin: pm });
+                    // Find the reference -180 line for this phase
+                    let refPhase = n * 360 - 180;
+                    phaseMargins.push({ frequency: wc, margin: pm, phaseAtCrossover: phase, referencePhase: refPhase });
                     break;
                 }
             }
         });
+
+        // Draw stability margin lines on the Bode plot
+        // Determine stability (all margins positive)
+        let isStable = gainMargins.every(gm => gm.margin > 0) && phaseMargins.every(pm => pm.margin > 0);
+        let marginColor = isStable ? '#000000' : '#cc0000';  // Black if stable, red if unstable
+
+        ctx.save();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = marginColor;
+
+        // Draw gain margin lines (vertical lines from 0dB to gain at phase crossover)
+        gainMargins.forEach((gm) => {
+            let x = w2x(math.log10(gm.frequency));
+            let y0dB = g2y(0);
+            let yGain = g2y(gm.gainAtCrossover);
+            ctx.beginPath();
+            ctx.moveTo(x, y0dB);
+            ctx.lineTo(x, yGain);
+            ctx.stroke();
+        });
+
+        // Draw phase margin lines (vertical lines from phase at gain crossover to -180° reference)
+        phaseMargins.forEach((pm) => {
+            let x = w2x(math.log10(pm.frequency));
+            let yPhase = p2y(pm.phaseAtCrossover);
+            let yRef = p2y(pm.referencePhase);
+            ctx.beginPath();
+            ctx.moveTo(x, yPhase);
+            ctx.lineTo(x, yRef);
+            ctx.stroke();
+        });
+
+        ctx.restore();
     }
 
     return {

@@ -1815,21 +1815,60 @@ function updateMargins() {
 
     if (!gmDisplay || !pmDisplay) return;
 
+    // Check overall stability (all margins positive)
+    let allGmPositive = margins.gainMargins.every(gm => gm.margin > 0);
+    let allPmPositive = margins.phaseMargins.every(pm => pm.margin > 0);
+    let isStable = allGmPositive && allPmPositive;
+
+    // Helper function to format margin list
+    function formatMarginList(marginList, unit, formatMargin, formatFreq) {
+        if (marginList.length === 0) return null;
+
+        // Sort: stable -> by margin ascending, unstable -> by frequency ascending
+        let sorted;
+        if (isStable) {
+            sorted = [...marginList].sort((a, b) => a.margin - b.margin);
+        } else {
+            sorted = [...marginList].sort((a, b) => a.frequency - b.frequency);
+        }
+
+        // Take up to 3
+        let display = sorted.slice(0, 3);
+        let hasMore = sorted.length > 3;
+
+        let parts = display.map(m => formatMargin(m.margin) + ' ' + unit + ' @ ' + formatFreq(m.frequency) + ' rad/s');
+        let result = parts.join(', ');
+        if (hasMore) {
+            result += ', …';
+        }
+        return result;
+    }
+
+    // Gain margin display
     if (margins.gainMargins.length > 0) {
-        let gm = margins.gainMargins[0];
-        let gmStr = gm.margin.toFixed(2) + ' dB @ ' + gm.frequency.toFixed(3) + ' rad/s';
+        let gmStr = formatMarginList(
+            margins.gainMargins,
+            'dB',
+            (m) => m.toFixed(2),
+            (f) => f.toFixed(3)
+        );
         gmDisplay.textContent = gmStr;
-        gmDisplay.className = gm.margin > 0 ? 'text-success' : 'text-danger';
+        gmDisplay.className = allGmPositive ? 'text-success' : 'text-danger';
     } else {
-        gmDisplay.textContent = '\u221e';
+        gmDisplay.textContent = '∞';
         gmDisplay.className = 'text-success';
     }
 
+    // Phase margin display
     if (margins.phaseMargins.length > 0) {
-        let pm = margins.phaseMargins[0];
-        let pmStr = pm.margin.toFixed(2) + ' deg @ ' + pm.frequency.toFixed(3) + ' rad/s';
+        let pmStr = formatMarginList(
+            margins.phaseMargins,
+            'deg',
+            (m) => m.toFixed(2),
+            (f) => f.toFixed(3)
+        );
         pmDisplay.textContent = pmStr;
-        pmDisplay.className = pm.margin > 0 ? 'text-success' : 'text-danger';
+        pmDisplay.className = allPmPositive ? 'text-success' : 'text-danger';
     } else {
         pmDisplay.textContent = 'N/A';
         pmDisplay.className = 'text-muted';
