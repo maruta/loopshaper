@@ -4,12 +4,21 @@
 // transferFunctions: array of { compiled, gainColor, phaseColor, visible }
 function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     options = options || {};
-    let wrapper = document.getElementById(wrapperId);
-    let canvas = document.getElementById(canvasId);
-    let ctx = canvas.getContext("2d");
+    const wrapper = document.getElementById(wrapperId);
+    const canvas = document.getElementById(canvasId);
+
+    // During Dockview drag/layout transitions, panels can be temporarily detached.
+    // Guard against null elements to avoid exceptions that can freeze the tab.
+    if (!wrapper || !canvas) return null;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
 
     const height = wrapper.clientHeight;
     const width = wrapper.clientWidth;
+
+    // If the panel is hidden/collapsed, avoid resizing/drawing.
+    if (!width || !height) return null;
 
     canvas.height = height * devicePixelRatio;
     canvas.width = width * devicePixelRatio;

@@ -286,6 +286,57 @@ sl-textarea.is-invalid::part(base) {
     font-weight: 600;
 }
 
+/* Step Response Plot Options */
+.step-options {
+    display: flex;
+    gap: 16px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--sl-color-neutral-200);
+    align-items: center;
+}
+
+.step-label-L {
+    --sl-color-primary-600: #0088aa;
+}
+.step-label-L::part(label) {
+    color: #0088aa;
+    font-weight: 600;
+}
+
+.step-label-T {
+    --sl-color-primary-600: #dd6600;
+}
+.step-label-T::part(label) {
+    color: #dd6600;
+    font-weight: 600;
+}
+
+.step-time-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.step-time-label {
+    font-size: 12px;
+    color: var(--sl-color-neutral-600);
+}
+
+.step-time-input {
+    width: 70px;
+}
+
+.step-time-input::part(input) {
+    text-align: right;
+    padding: 0 6px;
+}
+
+.step-time-unit {
+    font-size: 12px;
+    color: var(--sl-color-neutral-500);
+}
+
 /* Nyquist Plot Mapping Overlay */
 .nyquist-mapping-overlay {
     position: absolute;
@@ -312,14 +363,11 @@ sl-textarea.is-invalid::part(base) {
     position: absolute;
     top: 8px;
     left: 10px;
-    font-size: 14px;
-    color: #0088aa;
-    background: rgba(255, 255, 255, 0.9);
-    padding: 4px 8px;
-    border-radius: 4px;
+    font-size: 13px;
+    color: #333333;
     pointer-events: none;
     min-height: 20px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    line-height: 1.5;
 }
 
 .nyquist-s-value-overlay .katex {
@@ -351,6 +399,25 @@ sl-textarea.is-invalid::part(base) {
     width: 120px;
     --sl-color-primary-600: #0088aa;
     --thumb-size: 14px;
+}
+
+/* Speed button */
+.nyquist-speed-btn {
+    font-size: 11px;
+    font-family: Consolas, monospace;
+    color: #0088aa;
+    background: transparent;
+    border: 1px solid #0088aa;
+    border-radius: 3px;
+    padding: 2px 6px;
+    cursor: pointer;
+    min-width: 36px;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.nyquist-speed-btn:hover {
+    background: #0088aa;
+    color: #ffffff;
 }
 
 /* Stability Panel */

@@ -70,6 +70,7 @@
                 <button class="narrow-tab-btn active" data-tab="bode">Bode</button>
                 <button class="narrow-tab-btn" data-tab="pole-zero">Pole-Zero</button>
                 <button class="narrow-tab-btn" data-tab="nyquist">Nyquist</button>
+                <button class="narrow-tab-btn" data-tab="step">Step</button>
             </div>
             <div class="panel-content panel-plot" id="narrow-tab-bode">
                 <div class="bode-options">
@@ -100,7 +101,22 @@
                     <div class="nyquist-animation-controls">
                         <sl-icon-button id="narrow-nyquist-play-btn" name="play-fill" label="Play/Pause" class="nyquist-play-btn"></sl-icon-button>
                         <sl-range id="narrow-nyquist-seek-bar" min="0" max="1000" value="0" class="nyquist-seek-bar"></sl-range>
+                        <button id="narrow-nyquist-speed-btn" class="nyquist-speed-btn">1x</button>
                     </div>
+                </div>
+            </div>
+            <div class="panel-content panel-plot" id="narrow-tab-step" style="display: none;">
+                <div class="step-options">
+                    <sl-checkbox id="narrow-chk-show-L-step" size="medium" class="step-label-L">━ L(s)</sl-checkbox>
+                    <sl-checkbox id="narrow-chk-show-T-step" checked size="medium" class="step-label-T">━ T(s)</sl-checkbox>
+                    <div class="step-time-control">
+                        <span class="step-time-label">Time:</span>
+                        <sl-input id="narrow-step-time-max" type="number" size="small" value="10" min="0.1" step="any" class="step-time-input"></sl-input>
+                        <span class="step-time-unit">s</span>
+                    </div>
+                </div>
+                <div id="narrow-step-wrapper" class="plot-wrapper narrow-plot-wrapper">
+                    <canvas id="narrow-step-canvas"></canvas>
                 </div>
             </div>
         </div>
@@ -236,7 +252,25 @@
                 <div class="nyquist-animation-controls">
                     <sl-icon-button id="nyquist-play-btn" name="play-fill" label="Play/Pause" class="nyquist-play-btn"></sl-icon-button>
                     <sl-range id="nyquist-seek-bar" min="0" max="1000" value="0" class="nyquist-seek-bar"></sl-range>
+                    <button id="nyquist-speed-btn" class="nyquist-speed-btn">1x</button>
                 </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="template-step-response">
+        <div class="panel-content panel-plot">
+            <div class="step-options">
+                <sl-checkbox id="chk-show-L-step" size="small" class="step-label-L">━ L(s)</sl-checkbox>
+                <sl-checkbox id="chk-show-T-step" checked size="small" class="step-label-T">━ T(s)</sl-checkbox>
+                <div class="step-time-control">
+                    <span class="step-time-label">Time:</span>
+                    <sl-input id="step-time-max" type="number" size="small" value="10" min="0.1" step="any" class="step-time-input"></sl-input>
+                    <span class="step-time-unit">s</span>
+                </div>
+            </div>
+            <div id="step-wrapper" class="plot-wrapper">
+                <canvas id="step-canvas"></canvas>
             </div>
         </div>
     </template>

@@ -27,6 +27,9 @@ let showT = true;
 let autoFreq = true;
 let showLpz = true;  // Pole-Zero Map: show L(s)
 let showTpz = true;  // Pole-Zero Map: show T(s)
+let showLstep = false;  // Step Response: show L(s)
+let showTstep = true;  // Step Response: show T(s)
+let stepTimeMax = 10;  // Step Response: maximum simulation time (seconds)
 
 // Bode plot display options
 let bodeOptions = {
@@ -56,7 +59,8 @@ const PANEL_DEFINITIONS = [
     { id: 'bode', component: 'bode', title: 'Bode Plot' },
     { id: 'stability', component: 'stability', title: 'Stability' },
     { id: 'pole-zero', component: 'pole-zero', title: 'Pole-Zero Map' },
-    { id: 'nyquist', component: 'nyquist', title: 'Nyquist Plot' }
+    { id: 'nyquist', component: 'nyquist', title: 'Nyquist Plot' },
+    { id: 'step-response', component: 'step-response', title: 'Step Response' }
 ];
 
 // Get dockview-core from global scope (UMD build uses window["dockview-core"])
@@ -71,13 +75,17 @@ let isNarrowLayout = false;
 
 function applyDockviewTheme(el, themeClass) {
     if (!el) return;
+
     // remove any other theme classes to avoid CSS variable overrides
     for (const c of Array.from(el.classList)) {
         if (c.startsWith('dockview-theme-') && c !== themeClass) {
             el.classList.remove(c);
         }
     }
-    el.classList.add(themeClass);
+
+    if (!el.classList.contains(themeClass)) {
+        el.classList.add(themeClass);
+    }
 }
 
 function lockDockviewTheme(el, themeClass) {
@@ -154,6 +162,7 @@ function initializeDockview() {
             updateBodePlot();
             updatePolePlot();
             updateNyquistPlot();
+            updateStepResponsePlot();
         }, 50);
     });
 
@@ -169,6 +178,10 @@ function initializeDockview() {
             // Redraw Nyquist plot if it becomes active
             if (event && event.panel && event.panel.id === 'nyquist') {
                 updateNyquistPlot();
+            }
+            // Redraw Step Response plot if it becomes active
+            if (event && event.panel && event.panel.id === 'step-response') {
+                updateStepResponsePlot();
             }
         }, 50);
     });
@@ -221,17 +234,31 @@ function createDefaultLayout() {
         position: { referencePanel: 'pole-zero', direction: 'within' }
     });
 
+    // Add Step Response as a tab behind Bode Plot
+    dockviewApi.addPanel({
+        id: 'step-response',
+        component: 'step-response',
+        title: 'Step Response',
+        position: { referencePanel: 'bode', direction: 'within' }
+    });
+
+    // Activate Bode Plot to keep it in front
+    const bodePanel = dockviewApi.getPanel('bode');
+    if (bodePanel) {
+        bodePanel.api.setActive();
+    }
+
     // Adjust panel proportions after layout is created
     setTimeout(() => {
         try {
             // Set System Definition to a smaller height
             const sysDefPanel = dockviewApi.getPanel('system-definition');
             if (sysDefPanel && sysDefPanel.api) {
-                sysDefPanel.api.setSize({ height: 280 });
+                sysDefPanel.api.setSize({ height: 240 });
             }
             const paramsPanel = dockviewApi.getPanel('parameters');
             if (paramsPanel && paramsPanel.api) {
-                paramsPanel.api.setSize({ height: 220 });
+                paramsPanel.api.setSize({ height: 260 });
             }
         } catch (e) {
             // Panel size adjustment may fail during layout changes
@@ -254,8 +281,11 @@ document.addEventListener('DOMContentLoaded', function() {
         initializeViewMenu();
     }
 
-    // Wait for panels to be rendered, then initialize UI
-    setTimeout(() => {
+    // Wait for panels to be rendered and Shoelace components to be ready
+    Promise.all([
+        customElements.whenDefined('sl-checkbox'),
+        new Promise(resolve => setTimeout(resolve, 100))
+    ]).then(() => {
         initializeUI();
         setupEventListeners();
         updateAll();
@@ -268,7 +298,7 @@ document.addEventListener('DOMContentLoaded', function() {
             ],
             throwOnError: false
         });
-    }, 100);
+    });
 });
 
 // Initialize narrow layout (static HTML, no Dockview)
@@ -287,6 +317,7 @@ function initializeNarrowLayout() {
             document.getElementById('narrow-tab-bode').style.display = tabName === 'bode' ? 'flex' : 'none';
             document.getElementById('narrow-tab-pole-zero').style.display = tabName === 'pole-zero' ? 'flex' : 'none';
             document.getElementById('narrow-tab-nyquist').style.display = tabName === 'nyquist' ? 'flex' : 'none';
+            document.getElementById('narrow-tab-step').style.display = tabName === 'step' ? 'flex' : 'none';
 
             // Redraw the visible plot
             if (tabName === 'bode') {
@@ -295,6 +326,8 @@ function initializeNarrowLayout() {
                 updateNarrowPolePlot();
             } else if (tabName === 'nyquist') {
                 updateNarrowNyquistPlot();
+            } else if (tabName === 'step') {
+                updateNarrowStepResponsePlot();
             }
         });
     });
@@ -323,8 +356,34 @@ function initializeNarrowLayout() {
             if (document.getElementById('narrow-tab-nyquist').style.display !== 'none') {
                 updateNarrowNyquistPlot();
             }
+            if (document.getElementById('narrow-tab-step').style.display !== 'none') {
+                updateNarrowStepResponsePlot();
+            }
         });
         resizeListenerAttached = true;
+    }
+
+    // Set up Step Response visibility checkboxes for narrow layout
+    const chkLstep = document.getElementById('narrow-chk-show-L-step');
+    const chkTstep = document.getElementById('narrow-chk-show-T-step');
+    if (chkLstep) {
+        chkLstep.addEventListener('sl-change', function() {
+            updateNarrowStepResponsePlot();
+        });
+    }
+    if (chkTstep) {
+        chkTstep.addEventListener('sl-change', function() {
+            updateNarrowStepResponsePlot();
+        });
+    }
+
+    // Set up Step Response time input for narrow layout
+    const stepTimeInput = document.getElementById('narrow-step-time-max');
+    if (stepTimeInput) {
+        stepTimeInput.addEventListener('sl-change', function() {
+            stepTimeMax = parseFloat(this.value) || 10;
+            updateNarrowStepResponsePlot();
+        });
     }
 }
 
@@ -439,6 +498,34 @@ function setupEventListeners() {
             }, { passive: false });
             nyquistWrapper.dataset.wheelListenerAttached = 'true';
         }
+
+        // Step Response visibility checkboxes
+        const chkLstep = document.getElementById('chk-show-L-step');
+        const chkTstep = document.getElementById('chk-show-T-step');
+        if (chkLstep && !chkLstep.dataset.listenerAttached) {
+            chkLstep.addEventListener('sl-change', function() {
+                showLstep = this.checked;
+                updateStepResponsePlot();
+            });
+            chkLstep.dataset.listenerAttached = 'true';
+        }
+        if (chkTstep && !chkTstep.dataset.listenerAttached) {
+            chkTstep.addEventListener('sl-change', function() {
+                showTstep = this.checked;
+                updateStepResponsePlot();
+            });
+            chkTstep.dataset.listenerAttached = 'true';
+        }
+
+        // Step Response time input
+        const stepTimeInput = document.getElementById('step-time-max');
+        if (stepTimeInput && !stepTimeInput.dataset.listenerAttached) {
+            stepTimeInput.addEventListener('sl-change', function() {
+                stepTimeMax = parseFloat(this.value) || 10;
+                updateStepResponsePlot();
+            });
+            stepTimeInput.dataset.listenerAttached = 'true';
+        }
     }
 
     // Window resize listener (only attach once)
@@ -448,6 +535,7 @@ function setupEventListeners() {
             if (!isNarrowLayout) {
                 updatePolePlot();
                 updateNyquistPlot();
+                updateStepResponsePlot();
             }
         });
         resizeListenerAttached = true;
@@ -1008,6 +1096,14 @@ function updateAll() {
         }
         updateMargins();
         updateNyquistInfo();
+        if (!isNarrowLayout) {
+            updateStepResponsePlot();
+        } else {
+            let narrowStepTab = document.getElementById('narrow-tab-step');
+            if (narrowStepTab && narrowStepTab.style.display !== 'none') {
+                updateNarrowStepResponsePlot();
+            }
+        }
     } else if (hasErrors) {
         // Show error state
         if (codeField) {
@@ -1231,6 +1327,7 @@ function updateClosedLoopPoles() {
             }
             window.lastPoles = [];
             window.lastZeros = [];
+            updateTpzCheckboxState(false);
             return;
         }
 
@@ -1246,6 +1343,7 @@ function updateClosedLoopPoles() {
             }
             window.lastPoles = [];
             window.lastZeros = [];
+            updateTpzCheckboxState(false);
             return;
         }
 
@@ -1321,6 +1419,9 @@ function updateClosedLoopPoles() {
             window.lastZeros = [];
         }
 
+        // Update T(s) checkbox enabled state based on structure type
+        updateTpzCheckboxState(structure.type === 'rational');
+
     } catch (e) {
         console.log('CLP error:', e);
         if (clpEl) {
@@ -1334,6 +1435,7 @@ function updateClosedLoopPoles() {
         }
         window.lastPoles = [];
         window.lastZeros = [];
+        updateTpzCheckboxState(false);
     }
 }
 
@@ -1349,6 +1451,37 @@ function updateStabilityIndicator(isStable) {
     } else {
         indicator.textContent = 'Unstable';
         indicator.variant = 'danger';
+    }
+}
+
+function updateTpzCheckboxState(enabled) {
+    // Update T(s) checkbox enabled state in both layouts
+    const chkTpz = document.getElementById('chk-show-T-pz');
+    const narrowChkTpz = document.getElementById('narrow-chk-show-T-pz');
+
+    function updateCheckbox(checkbox) {
+        if (!checkbox) return;
+        // Wait for Shoelace component to be ready if needed
+        if (checkbox.updateComplete) {
+            checkbox.updateComplete.then(() => {
+                checkbox.disabled = !enabled;
+                if (!enabled) {
+                    checkbox.checked = false;
+                }
+            });
+        } else {
+            checkbox.disabled = !enabled;
+            if (!enabled) {
+                checkbox.checked = false;
+            }
+        }
+    }
+
+    updateCheckbox(chkTpz);
+    updateCheckbox(narrowChkTpz);
+
+    if (!enabled) {
+        showTpz = false;
     }
 }
 
@@ -1437,16 +1570,30 @@ function updatePolePlot() {
     let Tpoles = window.lastPoles || [];
     let Tzeros = window.lastZeros || [];
 
-    // L(s) open-loop poles and zeros (from Lrat)
+    // L(s) open-loop poles and zeros (from Lrat or rationalPart for delay systems)
     let Lpoles = [];
     let Lzeros = [];
 
-    // Calculate L(s) poles and zeros from Lrat
+    // Calculate L(s) poles and zeros from Lrat or rationalPart
     let Lrat = currentVars.Lrat;
-    if (Lrat) {
+    let LratForPZ = Lrat;
+
+    // If Lrat is null but L exists, try to get rationalPart from analyzeLstructure
+    if (!LratForPZ && currentVars.L) {
+        try {
+            let structure = analyzeLstructure(currentVars.L);
+            if (structure.rationalPart) {
+                LratForPZ = util_rationalize(structure.rationalPart);
+            }
+        } catch (e) {
+            // Ignore errors
+        }
+    }
+
+    if (LratForPZ) {
         // Get poles from denominator
         try {
-            let denStr = Lrat.denominator.toString();
+            let denStr = LratForPZ.denominator.toString();
             let denPoly = math.rationalize(denStr, true);
             if (denPoly.coefficients && denPoly.coefficients.length > 1) {
                 let denRoots = findRoots(denPoly.coefficients);
@@ -1458,7 +1605,7 @@ function updatePolePlot() {
 
         // Get zeros from numerator
         try {
-            let numStr = Lrat.numerator.toString();
+            let numStr = LratForPZ.numerator.toString();
             let numPoly = math.rationalize(numStr, true);
             if (numPoly.coefficients && numPoly.coefficients.length > 1) {
                 let numRoots = findRoots(numPoly.coefficients);
@@ -1658,15 +1805,29 @@ function updateNarrowPolePlot() {
     let Tpoles = window.lastPoles || [];
     let Tzeros = window.lastZeros || [];
 
-    // L(s) open-loop poles and zeros (from Lrat)
+    // L(s) open-loop poles and zeros (from Lrat or rationalPart for delay systems)
     let Lpoles = [];
     let Lzeros = [];
 
-    // Calculate L(s) poles and zeros from Lrat
+    // Calculate L(s) poles and zeros from Lrat or rationalPart
     let Lrat = currentVars.Lrat;
-    if (Lrat) {
+    let LratForPZ = Lrat;
+
+    // If Lrat is null but L exists, try to get rationalPart from analyzeLstructure
+    if (!LratForPZ && currentVars.L) {
         try {
-            let denStr = Lrat.denominator.toString();
+            let structure = analyzeLstructure(currentVars.L);
+            if (structure.rationalPart) {
+                LratForPZ = util_rationalize(structure.rationalPart);
+            }
+        } catch (e) {
+            // Ignore errors
+        }
+    }
+
+    if (LratForPZ) {
+        try {
+            let denStr = LratForPZ.denominator.toString();
             let denPoly = math.rationalize(denStr, true);
             if (denPoly.coefficients && denPoly.coefficients.length > 1) {
                 let denRoots = findRoots(denPoly.coefficients);
@@ -1677,7 +1838,7 @@ function updateNarrowPolePlot() {
         }
 
         try {
-            let numStr = Lrat.numerator.toString();
+            let numStr = LratForPZ.numerator.toString();
             let numPoly = math.rationalize(numStr, true);
             if (numPoly.coefficients && numPoly.coefficients.length > 1) {
                 let numRoots = findRoots(numPoly.coefficients);
@@ -2372,7 +2533,7 @@ function openPanel(panelId) {
     };
 
     // Determine best position based on panel type
-    if (panelId === 'bode' || panelId === 'pole-zero' || panelId === 'nyquist') {
+    if (panelId === 'bode' || panelId === 'pole-zero' || panelId === 'nyquist' || panelId === 'step-response') {
         // Plot panels: prefer right side or below existing plots
         if (isPanelOpen('bode') && panelId === 'pole-zero') {
             options.position = { referencePanel: 'bode', direction: 'below' };
@@ -2381,6 +2542,17 @@ function openPanel(panelId) {
         } else if (panelId === 'nyquist') {
             // Nyquist: tab with pole-zero if open, otherwise below bode
             if (isPanelOpen('pole-zero')) {
+                options.position = { referencePanel: 'pole-zero', direction: 'within' };
+            } else if (isPanelOpen('bode')) {
+                options.position = { referencePanel: 'bode', direction: 'below' };
+            } else if (isPanelOpen('system-definition')) {
+                options.position = { referencePanel: 'system-definition', direction: 'right' };
+            }
+        } else if (panelId === 'step-response') {
+            // Step Response: tab with nyquist or pole-zero if open, otherwise below bode
+            if (isPanelOpen('nyquist')) {
+                options.position = { referencePanel: 'nyquist', direction: 'within' };
+            } else if (isPanelOpen('pole-zero')) {
                 options.position = { referencePanel: 'pole-zero', direction: 'within' };
             } else if (isPanelOpen('bode')) {
                 options.position = { referencePanel: 'bode', direction: 'below' };
@@ -2446,3 +2618,377 @@ window.addSlider = addSlider;
 window.resetLayout = resetLayout;
 window.openPanel = openPanel;
 window.closePanel = closePanel;
+
+// --- Step Response Plot Functions ---
+
+// Draw step response plot
+function drawStepResponse(simData, wrapperId, canvasId, options) {
+    options = options || {};
+    let wrapper = document.getElementById(wrapperId);
+    let canvas = document.getElementById(canvasId);
+
+    if (!wrapper || !canvas) return;
+
+    let ctx = canvas.getContext('2d');
+
+    const height = wrapper.clientHeight;
+    const width = wrapper.clientWidth;
+
+    if (width === 0 || height === 0) return;
+
+    canvas.height = height * devicePixelRatio;
+    canvas.width = width * devicePixelRatio;
+    canvas.style.height = height + 'px';
+    canvas.style.width = width + 'px';
+
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+
+    // Clear canvas
+    ctx.fillStyle = options.backgroundColor || '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    if (!simData || !simData.time || simData.time.length === 0) return;
+
+    let showL = options.showL !== false;
+    let showT = options.showT !== false;
+
+    // Calculate data range
+    let tMin = 0;
+    let tMax = simData.time[simData.time.length - 1];
+
+    let yMin = 0, yMax = 1;
+    let hasData = false;
+
+    if (showL && simData.yL) {
+        let validYL = simData.yL.filter(y => isFinite(y));
+        if (validYL.length > 0) {
+            yMin = Math.min(yMin, Math.min(...validYL));
+            yMax = Math.max(yMax, Math.max(...validYL));
+            hasData = true;
+        }
+    }
+    if (showT && simData.yT) {
+        let validYT = simData.yT.filter(y => isFinite(y));
+        if (validYT.length > 0) {
+            yMin = Math.min(yMin, Math.min(...validYT));
+            yMax = Math.max(yMax, Math.max(...validYT));
+            hasData = true;
+        }
+    }
+
+    if (!hasData) return;
+
+    // Add margin to y range
+    let yRange = yMax - yMin;
+    if (yRange < 0.1) yRange = 0.1;
+    yMin -= yRange * 0.1;
+    yMax += yRange * 0.1;
+
+    const leftMargin = 60;
+    const rightMargin = 20;
+    const topMargin = 20;
+    const bottomMargin = 50;
+    const plotWidth = width - leftMargin - rightMargin;
+    const plotHeight = height - topMargin - bottomMargin;
+
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    // Coordinate transformations
+    let t2x = (t) => leftMargin + (t - tMin) / (tMax - tMin) * plotWidth;
+    let y2y = (y) => topMargin + (yMax - y) / (yMax - yMin) * plotHeight;
+
+    // Draw grid
+    ctx.strokeStyle = '#c0c0c0';
+    ctx.lineWidth = 1;
+    ctx.font = '12px Consolas, monospace';
+    ctx.fillStyle = '#333333';
+
+    // Time axis grid
+    let tStep = calculateNiceStep(tMax - tMin, 6);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let t = 0; t <= tMax; t += tStep) {
+        let x = t2x(t);
+        ctx.beginPath();
+        ctx.moveTo(x, topMargin);
+        ctx.lineTo(x, topMargin + plotHeight);
+        ctx.stroke();
+        ctx.fillText(formatAxisValue(t), x, topMargin + plotHeight + 5);
+    }
+
+    // Y axis grid
+    let yStep = calculateNiceStep(yMax - yMin, 6);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let y = Math.ceil(yMin / yStep) * yStep; y <= yMax; y += yStep) {
+        let py = y2y(y);
+        if (py >= topMargin && py <= topMargin + plotHeight) {
+            ctx.beginPath();
+            ctx.moveTo(leftMargin, py);
+            ctx.lineTo(leftMargin + plotWidth, py);
+            ctx.stroke();
+            ctx.fillText(formatAxisValue(y), leftMargin - 5, py);
+        }
+    }
+
+    // Draw y=0 line if visible
+    if (yMin < 0 && yMax > 0) {
+        ctx.strokeStyle = '#999999';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(leftMargin, y2y(0));
+        ctx.lineTo(leftMargin + plotWidth, y2y(0));
+        ctx.stroke();
+    }
+
+    // Draw y=1 line (steady-state reference for closed-loop)
+    if (yMin < 1 && yMax > 1) {
+        ctx.strokeStyle = '#999999';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(leftMargin, y2y(1));
+        ctx.lineTo(leftMargin + plotWidth, y2y(1));
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Draw axis labels
+    ctx.fillStyle = '#333333';
+    ctx.textAlign = 'center';
+    ctx.fillText('Time [s]', leftMargin + plotWidth / 2, height - 10);
+
+    ctx.save();
+    ctx.translate(15, topMargin + plotHeight / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('Response', 0, 0);
+    ctx.restore();
+
+    // Draw L(s) response
+    if (showL && simData.yL) {
+        ctx.strokeStyle = '#0088aa';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < simData.time.length; i++) {
+            let x = t2x(simData.time[i]);
+            let y = y2y(simData.yL[i]);
+            if (isFinite(y) && y >= topMargin - 50 && y <= topMargin + plotHeight + 50) {
+                if (!started) {
+                    ctx.moveTo(x, y);
+                    started = true;
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+        }
+        ctx.stroke();
+    }
+
+    // Draw T(s) response
+    if (showT && simData.yT) {
+        ctx.strokeStyle = '#dd6600';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < simData.time.length; i++) {
+            let x = t2x(simData.time[i]);
+            let y = y2y(simData.yT[i]);
+            if (isFinite(y) && y >= topMargin - 50 && y <= topMargin + plotHeight + 50) {
+                if (!started) {
+                    ctx.moveTo(x, y);
+                    started = true;
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+        }
+        ctx.stroke();
+    }
+
+    // Draw plot border
+    ctx.strokeStyle = '#333333';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(leftMargin, topMargin, plotWidth, plotHeight);
+}
+
+// Calculate nice step size for axis
+function calculateNiceStep(range, targetSteps) {
+    let roughStep = range / targetSteps;
+    let magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    let normalized = roughStep / magnitude;
+
+    let niceStep;
+    if (normalized <= 1) niceStep = magnitude;
+    else if (normalized <= 2) niceStep = 2 * magnitude;
+    else if (normalized <= 5) niceStep = 5 * magnitude;
+    else niceStep = 10 * magnitude;
+
+    return niceStep;
+}
+
+// Format axis value for display
+function formatAxisValue(value) {
+    if (Math.abs(value) < 1e-10) return '0';
+    if (Math.abs(value) >= 1000 || (Math.abs(value) < 0.01 && value !== 0)) {
+        return value.toExponential(1);
+    }
+    return parseFloat(value.toPrecision(3)).toString();
+}
+
+// Update step response plot
+function updateStepResponsePlot() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let wrapper = document.getElementById(prefix + 'step-wrapper');
+    let canvas = document.getElementById(prefix + 'step-canvas');
+
+    if (!wrapper || !canvas) return;
+
+    try {
+        let L = currentVars.L;
+        if (!L || !L.isNode) {
+            // Clear canvas
+            let ctx = canvas.getContext('2d');
+            const width = wrapper.clientWidth;
+            const height = wrapper.clientHeight;
+            if (width === 0 || height === 0) return;
+            canvas.width = width * devicePixelRatio;
+            canvas.height = height * devicePixelRatio;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            ctx.scale(devicePixelRatio, devicePixelRatio);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+            return;
+        }
+
+        // Analyze L structure
+        let structure = analyzeLstructure(L);
+        if (structure.type === 'unknown') {
+            console.log('Step response: Cannot simulate non-rational transfer function');
+            return;
+        }
+
+        // Get delay time
+        let delayL = structure.delayTime || 0;
+
+
+        // Get L coefficients
+        let Lrat = null;
+        try {
+            Lrat = util_rationalize(structure.rationalPart);
+        } catch (e) {
+            console.log('Step response: Cannot rationalize L');
+            return;
+        }
+
+        let LCoeffs = extractTFCoeffs(Lrat);
+        if (!LCoeffs) {
+            console.log('Step response: Cannot extract L coefficients');
+            return;
+        }
+
+        // Build state-space for the rational part R(s)
+        // - For structure.type === 'rational': L(s)=R(s)
+        // - For structure.type === 'rational_delay': L(s)=R(s)*exp(-delay*s)
+        let ssL = tf2ss(LCoeffs.num, LCoeffs.den);
+
+        // Choose simulation resolution.
+        // For loop delay, we need reasonably fine dt relative to delay to avoid artifacts.
+        let nPoints = 500;
+        if (structure.type === 'rational_delay' && delayL > 0) {
+            const dtTarget = delayL / 25;
+            if (dtTarget > 0) {
+                nPoints = Math.max(nPoints, Math.ceil(stepTimeMax / dtTarget) + 1);
+            }
+            nPoints = Math.min(nPoints, 20000);
+        }
+
+        let simData = null;
+        let ssT = null;
+
+        if (structure.type === 'rational_delay') {
+            // L(s) step response itself is just a pure transport delay on the I/O behavior.
+            const simL = simulateStepResponse(ssL, null, stepTimeMax, nPoints, delayL, 0);
+
+            // T(s) must be simulated as a delayed feedback loop:
+            //   T(s) = R(s)e^{-sT} / (1 + R(s)e^{-sT})
+            // not (R/(1+R))e^{-sT}.
+            const simT = simulateClosedLoopStepResponseLoopDelay(ssL, delayL, stepTimeMax, nPoints);
+
+            simData = { time: simL.time, yL: simL.yL, yT: simT.y };
+        } else {
+            // structure.type === 'rational'
+            // Build state-space for T = L/(1+L)
+            // T numerator = L numerator
+            // T denominator = L denominator + L numerator
+            let delayT = 0;
+            try {
+                let Tnum = LCoeffs.num.slice();
+                let Tden = [];
+
+                // Add polynomials: ensure same length
+                let maxLen = Math.max(LCoeffs.num.length, LCoeffs.den.length);
+                let numPadded = LCoeffs.num.slice();
+                let denPadded = LCoeffs.den.slice();
+                while (numPadded.length < maxLen) numPadded.push(0);
+                while (denPadded.length < maxLen) denPadded.push(0);
+
+                for (let i = 0; i < maxLen; i++) {
+                    Tden.push(numPadded[i] + denPadded[i]);
+                }
+
+                // Remove trailing zeros
+                while (Tden.length > 1 && Math.abs(Tden[Tden.length - 1]) < 1e-15) {
+                    Tden.pop();
+                }
+
+                ssT = tf2ss(Tnum, Tden);
+            } catch (e) {
+                console.log('Step response: Cannot build T state-space:', e);
+            }
+
+            simData = simulateStepResponse(ssL, ssT, stepTimeMax, nPoints, 0, delayT);
+        }
+
+
+        // Draw
+        drawStepResponse(simData, prefix + 'step-wrapper', prefix + 'step-canvas', {
+            showL: showLstep,
+            showT: showTstep
+        });
+
+    } catch (e) {
+        console.log('Step response plot error:', e);
+    }
+}
+
+// Narrow layout step response plot
+function updateNarrowStepResponsePlot() {
+    let wrapper = document.getElementById('narrow-step-wrapper');
+    let canvas = document.getElementById('narrow-step-canvas');
+
+    if (!wrapper || !canvas) return;
+
+    // Get visibility settings from narrow layout checkboxes
+    let narrowShowLstep = document.getElementById('narrow-chk-show-L-step')?.checked ?? true;
+    let narrowShowTstep = document.getElementById('narrow-chk-show-T-step')?.checked ?? true;
+
+    // Temporarily override global settings
+    let origShowLstep = showLstep;
+    let origShowTstep = showTstep;
+    showLstep = narrowShowLstep;
+    showTstep = narrowShowTstep;
+
+    // Save narrow layout state and temporarily set to call the right element IDs
+    let origNarrow = isNarrowLayout;
+    isNarrowLayout = true;
+
+    updateStepResponsePlot();
+
+    // Restore
+    isNarrowLayout = origNarrow;
+    showLstep = origShowLstep;
+    showTstep = origShowTstep;
+}

@@ -18,76 +18,78 @@ function formatNumForLatex(x) {
     return `${mantissa.toFixed(2)} \\times 10^{${exp}}`;
 }
 
-// Format s value as LaTeX string for KaTeX rendering
-// pointInfo contains: { s, indentation: { poleIm, theta } } or just { s }
+// Format angle in degrees for LaTeX display
+function formatAngleDegrees(radians) {
+    const deg = radians * 180 / Math.PI;
+    // Normalize to -180 to 180 range
+    let normalizedDeg = deg % 360;
+    if (normalizedDeg > 180) normalizedDeg -= 360;
+    if (normalizedDeg < -180) normalizedDeg += 360;
+    return Math.round(normalizedDeg);
+}
+
+// Format s value and L(s) as LaTeX string for KaTeX rendering
+// pointInfo contains: { s, indentation: { poleIm, theta }, L: { re, im } } or just { s, L }
 function formatSValueLatex(pointInfo) {
     if (!pointInfo || !pointInfo.s) return '';
 
     const s = pointInfo.s;
     const indent = pointInfo.indentation;
+    const L = pointInfo.L;
 
-    // If this is an indentation point, show as: s = j*poleFreq + ε*exp(j*theta)
+    let sLine = '';
+    let lLine = '';
+
+    // Format s value
     if (indent) {
         const poleIm = indent.poleIm;
         const theta = indent.theta;
+        const thetaDeg = formatAngleDegrees(theta);
 
-        // Format pole position
+        // Format pole position (jω part)
         let poleStr;
         if (Math.abs(poleIm) < 1e-9) {
-            poleStr = '0';  // Origin pole
+            poleStr = '';  // Origin pole, no jω term
         } else {
-            const sign = poleIm >= 0 ? '' : '-';
-            poleStr = `${sign}j${formatNumForLatex(Math.abs(poleIm))}`;
+            poleStr = `${formatNumForLatex(poleIm)}j`;
         }
 
-        // Format theta as fraction of pi
-        const thetaOverPi = theta / Math.PI;
-        let thetaStr;
-        if (Math.abs(thetaOverPi) < 0.001) {
-            thetaStr = '0';
-        } else if (Math.abs(thetaOverPi - 1) < 0.001) {
-            thetaStr = 'j\\pi';
-        } else if (Math.abs(thetaOverPi + 1) < 0.001) {
-            thetaStr = '-j\\pi';
-        } else if (Math.abs(thetaOverPi - 0.5) < 0.001) {
-            thetaStr = 'j\\frac{\\pi}{2}';
-        } else if (Math.abs(thetaOverPi + 0.5) < 0.001) {
-            thetaStr = '-j\\frac{\\pi}{2}';
-        } else {
-            // General case: show as decimal * pi
-            const sign = thetaOverPi >= 0 ? '' : '-';
-            thetaStr = `${sign}j${Math.abs(thetaOverPi).toFixed(2)}\\pi`;
-        }
-
+        // s = jω + ε∠θ°
         if (Math.abs(poleIm) < 1e-9) {
-            // Origin pole: s = ε exp(jθ)
-            return `s = \\varepsilon \\exp(${thetaStr})`;
+            sLine = `s &= \\varepsilon \\angle ${thetaDeg}^\\circ`;
         } else {
-            // Non-origin pole: s = j*poleFreq + ε exp(jθ)
-            return `s = ${poleStr} + \\varepsilon \\exp(${thetaStr})`;
+            sLine = `s &= ${poleStr} + \\varepsilon \\angle ${thetaDeg}^\\circ`;
         }
-    }
-
-    // Regular point on imaginary axis: s = jω
-    const re = s.re;
-    const im = s.im;
-
-    if (Math.abs(re) < 1e-8) {
-        // Pure imaginary
+    } else {
+        // Regular point on imaginary axis: s = jω
+        const im = s.im;
         if (Math.abs(im) < 1e-8) {
-            return 's = 0';
+            sLine = 's &= 0';
+        } else {
+            sLine = `s &= ${formatNumForLatex(im)}j`;
         }
-        const sign = im >= 0 ? '' : '-';
-        return `s = ${sign}j${formatNumForLatex(Math.abs(im))}`;
     }
 
-    // General case (should be rare in normal Nyquist)
-    const reStr = formatNumForLatex(re);
-    if (Math.abs(im) < 1e-8) {
-        return `s = ${reStr}`;
+    // Format L(s) value
+    if (L) {
+        const mag = Math.sqrt(L.re * L.re + L.im * L.im);
+        const phase = Math.atan2(L.im, L.re);
+        const phaseDeg = formatAngleDegrees(phase);
+
+        if (mag < 1e-10) {
+            lLine = 'L(s) &= 0';
+        } else if (mag > 1e4) {
+            lLine = `L(s) &= \\infty \\angle ${phaseDeg}^\\circ`;
+        } else {
+            lLine = `L(s) &= ${formatNumForLatex(mag)} \\angle ${phaseDeg}^\\circ`;
+        }
     }
-    const sign = im >= 0 ? '+' : '-';
-    return `s = ${reStr} ${sign} j${formatNumForLatex(Math.abs(im))}`;
+
+    // Combine both lines
+    if (sLine && lLine) {
+        return `\\begin{aligned} ${sLine} \\\\ ${lLine} \\end{aligned}`;
+    }
+    return sLine;
 }
 
 // Animation state
@@ -96,6 +98,8 @@ let nyquistAnimationProgress = 0;  // Progress as fraction (0 to 1), preserved a
 let nyquistAnimationPlaying = true;  // Whether animation is playing
 let nyquistAnimationData = null;  // Store current animation data for seeking
 let nyquistCurrentWrapperId = null;  // Current wrapper ID for UI updates
+let nyquistAnimationSpeed = 1;  // Speed multiplier (0.25, 0.5, 1, 2, 4)
+const nyquistSpeedOptions = [0.25, 0.5, 1, 2, 4];  // Available speed options
 
 // Compression radius (adjustable via mouse wheel)
 let nyquistCompressionRadius = 3;
@@ -479,6 +483,8 @@ function getPointAtArcLength(points, cumulativeLength, targetLength) {
         return {
             cx: points[lo].cx,
             cy: points[lo].cy,
+            x: points[lo].x,
+            y: points[lo].y,
             s: points[lo].s,
             indentation: points[lo].indentation
         };
@@ -487,6 +493,10 @@ function getPointAtArcLength(points, cumulativeLength, targetLength) {
     const t = (targetLength - segmentStart) / segmentLength;
     const cx = points[lo].cx + t * (points[hi].cx - points[lo].cx);
     const cy = points[lo].cy + t * (points[hi].cy - points[lo].cy);
+
+    // Interpolate L(s) value (uncompressed coordinates)
+    const x = points[lo].x + t * (points[hi].x - points[lo].x);
+    const y = points[lo].y + t * (points[hi].y - points[lo].y);
 
     // Interpolate s value (complex number)
     let s = null;
@@ -508,7 +518,7 @@ function getPointAtArcLength(points, cumulativeLength, targetLength) {
         indentation = points[lo].indentation;
     }
 
-    return { cx, cy, s, indentation };
+    return { cx, cy, x, y, s, indentation };
 }
 
 // Start animation of moving point on the curve
@@ -529,9 +539,9 @@ function startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, c
     };
     nyquistCurrentWrapperId = wrapperId;
 
-    // Calculate speed to complete one cycle in approximately 3 seconds (180 frames at 60fps)
+    // Calculate base speed to complete one cycle in approximately 3 seconds (180 frames at 60fps)
     const cycleDuration = 180;  // frames
-    const speed = totalLength / cycleDuration;
+    const baseSpeed = totalLength / cycleDuration;
 
     // Initialize current arc length from preserved progress (0 to 1 fraction)
     let currentArcLength = nyquistAnimationProgress * totalLength;
@@ -565,7 +575,7 @@ function startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, c
 
             // Update position based on arc length (uniform speed) only if playing
             if (nyquistAnimationPlaying) {
-                currentArcLength += speed;
+                currentArcLength += baseSpeed * nyquistAnimationSpeed;
                 if (currentArcLength >= totalLength) {
                     currentArcLength = currentArcLength - totalLength;
                 }
@@ -641,11 +651,13 @@ function renderNyquistFrame(canvas, ctx, points, cumulativeLength,
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Display current s value using KaTeX overlay
+    // Display current s value and L(s) using KaTeX overlay
     const sOverlayId = wrapperId === 'narrow-nyquist-wrapper' ? 'narrow-nyquist-s-value-overlay' : 'nyquist-s-value-overlay';
     const sOverlay = document.getElementById(sOverlayId);
     if (sOverlay && p.s) {
-        const latexStr = formatSValueLatex({ s: p.s, indentation: p.indentation });
+        // p.x and p.y are the uncompressed L(s) values (real and imaginary parts)
+        const L = (p.x !== undefined && p.y !== undefined) ? { re: p.x, im: p.y } : null;
+        const latexStr = formatSValueLatex({ s: p.s, indentation: p.indentation, L: L });
         if (latexStr && typeof katex !== 'undefined') {
             try {
                 katex.render(latexStr, sOverlay, { throwOnError: false });
@@ -661,14 +673,16 @@ function renderNyquistFrame(canvas, ctx, points, cumulativeLength,
     }
 }
 
-// Setup play/pause button and seek bar event handlers
+// Setup play/pause button, seek bar, and speed button event handlers
 function setupNyquistAnimationControls(wrapperId) {
     const isNarrow = wrapperId === 'narrow-nyquist-wrapper';
     const playBtnId = isNarrow ? 'narrow-nyquist-play-btn' : 'nyquist-play-btn';
     const seekBarId = isNarrow ? 'narrow-nyquist-seek-bar' : 'nyquist-seek-bar';
+    const speedBtnId = isNarrow ? 'narrow-nyquist-speed-btn' : 'nyquist-speed-btn';
 
     const playBtn = document.getElementById(playBtnId);
     const seekBar = document.getElementById(seekBarId);
+    const speedBtn = document.getElementById(speedBtnId);
 
     if (playBtn && !playBtn._nyquistSetup) {
         playBtn._nyquistSetup = true;
@@ -695,6 +709,35 @@ function setupNyquistAnimationControls(wrapperId) {
                     nyquistCurrentWrapperId, currentArcLength);
             }
         });
+    }
+
+    if (speedBtn && !speedBtn._nyquistSetup) {
+        speedBtn._nyquistSetup = true;
+        speedBtn.addEventListener('click', () => {
+            cycleNyquistSpeed();
+            updateSpeedButtonLabel(wrapperId);
+        });
+    }
+
+    // Initialize speed button label
+    updateSpeedButtonLabel(wrapperId);
+}
+
+// Cycle through speed options
+function cycleNyquistSpeed() {
+    const currentIndex = nyquistSpeedOptions.indexOf(nyquistAnimationSpeed);
+    const nextIndex = (currentIndex + 1) % nyquistSpeedOptions.length;
+    nyquistAnimationSpeed = nyquistSpeedOptions[nextIndex];
+}
+
+// Update speed button label
+function updateSpeedButtonLabel(wrapperId) {
+    const isNarrow = wrapperId === 'narrow-nyquist-wrapper';
+    const speedBtnId = isNarrow ? 'narrow-nyquist-speed-btn' : 'nyquist-speed-btn';
+    const speedBtn = document.getElementById(speedBtnId);
+
+    if (speedBtn) {
+        speedBtn.textContent = nyquistAnimationSpeed + 'x';
     }
 }
 

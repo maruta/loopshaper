@@ -488,6 +488,346 @@ function countRHPpoles(rationalNode) {
     }
 }
 
+// --- Step Response Simulation Utilities ---
+
+// Convert transfer function coefficients to observable canonical form state-space
+// G(s) = (b0 + b1*s + ... + bm*s^m) / (a0 + a1*s + ... + an*s^n)
+// Returns: { A, B, C, D, n } where n is the order
+function tf2ss(numCoeffs, denCoeffs) {
+    // Normalize so leading denominator coefficient is 1
+    let n = denCoeffs.length - 1;  // System order
+
+    if (n <= 0) {
+        // Static gain (no dynamics)
+        let D = numCoeffs[0] / denCoeffs[0];
+        return { A: [], B: [], C: [], D: D, n: 0 };
+    }
+
+    let an = denCoeffs[n];  // Leading coefficient
+    let a = denCoeffs.map(c => c / an);  // Normalized [a0, a1, ..., a_{n-1}, 1]
+
+    // Normalize numerator by the same factor
+    let b = numCoeffs.map(c => c / an);
+
+    // Pad numerator to length n+1.
+    // Coefficients are ASCENDING powers of s: [b0, b1, ..., bn].
+    // So if deg(num) < n, we must append zeros for the missing HIGH-order terms.
+    while (b.length < n + 1) {
+        b.push(0);
+    }
+
+    // D = direct feedthrough (coefficient of s^n in numerator)
+    let D = b[n];
+
+    // Observable canonical form (transposed controllable form)
+    // This form is: dx/dt = A*x + B*u, y = C*x + D*u
+    // where A is companion matrix, B contains modified numerator coeffs, C = [0,...,0,1]
+    //
+    // For G(s) = (b_n*s^n + ... + b_0) / (s^n + a_{n-1}*s^{n-1} + ... + a_0)
+    //
+    // A = [[-a_{n-1}, 1, 0, ..., 0],
+    //      [-a_{n-2}, 0, 1, ..., 0],
+    //      ...
+    //      [-a_1,     0, 0, ..., 1],
+    //      [-a_0,     0, 0, ..., 0]]
+    //
+    // B = [b_{n-1} - a_{n-1}*D, b_{n-2} - a_{n-2}*D, ..., b_0 - a_0*D]^T
+    // C = [1, 0, 0, ..., 0]
+
+    let A = [];
+    for (let i = 0; i < n; i++) {
+        let row = new Array(n).fill(0);
+        row[0] = -a[n - 1 - i];  // First column: [-a_{n-1}, -a_{n-2}, ..., -a_0]
+        if (i < n - 1) {
+            row[i + 1] = 1;  // Superdiagonal of 1s
+        }
+        A.push(row);
+    }
+
+    // B = [b_{n-1} - a_{n-1}*D, b_{n-2} - a_{n-2}*D, ..., b_0 - a_0*D]^T
+    let B = new Array(n);
+    for (let i = 0; i < n; i++) {
+        B[i] = b[n - 1 - i] - a[n - 1 - i] * D;
+    }
+
+    // C = [1, 0, 0, ..., 0]
+    let C = new Array(n).fill(0);
+    C[0] = 1;
+
+    return { A, B, C, D, n };
+}
+
+// Matrix-vector multiplication: y = A * x
+function matVecMult(A, x) {
+    let n = x.length;
+    let y = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+            y[i] += A[i][j] * x[j];
+        }
+    }
+    return y;
+}
+
+// Vector addition: y = a + b
+function vecAdd(a, b) {
+    return a.map((v, i) => v + b[i]);
+}
+
+// Scalar-vector multiplication: y = k * x
+function vecScale(k, x) {
+    return x.map(v => k * v);
+}
+
+// Dot product: y = a · b
+function vecDot(a, b) {
+    return a.reduce((sum, v, i) => sum + v * b[i], 0);
+}
+
+// 4th-order Runge-Kutta integration for state-space system with dead time
+// dx/dt = A*x + B*u(t - delay)
+// y = C*x + D*u(t - delay)
+// For step input: u(t) = 1 for t >= 0
+// Returns: { time: [...], yL: [...], yT: [...] }
+function simulateStepResponse(ssL, ssT, tMax, nPoints, delayL, delayT) {
+    delayL = delayL || 0;
+    delayT = delayT || 0;
+
+    let dt = tMax / (nPoints - 1);
+    let time = [];
+    let yL = [];
+    let yT = [];
+
+    // Initialize state vectors
+    let xL = ssL && ssL.n > 0 ? new Array(ssL.n).fill(0) : [];
+    let xT = ssT && ssT.n > 0 ? new Array(ssT.n).fill(0) : [];
+
+    // Step input function with delay
+    function stepInput(t, delay) {
+        return t >= delay ? 1 : 0;
+    }
+
+    // State derivative: dx/dt = A*x + B*u
+    function dxdt(A, B, x, u) {
+        if (x.length === 0) return [];
+        let Ax = matVecMult(A, x);
+        let Bu = vecScale(u, B);
+        return vecAdd(Ax, Bu);
+    }
+
+    // RK4 step
+    function rk4Step(A, B, x, u, dt) {
+        if (x.length === 0) return [];
+        let k1 = dxdt(A, B, x, u);
+        let k2 = dxdt(A, B, vecAdd(x, vecScale(dt / 2, k1)), u);
+        let k3 = dxdt(A, B, vecAdd(x, vecScale(dt / 2, k2)), u);
+        let k4 = dxdt(A, B, vecAdd(x, vecScale(dt, k3)), u);
+
+        // x_new = x + (dt/6) * (k1 + 2*k2 + 2*k3 + k4)
+        let sum = vecAdd(k1, vecScale(2, k2));
+        sum = vecAdd(sum, vecScale(2, k3));
+        sum = vecAdd(sum, k4);
+        return vecAdd(x, vecScale(dt / 6, sum));
+    }
+
+    // Simulation loop
+    for (let i = 0; i < nPoints; i++) {
+        let t = i * dt;
+        time.push(t);
+
+        // Get input values (with delay)
+        let uL = stepInput(t, delayL);
+        let uT = stepInput(t, delayT);
+
+        // Compute outputs: y = C*x + D*u
+        let outL = 0;
+        if (ssL) {
+            if (ssL.n > 0) {
+                outL = vecDot(ssL.C, xL) + ssL.D * uL;
+            } else {
+                outL = ssL.D * uL;
+            }
+        }
+
+        let outT = 0;
+        if (ssT) {
+            if (ssT.n > 0) {
+                outT = vecDot(ssT.C, xT) + ssT.D * uT;
+            } else {
+                outT = ssT.D * uT;
+            }
+        }
+
+        yL.push(outL);
+        yT.push(outT);
+
+        // Update states (RK4)
+        if (ssL && ssL.n > 0) {
+            xL = rk4Step(ssL.A, ssL.B, xL, uL, dt);
+        }
+        if (ssT && ssT.n > 0) {
+            xT = rk4Step(ssT.A, ssT.B, xT, uT, dt);
+        }
+    }
+
+    return { time, yL, yT };
+}
+
+// Closed-loop step response for unity feedback when the loop transfer is L(s)=R(s)*exp(-delay*s)
+// i.e., the dead time is INSIDE the feedback loop (not a pure output delay).
+//
+// Model:
+//   y(t) = R(s) * e(t-delay)
+//   e(t) = r(t) - y(t),  r(t)=1 (step)
+//
+// State-space of R:
+//   dx/dt = A x + B u,  y = C x + D u,  u(t) = e(t-delay)
+//
+// Returns: { time: [...], y: [...], e: [...] }
+function simulateClosedLoopStepResponseLoopDelay(ssR, delay, tMax, nPoints) {
+    delay = delay || 0;
+    const dt = tMax / (nPoints - 1);
+
+    const time = [];
+    const y = [];
+    const e = [];
+
+    // State vector
+    let x = ssR && ssR.n > 0 ? new Array(ssR.n).fill(0) : [];
+
+    // Linear interpolation of e(t) history.
+    // For tQuery<0 => 0.
+    // For tQuery>tKnownMax => hold e at tKnownMax (prevents needing "future" within RK4 substeps when delay is very small).
+    function eDelayed(tQuery, tKnownMax) {
+        if (tQuery < 0) return 0;
+        if (e.length === 0) return 0;
+
+        // Clamp to known range
+        if (tQuery > tKnownMax) {
+            return e[e.length - 1];
+        }
+
+        const idx = tQuery / dt;
+        const i0 = Math.floor(idx);
+        const frac = idx - i0;
+
+        if (i0 <= 0) return e[0];
+        if (i0 >= e.length - 1) return e[e.length - 1];
+
+        const e0 = e[i0];
+        const e1 = e[i0 + 1];
+        return e0 + frac * (e1 - e0);
+    }
+
+    function dxdt(A, B, xVec, u) {
+        if (xVec.length === 0) return [];
+        const Ax = matVecMult(A, xVec);
+        const Bu = vecScale(u, B);
+        return vecAdd(Ax, Bu);
+    }
+
+    // RK4 step with input sampled via a callback u(tSub)
+    function rk4StepWithU(A, B, xVec, tBase, uAtTime, dtLocal, tKnownMax) {
+        if (xVec.length === 0) return [];
+
+        const u1 = uAtTime(tBase, tKnownMax);
+        const k1 = dxdt(A, B, xVec, u1);
+
+        const u2 = uAtTime(tBase + dtLocal / 2, tKnownMax);
+        const k2 = dxdt(A, B, vecAdd(xVec, vecScale(dtLocal / 2, k1)), u2);
+
+        const u3 = uAtTime(tBase + dtLocal / 2, tKnownMax);
+        const k3 = dxdt(A, B, vecAdd(xVec, vecScale(dtLocal / 2, k2)), u3);
+
+        const u4 = uAtTime(tBase + dtLocal, tKnownMax);
+        const k4 = dxdt(A, B, vecAdd(xVec, vecScale(dtLocal, k3)), u4);
+
+        let sum = vecAdd(k1, vecScale(2, k2));
+        sum = vecAdd(sum, vecScale(2, k3));
+        sum = vecAdd(sum, k4);
+        return vecAdd(xVec, vecScale(dtLocal / 6, sum));
+    }
+
+    // Simulation loop
+    for (let i = 0; i < nPoints; i++) {
+        const t = i * dt;
+        time.push(t);
+
+        // Known e samples are available up to current time t after we compute e(t).
+        // For output at time t, the delayed input is e(t-delay) which is always in the past for delay>0.
+        const uNow = eDelayed(t - delay, t);
+
+        // Output y(t)
+        let yNow = 0;
+        if (ssR) {
+            if (ssR.n > 0) {
+                yNow = vecDot(ssR.C, x) + ssR.D * uNow;
+            } else {
+                yNow = ssR.D * uNow;
+            }
+        }
+        y.push(yNow);
+
+        // Error e(t) = r(t) - y(t), with r(t)=1 for t>=0
+        const eNow = 1 - yNow;
+        e.push(eNow);
+
+        // State update to t+dt using RK4 with u(tSub) = e(tSub - delay)
+        if (ssR && ssR.n > 0 && i < nPoints - 1) {
+            const uAtTime = (tSub, tKnownMax) => eDelayed(tSub - delay, tKnownMax);
+            x = rk4StepWithU(ssR.A, ssR.B, x, t, uAtTime, dt, t);
+        }
+    }
+
+    return { time, y, e };
+}
+
+// Extract polynomial coefficients from rationalized transfer function node
+// Returns: { num: [b0, b1, ...], den: [a0, a1, ...] } (ascending powers of s)
+function extractTFCoeffs(ratNode) {
+    if (!ratNode || !ratNode.numerator || !ratNode.denominator) {
+        return null;
+    }
+
+    let numCoeffs = [];
+    let denCoeffs = [];
+
+    try {
+        // Get numerator coefficients
+        let numStr = ratNode.numerator.toString();
+        let numPoly = math.rationalize(numStr, true);
+        if (numPoly.coefficients && numPoly.coefficients.length > 0) {
+            numCoeffs = numPoly.coefficients.slice();  // Already in ascending order
+        } else {
+            // Constant numerator
+            try {
+                numCoeffs = [numPoly.numerator.value || 1];
+            } catch (e) {
+                numCoeffs = [1];
+            }
+        }
+
+        // Get denominator coefficients
+        let denStr = ratNode.denominator.toString();
+        let denPoly = math.rationalize(denStr, true);
+        if (denPoly.coefficients && denPoly.coefficients.length > 0) {
+            denCoeffs = denPoly.coefficients.slice();  // Already in ascending order
+        } else {
+            // Constant denominator
+            try {
+                denCoeffs = [denPoly.numerator.value || 1];
+            } catch (e) {
+                denCoeffs = [1];
+            }
+        }
+
+        return { num: numCoeffs, den: denCoeffs };
+    } catch (e) {
+        console.log('Error extracting TF coefficients:', e);
+        return null;
+    }
+}
+
 // Durand-Kerner method for finding polynomial roots
 // coeffs: polynomial coefficients [a0, a1, ..., an] for a0 + a1*s + ... + an*s^n
 function findRoots(coeffs, complexCoeffs, maxIterations, tolerance) {
