@@ -28,6 +28,12 @@ let autoFreq = true;
 let showLpz = true;  // Pole-Zero Map: show L(s)
 let showTpz = true;  // Pole-Zero Map: show T(s)
 
+// Cached Nyquist analysis (evaluate L(s) once, reuse for both plot and stability info)
+window.lastNyquistAnalysis = null;
+window.lastNyquistAnalysisKey = null;
+window.lastNyquistP = null;
+window.lastNyquistN = null;
+
 // Dockview API reference
 let dockviewApi = null;
 
@@ -1020,6 +1026,36 @@ function updateBodePlot() {
     }
 }
 
+function buildNyquistCacheKey(Lnode, imagAxisPoles) {
+    const Lstr = (Lnode && typeof Lnode.toString === 'function') ? Lnode.toString() : '';
+    const polesStr = (imagAxisPoles || [])
+        .map(p => `${(p.re || 0).toFixed(12)},${(p.im || 0).toFixed(12)}`)
+        .join(';');
+    return Lstr + '|' + polesStr;
+}
+
+function getOrComputeNyquistAnalysisCached(Lnode, Lcompiled, imagAxisPoles) {
+    if (typeof computeNyquistAnalysis !== 'function') return null;
+
+    const key = buildNyquistCacheKey(Lnode, imagAxisPoles);
+    if (window.lastNyquistAnalysis && window.lastNyquistAnalysisKey === key) {
+        return window.lastNyquistAnalysis;
+    }
+
+    const analysis = computeNyquistAnalysis(Lcompiled, imagAxisPoles, {
+        wMinDecade: -4,
+        wMaxDecade: 6,
+        wPoints: 2000,
+        nIndentPoints: 50,
+        epsilon: 1e-4
+    });
+
+    window.lastNyquistAnalysis = analysis;
+    window.lastNyquistAnalysisKey = key;
+
+    return analysis;
+}
+
 function updateClosedLoopPoles() {
     const prefix = isNarrowLayout ? 'narrow-' : '';
     let clpEl = document.getElementById(prefix + 'clp-display');
@@ -1069,11 +1105,13 @@ function updateClosedLoopPoles() {
         // Find poles on imaginary axis (need special handling in Nyquist)
         let imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
 
-        // Calculate N (winding number) using Nyquist criterion
-        // Use a wide frequency range for accurate winding number calculation
-        let wNyquist = logspace(-4, 6, 2000);
+        // Evaluate L(s) on Nyquist contour once and reuse (plot + stability)
         let Lcompiled = L.compile();
-        let N = calculateWindingNumber(Lcompiled, wNyquist, imagAxisPoles);
+        const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
+        let N = nyq ? nyq.N : 0;
+
+        window.lastNyquistP = P;
+        window.lastNyquistN = N;
 
         // Nyquist criterion: Z = N + P
         // Z = number of closed-loop RHP poles
@@ -1669,10 +1707,13 @@ function updateNarrowNyquistPlot() {
             imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
         }
 
+        const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
+
         drawNyquist(Lcompiled, imagAxisPoles, {
             wrapperId: 'narrow-nyquist-wrapper',
             canvasId: 'narrow-nyquist-canvas',
-            animate: true
+            animate: true,
+            analysis: nyq
         });
     } catch (e) {
         console.log('Narrow Nyquist plot error:', e);
@@ -1733,10 +1774,13 @@ function updateNyquistPlot() {
             imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
         }
 
+        const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
+
         drawNyquist(Lcompiled, imagAxisPoles, {
             wrapperId: 'nyquist-wrapper',
             canvasId: 'nyquist-canvas',
-            animate: true
+            animate: true,
+            analysis: nyq
         });
     } catch (e) {
         console.log('Nyquist plot error:', e);
@@ -1825,8 +1869,14 @@ function updateNyquistInfo() {
         // Get imaginary axis poles for proper Nyquist contour handling
         let imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
 
-        // Count unstable open-loop poles (Re > 0) using countRHPpoles
-        let P = countRHPpoles(structure.rationalPart);
+        // Prefer cached values from updateClosedLoopPoles()
+        const key = buildNyquistCacheKey(L, imagAxisPoles);
+        let P = (window.lastNyquistAnalysisKey === key) ? window.lastNyquistP : null;
+        let N = (window.lastNyquistAnalysisKey === key) ? window.lastNyquistN : null;
+
+        if (P === null || P === undefined) {
+            P = countRHPpoles(structure.rationalPart);
+        }
         if (P === null) {
             openLoopDisplay.textContent = '--';
             openLoopDisplay.className = 'text-muted';
@@ -1835,25 +1885,23 @@ function updateNyquistInfo() {
             return;
         }
 
-        // Calculate winding number
-        let Lcompiled = L.compile();
-        let wArray = logspace(-4, 6, 2000);
-        let N = calculateWindingNumber(Lcompiled, wArray, imagAxisPoles);
+        if (N === null || N === undefined) {
+            // Compute analysis if not available
+            let Lcompiled = L.compile();
+            const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
+            N = nyq ? nyq.N : 0;
+            window.lastNyquistP = P;
+            window.lastNyquistN = N;
+        }
 
         // Display P (number of unstable open-loop poles)
         openLoopDisplay.textContent = P.toString();
         openLoopDisplay.className = P === 0 ? 'text-success' : 'text-warning';
 
         // Display N (winding number)
-        // For stability: N + P should equal 0 (Z = N + P = 0 closed-loop unstable poles)
-        // Note: N is typically negative when encircling -1 CCW
         windingDisplay.textContent = N.toString();
         let Z = N + P;
-        if (Z === 0) {
-            windingDisplay.className = 'text-success';
-        } else {
-            windingDisplay.className = 'text-danger';
-        }
+        windingDisplay.className = (Z === 0) ? 'text-success' : 'text-danger';
 
     } catch (e) {
         console.log('Nyquist info error:', e);

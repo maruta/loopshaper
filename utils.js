@@ -72,100 +72,200 @@ function nextPow2(n) {
     return n + 1;
 }
 
-// Calculate winding number around (-1, 0) for Nyquist stability criterion
-function calculateWindingNumber(Lcompiled, wArray, imagAxisPoles) {
-    imagAxisPoles = imagAxisPoles || [];
+// --- Nyquist shared contour + analysis utilities ---
 
-    // Sort pole frequencies
+const NYQUIST_DEFAULTS = {
+    epsilon: 1e-4,
+    nIndentPoints: 50,
+    wMinDecade: -4,
+    wMaxDecade: 6,
+    wPoints: 2000,
+    dedupTol: 1e-12
+};
+
+function nyquistUniquePoleFreqs(imagAxisPoles) {
+    imagAxisPoles = imagAxisPoles || [];
     let poleFreqs = imagAxisPoles
         .map(p => Math.abs(p.im))
         .sort((a, b) => a - b);
-    poleFreqs = [...new Set(poleFreqs.map(f => parseFloat(f.toFixed(10))))];
+    return [...new Set(poleFreqs.map(f => parseFloat(f.toFixed(10))))];
+}
 
-    const epsilon = 1e-4;
+function nyquistConjugateIndentation(indent) {
+    if (!indent) return null;
+    return { poleIm: -indent.poleIm, theta: -indent.theta };
+}
+
+function nyquistPointsEqualS(a, b, tol) {
+    if (!a || !b || !a.s || !b.s) return false;
+    return (Math.abs(a.s.re - b.s.re) <= tol) && (Math.abs(a.s.im - b.s.im) <= tol);
+}
+
+function nyquistConcatDedup(a, b, tol) {
+    if (!a || a.length === 0) return b || [];
+    if (!b || b.length === 0) return a || [];
+    const out = a.slice();
+    if (nyquistPointsEqualS(out[out.length - 1], b[0], tol)) {
+        out.push(...b.slice(1));
+    } else {
+        out.push(...b);
+    }
+    return out;
+}
+
+// Generate Nyquist contour points on the s-plane (imag axis + RHP indentations) in full order:
+// negative (from -j*wMax to -j*wMin) -> origin indentation -> positive (j*wMin to j*wMax)
+// Each point: { s: Complex, indentation: { poleIm, theta } | null }
+function generateNyquistContourPoints(wArray, imagAxisPoles, options) {
+    options = options || {};
+
+    const epsilon = options.epsilon ?? NYQUIST_DEFAULTS.epsilon;
+    const nIndentPoints = options.nIndentPoints ?? NYQUIST_DEFAULTS.nIndentPoints;
+    const dedupTol = options.dedupTol ?? NYQUIST_DEFAULTS.dedupTol;
+
+    const poleFreqs = nyquistUniquePoleFreqs(imagAxisPoles);
     const hasOriginPole = poleFreqs.some(f => f < 1e-9);
 
-    // --- Part 1: Origin Indentation (Count ONCE) ---
-    // Calculates angle change from s = -j*eps to s = +j*eps via RHP semicircle
-    let originAngleChange = 0;
-    
-    if (hasOriginPole) {
-        let originPoints = [];
-        const nIndentPoints = 50;
-        // Sweep from -PI/2 to +PI/2 (Bottom to Top around origin in RHP)
-        for (let k = 0; k <= nIndentPoints; k++) {
-            let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
-            let sReal = epsilon * Math.cos(theta);
-            let sImag = epsilon * Math.sin(theta);
-            originPoints.push(math.complex(sReal, sImag));
-        }
-        originAngleChange = calculatePathAngleChange(Lcompiled, originPoints);
-    }
-
-
-    // --- Part 2: Positive Frequency Sweep (Count TWICE) ---
-    // Calculates angle change from s = +j*eps to s = +j*inf
-    let posPoints = [];
-    
-    // Determine start frequency
+    // Build positive sweep segments that avoid poles
     let currentStart = hasOriginPole ? epsilon : wArray[0];
     if (wArray[0] > currentStart) currentStart = wArray[0];
 
-    // Build segments avoiding non-origin poles
+    const wEnd = wArray[wArray.length - 1];
+
     let segments = [];
     for (let poleFreq of poleFreqs) {
-        // Skip origin pole as it's handled in Part 1
-        if (poleFreq < 1e-9) continue; 
+        if (poleFreq < 1e-9) continue; // origin handled separately
 
-        if (poleFreq > currentStart + epsilon && poleFreq < wArray[wArray.length - 1]) {
-            segments.push({
-                wStart: currentStart,
-                wEnd: poleFreq - epsilon,
-                poleFreq: poleFreq
-            });
+        if (poleFreq > currentStart + epsilon && poleFreq < wEnd) {
+            segments.push({ wStart: currentStart, wEnd: poleFreq - epsilon, poleFreq });
             currentStart = poleFreq + epsilon;
         }
     }
-    segments.push({
-        wStart: currentStart,
-        wEnd: wArray[wArray.length - 1],
-        poleFreq: null
-    });
+    segments.push({ wStart: currentStart, wEnd: wEnd, poleFreq: null });
 
-    // Generate points for positive sweep
+    let posPoints = [];
+
     for (let seg of segments) {
-        // Normal frequency points
+        // Points on imaginary axis
         let segFreqs = wArray.filter(w => w >= seg.wStart && w <= seg.wEnd);
         for (let omega of segFreqs) {
-            posPoints.push(math.complex(0, omega));
+            posPoints.push({ s: math.complex(0, omega), indentation: null });
         }
 
-        // Indentation around non-origin pole (Semicircle in RHP)
+        // Indentation around non-origin pole (RHP semicircle)
         if (seg.poleFreq !== null) {
-            let pFreq = seg.poleFreq;
-            const nIndentPoints = 50;
-            // Sweep from -PI/2 to +PI/2 relative to the pole
+            const pFreq = seg.poleFreq;
             for (let k = 0; k <= nIndentPoints; k++) {
-                let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
-                let sReal = epsilon * Math.cos(theta);
-                let sImag = pFreq + epsilon * Math.sin(theta);
-                posPoints.push(math.complex(sReal, sImag));
+                const theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
+                const sReal = epsilon * Math.cos(theta);
+                const sImag = pFreq + epsilon * Math.sin(theta);
+                posPoints.push({
+                    s: math.complex(sReal, sImag),
+                    indentation: { poleIm: pFreq, theta }
+                });
             }
         }
     }
 
-    let posPathAngleChange = calculatePathAngleChange(Lcompiled, posPoints);
+    // Negative sweep is conjugate of positive sweep (reverse order)
+    let negPoints = [];
+    for (let i = posPoints.length - 1; i >= 0; i--) {
+        const p = posPoints[i];
+        negPoints.push({
+            s: p.s ? math.complex(p.s.re, -p.s.im) : null,
+            indentation: nyquistConjugateIndentation(p.indentation)
+        });
+    }
 
+    // Origin indentation (RHP semicircle from -j*eps to +j*eps)
+    let originPoints = [];
+    if (hasOriginPole) {
+        for (let k = 0; k <= nIndentPoints; k++) {
+            const theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
+            const sReal = epsilon * Math.cos(theta);
+            const sImag = epsilon * Math.sin(theta);
+            originPoints.push({
+                s: math.complex(sReal, sImag),
+                indentation: { poleIm: 0, theta }
+            });
+        }
+    }
 
-    // --- Combine Results ---
-    // Total = Origin(once) + PositivePath(twice for symmetry)
-    let totalAngle = originAngleChange + (2 * posPathAngleChange);
+    // Combine with de-duplication at joins
+    let allPoints = nyquistConcatDedup(negPoints, originPoints, dedupTol);
+    allPoints = nyquistConcatDedup(allPoints, posPoints, dedupTol);
 
-    // FIX: N is Clockwise positive, but atan2 is Counter-Clockwise positive.
-    // So we invert the sign.
-    let N = Math.round(-totalAngle / (2 * Math.PI));
+    return { points: allPoints, poleFreqs, hasOriginPole, epsilon };
+}
 
-    return N;
+// Compute winding number from already-evaluated L(s) along a contour.
+// The angle is of vector (L(s) - (-1)) = L(s) + 1.
+function computeWindingNumberFromEvaluations(evaluatedPoints) {
+    let totalDelta = 0;
+    let prevAngle = null;
+
+    for (let p of evaluatedPoints) {
+        if (!p || !p.L) continue;
+        const shiftedRe = p.L.re + 1;
+        const shiftedIm = p.L.im;
+        if (!isFinite(shiftedRe) || !isFinite(shiftedIm)) continue;
+
+        const angle = Math.atan2(shiftedIm, shiftedRe);
+        if (prevAngle !== null) {
+            let deltaAngle = angle - prevAngle;
+            while (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+            while (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+            totalDelta += deltaAngle;
+        }
+        prevAngle = angle;
+    }
+
+    // N is defined as clockwise-positive in this app.
+    return Math.round(-totalDelta / (2 * Math.PI));
+}
+
+// Evaluate L(s) once along the full Nyquist contour and compute N.
+// Returns { points: [{s, indentation, L:{re,im}}...], N, poleFreqs, hasOriginPole, epsilon, wArray }
+function computeNyquistAnalysis(Lcompiled, imagAxisPoles, options) {
+    options = options || {};
+
+    const wArray = options.wArray || logspace(
+        options.wMinDecade ?? NYQUIST_DEFAULTS.wMinDecade,
+        options.wMaxDecade ?? NYQUIST_DEFAULTS.wMaxDecade,
+        options.wPoints ?? NYQUIST_DEFAULTS.wPoints
+    );
+
+    const contour = generateNyquistContourPoints(wArray, imagAxisPoles, options);
+    const evaluated = [];
+
+    for (let p of contour.points) {
+        try {
+            const Lval = Lcompiled.evaluate({ 's': p.s });
+            if (typeof Lval?.re === 'number' && isFinite(Lval.re) && isFinite(Lval.im)) {
+                evaluated.push({ s: p.s, indentation: p.indentation || null, L: { re: Lval.re, im: Lval.im } });
+            }
+        } catch (e) {
+            // Skip evaluation failures
+        }
+    }
+
+    const N = computeWindingNumberFromEvaluations(evaluated);
+
+    return {
+        points: evaluated,
+        N,
+        poleFreqs: contour.poleFreqs,
+        hasOriginPole: contour.hasOriginPole,
+        epsilon: contour.epsilon,
+        wArray
+    };
+}
+
+// Calculate winding number around (-1, 0) for Nyquist stability criterion
+// (Kept for backward compatibility; now uses shared Nyquist analysis so the contour is consistent.)
+function calculateWindingNumber(Lcompiled, wArray, imagAxisPoles) {
+    const analysis = computeNyquistAnalysis(Lcompiled, imagAxisPoles, { wArray });
+    return analysis ? analysis.N : 0;
 }
 
 // Helper function to calculate accumulated angle change along a path

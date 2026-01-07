@@ -134,7 +134,12 @@ function drawNyquist(Lcompiled, imagAxisPoles, options) {
     ctx.fillRect(0, 0, width, height);
 
     // Calculate Nyquist data
-    const nyquistData = calculateNyquistData(Lcompiled, imagAxisPoles, R);
+    // Prefer shared analysis result (evaluated L(s) along the contour) to avoid duplicate evaluations.
+    const analysis = options.analysis || (typeof computeNyquistAnalysis === 'function'
+        ? computeNyquistAnalysis(Lcompiled, imagAxisPoles)
+        : null);
+
+    const nyquistData = calculateNyquistData(Lcompiled, imagAxisPoles, R, analysis);
     if (!nyquistData || nyquistData.points.length === 0) return null;
 
     // Calculate plot bounds (in compressed coordinates)
@@ -189,152 +194,40 @@ function compressPoint(re, im, R) {
     return { x: re * factor, y: im * factor };
 }
 
-// Calculate Nyquist curve data with pole indentation
-function calculateNyquistData(Lcompiled, imagAxisPoles, R) {
-    imagAxisPoles = imagAxisPoles || [];
+// Calculate Nyquist curve data with pole indentation.
+// If a shared Nyquist analysis result is provided, it will be used to avoid duplicate L(s) evaluations.
+function calculateNyquistData(Lcompiled, imagAxisPoles, R, analysis) {
     R = R || 10;
 
-    // Sort pole frequencies
-    let poleFreqs = imagAxisPoles
-        .map(p => Math.abs(p.im))
-        .sort((a, b) => a - b);
-    poleFreqs = [...new Set(poleFreqs.map(f => parseFloat(f.toFixed(10))))];
+    // If no analysis was provided, compute it (fallback).
+    const nyq = analysis || (typeof computeNyquistAnalysis === 'function'
+        ? computeNyquistAnalysis(Lcompiled, imagAxisPoles)
+        : null);
 
-    const epsilon = 1e-4;  // Indentation radius
-    const hasOriginPole = poleFreqs.some(f => f < 1e-9);
+    return calculateNyquistDataFromAnalysis(nyq, R);
+}
 
-    // Generate frequency points
-    const wMin = 1e-4;
-    const wMax = 1e6;
-    const nPoints = 500;
-    
-    // logspace helper (if not defined elsewhere)
-    function logspace(start, end, num) {
-        const arr = [];
-        const step = (end - start) / (num - 1);
-        for (let i = 0; i < num; i++) arr.push(Math.pow(10, start + i * step));
-        return arr;
+function calculateNyquistDataFromAnalysis(nyq, R) {
+    if (!nyq || !nyq.points || nyq.points.length === 0) {
+        return { points: [], cumulativeLength: [], totalLength: 0, hasOriginPole: false, poleFreqs: [] };
     }
 
-    let wArray = logspace(Math.log10(wMin), Math.log10(wMax), nPoints);
+    const allPoints = [];
 
-    // Build frequency segments that avoid poles
-    let freqSegments = [];
-    let currentStart = hasOriginPole ? epsilon : 0; // Start from 0 if no origin pole (or epsilon)
-
-    // Filter poles to only strictly positive ones for the sweep segments
-    let positivePoles = poleFreqs.filter(f => f > 1e-9);
-
-    for (let poleFreq of positivePoles) {
-        if (poleFreq > currentStart + epsilon && poleFreq < wMax) {
-            freqSegments.push({
-                wStart: currentStart,
-                wEnd: poleFreq - epsilon,
-                poleAfter: poleFreq
-            });
-            currentStart = poleFreq + epsilon;
-        }
-    }
-    freqSegments.push({
-        wStart: currentStart,
-        wEnd: wMax,
-        poleAfter: null
-    });
-
-    let posPoints = []; // Only strictly positive frequency points (and non-origin indentations)
-
-    // Helper to add a point with s value and optional indentation info
-    // indentation: { poleIm, theta } for pole indentation points, or null for regular points
-    function addPointTo(targetArray, re, im, sValue, indentation) {
+    for (let p of nyq.points) {
+        const re = p.L.re;
+        const im = p.L.im;
         const compressed = compressPoint(re, im, R);
-        targetArray.push({
+
+        allPoints.push({
             x: re, y: im,
             cx: compressed.x, cy: compressed.y,
-            s: sValue,
-            indentation: indentation || null
+            s: p.s,
+            indentation: p.indentation || null
         });
     }
 
-    // Sweep positive frequencies
-    for (let seg of freqSegments) {
-        let segFreqs = wArray.filter(w => w >= seg.wStart && w <= seg.wEnd);
-
-        // Add segment points
-        for (let omega of segFreqs) {
-            try {
-                // Skip w=0 if we don't have origin pole (handled separately) but allow close to 0
-                if (omega < 1e-9 && hasOriginPole) continue;
-
-                let sVal = math.complex(0, omega);
-                let Ljw = Lcompiled.evaluate({ 's': sVal });
-                if (typeof Ljw.re === 'number' && isFinite(Ljw.re) && isFinite(Ljw.im)) {
-                    addPointTo(posPoints, Ljw.re, Ljw.im, sVal);
-                }
-            } catch (e) { continue; }
-        }
-
-        // Indentation around non-origin pole (RHP semicircle)
-        if (seg.poleAfter !== null) {
-            let pFreq = seg.poleAfter;
-            const nIndentPoints = 30;
-            for (let k = 0; k <= nIndentPoints; k++) {
-                let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
-
-                let sReal = epsilon * Math.cos(theta);
-                let sImag = pFreq + epsilon * Math.sin(theta);
-                try {
-                    let sVal = math.complex(sReal, sImag);
-                    let Ls = Lcompiled.evaluate({ 's': sVal });
-                    if (typeof Ls.re === 'number' && isFinite(Ls.re) && isFinite(Ls.im)) {
-                        addPointTo(posPoints, Ls.re, Ls.im, sVal, { poleIm: pFreq, theta: theta });
-                    }
-                } catch (e) { continue; }
-            }
-        }
-    }
-
-    // Negative frequency points (conjugate of positive)
-    let negPoints = [];
-    for (let i = posPoints.length - 1; i >= 0; i--) {
-        let p = posPoints[i];
-        const compressed = compressPoint(p.x, -p.y, R);
-        // s value is conjugate of the positive frequency s
-        const sConj = p.s ? math.complex(p.s.re, -p.s.im) : null;
-        // For indentation, conjugate the pole position and negate the theta
-        let indentConj = null;
-        if (p.indentation) {
-            indentConj = { poleIm: -p.indentation.poleIm, theta: -p.indentation.theta };
-        }
-        negPoints.push({
-            x: p.x, y: -p.y,
-            cx: compressed.x, cy: compressed.y,
-            s: sConj,
-            indentation: indentConj
-        });
-    }
-
-    // Origin indentation points
-    let originPoints = [];
-    if (hasOriginPole) {
-        const nIndentPoints = 30;
-        for (let k = 0; k <= nIndentPoints; k++) {
-            let theta = -Math.PI / 2 + (k * Math.PI / nIndentPoints);
-            let sReal = epsilon * Math.cos(theta);
-            let sImag = epsilon * Math.sin(theta);
-            try {
-                let sVal = math.complex(sReal, sImag);
-                let Ls = Lcompiled.evaluate({ 's': sVal });
-                if (typeof Ls.re === 'number' && isFinite(Ls.re) && isFinite(Ls.im)) {
-                    addPointTo(originPoints, Ls.re, Ls.im, sVal, { poleIm: 0, theta: theta });
-                }
-            } catch (e) { continue; }
-        }
-    }
-
-    // Combine: negative -> origin -> positive
-    let allPoints = negPoints.concat(originPoints).concat(posPoints);
-
-    // Calculate cumulative arc length
+    // Calculate cumulative arc length (in compressed space)
     let cumulativeLength = [0];
     for (let i = 1; i < allPoints.length; i++) {
         const dx = allPoints[i].cx - allPoints[i - 1].cx;
@@ -347,10 +240,10 @@ function calculateNyquistData(Lcompiled, imagAxisPoles, R) {
 
     return {
         points: allPoints,
-        cumulativeLength: cumulativeLength,
-        totalLength: totalLength,
-        hasOriginPole: hasOriginPole,
-        poleFreqs: poleFreqs
+        cumulativeLength,
+        totalLength,
+        hasOriginPole: !!nyq.hasOriginPole,
+        poleFreqs: nyq.poleFreqs || []
     };
 }
 
