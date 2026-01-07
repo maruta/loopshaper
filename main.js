@@ -1763,16 +1763,40 @@ function updatePolePlot() {
     if (showLpz && nyquistAnimationData && isPanelOpen('nyquist')) {
         let currentS = getCurrentNyquistSValue();
         if (currentS) {
-            let px = centerX + currentS.re * scale;
-            let py = centerY - currentS.im * scale;
+            if (currentS.indentation) {
+                // Pole indentation: draw RHP semicircle around the pole with phase marker
+                const indent = currentS.indentation;
+                const polePx = centerX;
+                const polePy = centerY - indent.poleIm * scale;
+                const circleRadius = 12;
 
-            ctx.fillStyle = '#0066ff';
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(px, py, 7, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.stroke();
+                // RHP semicircle (theta: -π/2 to +π/2)
+                ctx.strokeStyle = '#0066ff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(polePx, polePy, circleRadius, Math.PI / 2, -Math.PI / 2, true);
+                ctx.stroke();
+
+                // Phase marker on the semicircle
+                const markerX = polePx + circleRadius * Math.cos(indent.theta);
+                const markerY = polePy - circleRadius * Math.sin(indent.theta);
+                ctx.fillStyle = '#0066ff';
+                ctx.beginPath();
+                ctx.arc(markerX, markerY, 4, 0, 2 * Math.PI);
+                ctx.fill();
+            } else {
+                // Normal point on imaginary axis
+                let px = centerX + currentS.re * scale;
+                let py = centerY - currentS.im * scale;
+
+                ctx.fillStyle = '#0066ff';
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(px, py, 7, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+            }
         }
     }
 }

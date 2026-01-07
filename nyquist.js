@@ -796,6 +796,7 @@ function drawNyquistStatic(Lcompiled, imagAxisPoles, options) {
 }
 
 // Get the current s value from Nyquist animation for Pole-Zero Map display
+// Returns { re, im, indentation } where indentation is { poleIm, theta } if on a pole indentation
 function getCurrentNyquistSValue() {
     if (!nyquistAnimationData) return null;
 
@@ -804,7 +805,7 @@ function getCurrentNyquistSValue() {
     const p = getPointAtArcLength(d.points, d.cumulativeLength, currentArcLength);
 
     if (p && p.s) {
-        return { re: p.s.re, im: p.s.im };
+        return { re: p.s.re, im: p.s.im, indentation: p.indentation || null };
     }
     return null;
 }
