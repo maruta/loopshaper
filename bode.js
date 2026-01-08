@@ -268,7 +268,9 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         let y = p2y(p);
         ctx.fillStyle = options.textColor || '#333333';
         ctx.fillText(p.toFixed(0), w2x(wmin) - 5, y);
-        if (p === -180 || p === 180) {
+        // Highlight phase crossover reference lines at -180 + 360k degrees
+        // These are critical for stability analysis as they define phase crossover frequencies
+        if ((p + 180) % 360 === 0) {
             ctx.strokeStyle = '#333333';
             ctx.lineWidth = 1;
             ctx.setLineDash([5, 5]);
