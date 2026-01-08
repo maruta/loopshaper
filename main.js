@@ -28,8 +28,15 @@ let autoFreq = true;
 let showLpz = true;  // Pole-Zero Map: show L(s)
 let showTpz = true;  // Pole-Zero Map: show T(s)
 let showLstep = false;  // Step Response: show L(s)
-let showTstep = true;  // Step Response: show T(s)
-let stepTimeMax = 10;  // Step Response: maximum simulation time (seconds)
+let showTstep = true;   // Step Response: show T(s)
+let stepTimeMax = 20;   // Step Response: current simulation time (seconds)
+
+// Step response display options
+let stepOptions = {
+    autoTime: true,        // Auto-calculate time range from dominant pole
+    timeMax: 20,           // Manual time range (seconds, used when autoTime is false)
+    autoTimeMultiplier: 10 // Multiplier for auto time: T = multiplier / |Re(dominant pole)|
+};
 
 // Bode plot display options
 let bodeOptions = {
@@ -431,13 +438,69 @@ function initializeNarrowLayout() {
         });
     }
 
-    // Set up Step Response time input for narrow layout
+    // Set up Step Response auto time checkbox for narrow layout
+    const chkAutoTime = document.getElementById('narrow-step-auto-time');
+    const stepTimeControl = document.getElementById('narrow-step-time-control');
     const stepTimeInput = document.getElementById('narrow-step-time-max');
-    if (stepTimeInput) {
-        stepTimeInput.addEventListener('sl-change', function() {
-            stepTimeMax = parseFloat(this.value) || 10;
+
+    if (chkAutoTime) {
+        // Initialize state
+        chkAutoTime.checked = stepOptions.autoTime;
+        if (stepTimeControl) {
+            stepTimeControl.style.display = stepOptions.autoTime ? 'none' : 'flex';
+        }
+
+        chkAutoTime.addEventListener('sl-change', function() {
+            stepOptions.autoTime = this.checked;
+            if (stepTimeControl) {
+                stepTimeControl.style.display = this.checked ? 'none' : 'flex';
+            }
+            if (stepOptions.autoTime) {
+                // Auto mode: reset multiplier
+                stepOptions.autoTimeMultiplier = 10;
+                stepTimeMax = calculateAutoStepTime();
+            } else {
+                // Manual mode: inherit current time range
+                stepOptions.timeMax = stepTimeMax;
+                if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax.toPrecision(3);
+            }
             updateNarrowStepResponsePlot();
         });
+    }
+
+    // Set up Step Response time input for narrow layout
+    if (stepTimeInput) {
+        stepTimeInput.value = stepOptions.timeMax;
+        stepTimeInput.addEventListener('sl-change', function() {
+            stepOptions.timeMax = parseFloat(this.value) || 20;
+            if (!stepOptions.autoTime) {
+                stepTimeMax = stepOptions.timeMax;
+                updateNarrowStepResponsePlot();
+            }
+        });
+    }
+
+    // Mouse wheel: adjust time range (*1.05 or /1.05)
+    const narrowStepWrapper = document.getElementById('narrow-step-wrapper');
+    if (narrowStepWrapper && !narrowStepWrapper.dataset.wheelListenerAttached) {
+        narrowStepWrapper.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            const factor = 1.05;
+            const increase = e.deltaY < 0;
+
+            if (stepOptions.autoTime) {
+                stepOptions.autoTimeMultiplier *= increase ? factor : 1 / factor;
+                stepOptions.autoTimeMultiplier = Math.max(0.1, Math.min(100, stepOptions.autoTimeMultiplier));
+                stepTimeMax = calculateAutoStepTime();
+            } else {
+                stepOptions.timeMax *= increase ? factor : 1 / factor;
+                stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
+                stepTimeMax = stepOptions.timeMax;
+                if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax.toPrecision(3);
+            }
+            updateNarrowStepResponsePlot();
+        }, { passive: false });
+        narrowStepWrapper.dataset.wheelListenerAttached = 'true';
     }
 }
 
@@ -571,15 +634,6 @@ function setupEventListeners() {
             chkTstep.dataset.listenerAttached = 'true';
         }
 
-        // Step Response time input
-        const stepTimeInput = document.getElementById('step-time-max');
-        if (stepTimeInput && !stepTimeInput.dataset.listenerAttached) {
-            stepTimeInput.addEventListener('sl-change', function() {
-                stepTimeMax = parseFloat(this.value) || 10;
-                updateStepResponsePlot();
-            });
-            stepTimeInput.dataset.listenerAttached = 'true';
-        }
     }
 
     // Window resize listener (only attach once)
@@ -597,6 +651,9 @@ function setupEventListeners() {
 
     // Bode plot context menu
     setupBodeContextMenu();
+
+    // Step response context menu
+    setupStepContextMenu();
 }
 
 function setupBodeContextMenu() {
@@ -786,6 +843,160 @@ function setupBodeContextMenu() {
             }
 
             updateBodePlot();
+            contextMenu.active = false;
+        });
+
+        menuInner.dataset.listenerAttached = 'true';
+    }
+}
+
+// Handle auto/manual time mode toggle for step response
+function handleStepAutoTimeToggle(autoMode, customTimePanel, timeMaxInput) {
+    stepOptions.autoTime = autoMode;
+    if (customTimePanel) {
+        customTimePanel.style.display = autoMode ? 'none' : 'block';
+    }
+    if (autoMode) {
+        // Auto mode: reset multiplier
+        stepOptions.autoTimeMultiplier = 10;
+        stepTimeMax = calculateAutoStepTime();
+    } else {
+        // Manual mode: inherit current time range
+        stepOptions.timeMax = stepTimeMax;
+        if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
+    }
+}
+
+function setupStepContextMenu() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const stepWrapper = document.getElementById(prefix + 'step-wrapper');
+    const contextMenu = document.getElementById('step-context-menu');
+    const contextAnchor = document.getElementById('step-context-menu-anchor');
+
+    if (!stepWrapper || !contextMenu || !contextAnchor) return;
+
+    // Prevent duplicate listeners
+    if (stepWrapper.dataset.contextMenuAttached) return;
+    stepWrapper.dataset.contextMenuAttached = 'true';
+
+    // Context menu items
+    const optAutoTime = document.getElementById('step-opt-auto-time');
+    const customTimePanel = document.getElementById('step-custom-time-panel');
+    const timeMaxInput = document.getElementById('step-time-max-input');
+
+    // Initialize checkbox state
+    if (optAutoTime) optAutoTime.checked = stepOptions.autoTime;
+
+    // Initialize custom time panel visibility
+    if (customTimePanel) {
+        customTimePanel.style.display = stepOptions.autoTime ? 'none' : 'block';
+    }
+    if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax;
+
+    // Setup time input event listener
+    if (timeMaxInput && !timeMaxInput.dataset.listenerAttached) {
+        timeMaxInput.addEventListener('sl-change', () => {
+            stepOptions.timeMax = parseFloat(timeMaxInput.value) || 20;
+            if (!stepOptions.autoTime) {
+                stepTimeMax = stepOptions.timeMax;
+                updateStepResponsePlot();
+            }
+        });
+        timeMaxInput.addEventListener('click', (e) => e.stopPropagation());
+        timeMaxInput.dataset.listenerAttached = 'true';
+    }
+
+    // Mouse wheel: adjust time range (*1.05 or /1.05)
+    if (!stepWrapper.dataset.wheelListenerAttached) {
+        stepWrapper.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            const factor = 1.05;
+            const increase = e.deltaY < 0;
+
+            if (stepOptions.autoTime) {
+                // Auto mode: adjust multiplier
+                stepOptions.autoTimeMultiplier *= increase ? factor : 1 / factor;
+                stepOptions.autoTimeMultiplier = Math.max(0.1, Math.min(100, stepOptions.autoTimeMultiplier));
+                stepTimeMax = calculateAutoStepTime();
+            } else {
+                // Manual mode: adjust time directly
+                stepOptions.timeMax *= increase ? factor : 1 / factor;
+                stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
+                stepTimeMax = stepOptions.timeMax;
+                // Update input field
+                if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
+            }
+
+            updateStepResponsePlot();
+        }, { passive: false });
+        stepWrapper.dataset.wheelListenerAttached = 'true';
+    }
+
+    // Show context menu on right-click
+    stepWrapper.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+
+        // Move the anchor to the cursor position
+        contextAnchor.style.left = e.clientX + 'px';
+        contextAnchor.style.top = e.clientY + 'px';
+
+        // Use a fixed strategy so coordinates are relative to the viewport
+        contextMenu.strategy = 'fixed';
+        contextMenu.active = true;
+
+        // Ensure the floating UI run happens after the anchor style updates
+        requestAnimationFrame(() => {
+            if (typeof contextMenu.reposition === 'function') {
+                contextMenu.reposition();
+            }
+        });
+    });
+
+    // Hide context menu when clicking elsewhere
+    document.addEventListener('click', (e) => {
+        if (!contextMenu.active) return;
+
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
+
+        const clickedInside =
+            (popupPart ? path.includes(popupPart) : false) ||
+            path.includes(contextMenu) ||
+            contextMenu.contains(e.target);
+
+        if (!clickedInside) {
+            contextMenu.active = false;
+        }
+    }, { capture: true });
+
+    // Handle menu item selection
+    const menuInner = document.getElementById('step-context-menu-inner');
+    if (menuInner && !menuInner.dataset.listenerAttached) {
+        menuInner.addEventListener('click', (e) => {
+            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+            const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
+            if (!item) return;
+
+            // Toggle the checkbox state
+            item.checked = !item.checked;
+
+            if (item.id === 'step-opt-auto-time') {
+                handleStepAutoTimeToggle(item.checked, customTimePanel, timeMaxInput);
+            }
+            updateStepResponsePlot();
+            contextMenu.active = false;
+        });
+
+        // Fallback handler for sl-select event
+        menuInner.addEventListener('sl-select', (e) => {
+            const item = e.detail.item;
+            if (!item) return;
+            item.checked = !item.checked;
+
+            if (item.id === 'step-opt-auto-time') {
+                handleStepAutoTimeToggle(item.checked, customTimePanel, timeMaxInput);
+            }
+            updateStepResponsePlot();
             contextMenu.active = false;
         });
 
@@ -1133,6 +1344,10 @@ function updateAll() {
         displayTransferFunctions();
         updateClosedLoopPoles();  // Calculate closed-loop poles before frequency range
         autoAdjustFrequencyRange();
+        // Auto-adjust step response time range if enabled
+        if (stepOptions.autoTime) {
+            stepTimeMax = calculateAutoStepTime();
+        }
         updateBodePlot();
         if (!isNarrowLayout) {
             updatePolePlot();
@@ -2437,6 +2652,55 @@ function autoAdjustFrequencyRange() {
 
     } catch (e) {
         console.log('Auto frequency range error:', e);
+    }
+}
+
+// Calculate step response time range based on dominant closed-loop pole.
+// Returns: multiplier / |Re(dominant pole)| if stable, otherwise 20 seconds.
+function calculateAutoStepTime() {
+    const DEFAULT_TIME = 20;
+
+    try {
+        // Check if we have closed-loop poles from stability calculation
+        let clPoles = window.lastPoles || [];
+        if (clPoles.length === 0) {
+            return DEFAULT_TIME;
+        }
+
+        // Check if system is stable (all poles in LHP)
+        let isStable = clPoles.every(p => p.re < 1e-10);
+        if (!isStable) {
+            return DEFAULT_TIME;
+        }
+
+        // Find the dominant pole (smallest |Re(p)| among stable poles)
+        // Dominant pole determines settling time
+        let dominantRe = null;
+        for (let p of clPoles) {
+            // Only consider poles with negative real part (stable)
+            if (p.re < -1e-10) {
+                let absRe = Math.abs(p.re);
+                if (dominantRe === null || absRe < dominantRe) {
+                    dominantRe = absRe;
+                }
+            }
+        }
+
+        if (dominantRe === null || dominantRe < 1e-10) {
+            return DEFAULT_TIME;
+        }
+
+        // Time range = multiplier / |Re(dominant)| (adjustable via mouse wheel)
+        let autoTime = stepOptions.autoTimeMultiplier / dominantRe;
+
+        // Clamp to reasonable range
+        autoTime = Math.max(0.1, Math.min(1000, autoTime));
+
+        return autoTime;
+
+    } catch (e) {
+        console.log('Auto step time calculation error:', e);
+        return DEFAULT_TIME;
     }
 }
 

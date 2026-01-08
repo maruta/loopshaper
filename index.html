@@ -109,9 +109,9 @@
                 <div class="step-options">
                     <sl-checkbox id="narrow-chk-show-L-step" size="medium" class="step-label-L">━ L(s)</sl-checkbox>
                     <sl-checkbox id="narrow-chk-show-T-step" checked size="medium" class="step-label-T">━ T(s)</sl-checkbox>
-                    <div class="step-time-control">
-                        <span class="step-time-label">Time:</span>
-                        <sl-input id="narrow-step-time-max" type="number" size="small" value="10" min="0.1" step="any" class="step-time-input"></sl-input>
+                    <sl-checkbox id="narrow-step-auto-time" checked size="medium" class="step-auto-time">Auto</sl-checkbox>
+                    <div class="step-time-control" id="narrow-step-time-control">
+                        <sl-input id="narrow-step-time-max" type="number" size="small" value="20" min="0.1" step="any" class="step-time-input"></sl-input>
                         <span class="step-time-unit">s</span>
                     </div>
                 </div>
@@ -263,11 +263,6 @@
             <div class="step-options">
                 <sl-checkbox id="chk-show-L-step" size="small" class="step-label-L">━ L(s)</sl-checkbox>
                 <sl-checkbox id="chk-show-T-step" checked size="small" class="step-label-T">━ T(s)</sl-checkbox>
-                <div class="step-time-control">
-                    <span class="step-time-label">Time:</span>
-                    <sl-input id="step-time-max" type="number" size="small" value="10" min="0.1" step="any" class="step-time-input"></sl-input>
-                    <span class="step-time-unit">s</span>
-                </div>
             </div>
             <div id="step-wrapper" class="plot-wrapper">
                 <canvas id="step-canvas"></canvas>
@@ -321,6 +316,22 @@
                     <span class="range-separator">–</span>
                     <sl-input id="bode-freq-max" type="number" size="small" value="3" class="range-input" step="0.5"></sl-input>
                     <span class="range-unit">(10^x)</span>
+                </div>
+            </div>
+        </sl-menu>
+    </sl-popup>
+
+    <!-- Step Response Context Menu -->
+    <sl-popup id="step-context-menu" placement="bottom-start" flip shift>
+        <!-- Invisible anchor that we move to the cursor position on right-click -->
+        <span id="step-context-menu-anchor" slot="anchor" class="context-menu-anchor" aria-hidden="true"></span>
+
+        <sl-menu id="step-context-menu-inner">
+            <sl-menu-item type="checkbox" id="step-opt-auto-time" value="auto-time" checked>Auto time range</sl-menu-item>
+            <div id="step-custom-time-panel" class="bode-custom-range-panel" style="display: none;">
+                <div class="range-input-row">
+                    <span class="range-label">Time [s]:</span>
+                    <sl-input id="step-time-max-input" type="number" size="small" value="20" min="0.1" step="any" class="range-input"></sl-input>
                 </div>
             </div>
         </sl-menu>
