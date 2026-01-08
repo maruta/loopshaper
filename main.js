@@ -2752,6 +2752,23 @@ function generateShareUrl(options = {}) {
         saveData.preferredPlot = preferredPlot;
     }
 
+    // Include Bode plot options
+    saveData.bodeOptions = {
+        showMarginLines: bodeOptions.showMarginLines,
+        showCrossoverLines: bodeOptions.showCrossoverLines,
+        autoScaleVertical: bodeOptions.autoScaleVertical,
+        gainMin: bodeOptions.gainMin,
+        gainMax: bodeOptions.gainMax,
+        phaseMin: bodeOptions.phaseMin,
+        phaseMax: bodeOptions.phaseMax
+    };
+
+    // Include Step response options
+    saveData.stepOptions = {
+        autoTime: stepOptions.autoTime,
+        timeMax: stepOptions.timeMax
+    };
+
     // Optionally include Dockview layout
     if (includeLayout && dockviewApi) {
         saveData.layout = dockviewApi.toJSON();
@@ -2937,6 +2954,16 @@ function loadFromUrl() {
             if (json && json.charAt(0) === '{') {
                 let loaded = JSON.parse(json);
                 Object.assign(design, loaded);
+
+                // Restore Bode plot options if present
+                if (loaded.bodeOptions) {
+                    Object.assign(bodeOptions, loaded.bodeOptions);
+                }
+
+                // Restore Step response options if present
+                if (loaded.stepOptions) {
+                    Object.assign(stepOptions, loaded.stepOptions);
+                }
             }
         } catch (e) {
             console.log('Failed to load from URL:', e);
