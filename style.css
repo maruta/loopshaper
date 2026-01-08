@@ -12,38 +12,62 @@ body {
     font-family: var(--sl-font-sans);
 }
 
-/* Toolbar */
-#toolbar {
+/* Application Menu Bar */
+#menubar {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    height: 36px;
-    padding: 0 12px;
+    height: 32px;
+    padding: 0 8px;
     background-color: var(--sl-color-neutral-100);
     border-bottom: 1px solid var(--sl-color-neutral-200);
-}
-
-.toolbar-left {
-    display: flex;
-    align-items: center;
+    gap: 4px;
 }
 
 .app-title {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
+    color: var(--sl-color-neutral-700);
+    padding: 0 8px 0 4px;
+}
+
+.menu-items {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.menu-items sl-button[variant="text"]::part(base) {
+    font-size: 13px;
+    padding: 4px 8px;
+    height: 24px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    color: var(--sl-color-neutral-700);
+}
+
+.menu-items sl-button[variant="text"]::part(label) {
+    line-height: 1;
+}
+
+.menu-items sl-button[variant="text"]::part(base):hover {
+    background-color: var(--sl-color-neutral-200);
     color: var(--sl-color-neutral-900);
 }
 
-.toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+.menu-items sl-button[variant="text"]::part(caret) {
+    margin-left: 2px;
 }
 
 /* Dockview Container */
 #dockview-container {
     width: 100vw;
-    height: calc(100vh - 36px);
+    height: calc(100vh - 32px);
+}
+
+/* Hide elements on narrow (mobile) layout */
+.wide-only {
+    display: inline-flex;
 }
 
 /* Panel Container */
@@ -476,8 +500,8 @@ sl-textarea.is-invalid::part(base) {
         padding-bottom: 20px;
     }
 
-    .toolbar-right {
-        display: none;
+    .wide-only {
+        display: none !important;
     }
 
     .narrow-panel {

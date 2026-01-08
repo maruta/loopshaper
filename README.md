@@ -11,7 +11,7 @@ A web-based loop shaping control design tool for analyzing and designing feedbac
 - **Pole-Zero Map**: Visual representation of L(s) and T(s) poles/zeros with synchronized display of current s-plane point during Nyquist animation
 - **Real-time Parameter Tuning**: Adjust controller parameters using sliders with instant plot updates (linear or logarithmic scale)
 - **Stability Analysis**: Automatic calculation of gain margin (GM), phase margin (PM), number of open-loop RHP poles (P), and Nyquist winding number (N)
-- **URL State Persistence**: Share designs via URL - all settings are compressed with zlib and encoded in the URL hash
+- **Share via URL**: Share designs using the **Share** menu - design data is compressed with zlib and encoded in the URL hash. Optionally include panel layout for desktop.
 - **Flexible Layout**: Dockview-based resizable and rearrangeable panels for desktop, with responsive mobile layout
 
 ## Usage
@@ -20,7 +20,8 @@ A web-based loop shaping control design tool for analyzing and designing feedbac
 2. Enter your transfer function definition in the **System Definition** field using math.js syntax
 3. Add parameter sliders to interactively tune your controller
 4. View the Bode plot, Nyquist plot, pole-zero map, and stability margins in real-time
-5. Use the **View** menu to show/hide panels or reset the layout
+5. Use the **Share** menu to copy a shareable URL to clipboard
+6. Use the **View** menu to show/hide panels or reset the layout (desktop only)
 
 ### Transfer Function Syntax
 

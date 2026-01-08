@@ -19,14 +19,19 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Toolbar -->
-    <div id="toolbar">
-        <div class="toolbar-left">
-            <span class="app-title">LoopShaper</span>
-        </div>
-        <div class="toolbar-right">
-            <sl-dropdown id="view-dropdown">
-                <sl-button slot="trigger" size="small" caret>View</sl-button>
+    <!-- Application Menu Bar -->
+    <div id="menubar">
+        <span class="app-title">LoopShaper</span>
+        <div class="menu-items">
+            <sl-dropdown id="share-dropdown" hoist>
+                <sl-button slot="trigger" variant="text" size="small" caret>Share</sl-button>
+                <sl-menu id="share-menu">
+                    <sl-menu-item id="share-design-only">Share Design</sl-menu-item>
+                    <sl-menu-item id="share-design-layout" class="wide-only">Share Design & Layout</sl-menu-item>
+                </sl-menu>
+            </sl-dropdown>
+            <sl-dropdown id="view-dropdown" hoist class="wide-only">
+                <sl-button slot="trigger" variant="text" size="small" caret>View</sl-button>
                 <sl-menu id="view-menu">
                     <!-- Menu items will be populated by JavaScript -->
                 </sl-menu>

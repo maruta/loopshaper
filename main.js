@@ -21,7 +21,6 @@ L = K * P`,
 
 let currentVars = {};
 let updateTimeout = null;
-let urlUpdateTimeout = null;
 let showL = true;
 let showT = true;
 let autoFreq = true;
@@ -155,15 +154,23 @@ function initializeDockview() {
         dockviewThemeObserver = lockDockviewTheme(container.firstElementChild, DOCKVIEW_THEME_CLASS);
     }
 
-    // Always use default layout (layout is not saved to URL)
-    createDefaultLayout();
+    // Restore layout from URL if available, otherwise use default
+    if (design.layout) {
+        try {
+            dockviewApi.fromJSON(design.layout);
+        } catch (e) {
+            console.log('Failed to restore layout from URL:', e);
+            createDefaultLayout();
+        }
+    } else {
+        createDefaultLayout();
+    }
 
-    // Listen for layout changes to save and redraw canvases
+    // Listen for layout changes to redraw canvases
     dockviewApi.onDidLayoutChange(() => {
         // Stop Nyquist animation during layout changes
         stopNyquistAnimation();
 
-        debouncedSaveToUrl();
         // Delay redraw to allow layout to settle
         setTimeout(() => {
             updateBodePlot();
@@ -332,6 +339,9 @@ document.addEventListener('DOMContentLoaded', function() {
     loadFromUrl();
 
     isNarrowLayout = window.innerWidth < 768;
+
+    // Initialize Share menu (available on all layouts)
+    initializeShareMenu();
 
     if (isNarrowLayout) {
         // Narrow layout: use static HTML layout (no Dockview)
@@ -565,7 +575,6 @@ function setupEventListeners() {
             showL = this.checked;
             design.showL = showL;
             updateBodePlot();
-            debouncedSaveToUrl();
         });
         chkL.dataset.listenerAttached = 'true';
     }
@@ -574,7 +583,6 @@ function setupEventListeners() {
             showT = this.checked;
             design.showT = showT;
             updateBodePlot();
-            debouncedSaveToUrl();
         });
         chkT.dataset.listenerAttached = 'true';
     }
@@ -589,7 +597,6 @@ function setupEventListeners() {
                 showLpz = this.checked;
                 design.showLpz = showLpz;
                 updatePolePlot();
-                debouncedSaveToUrl();
             });
             chkLpz.dataset.listenerAttached = 'true';
         }
@@ -598,7 +605,6 @@ function setupEventListeners() {
                 showTpz = this.checked;
                 design.showTpz = showTpz;
                 updatePolePlot();
-                debouncedSaveToUrl();
             });
             chkTpz.dataset.listenerAttached = 'true';
         }
@@ -1405,9 +1411,6 @@ function updateAll() {
             eqTDisplay.innerHTML = '';
         }
     }
-
-    // Auto-save to URL (debounced)
-    debouncedSaveToUrl();
 }
 
 function substituteVars(expr, vars) {
@@ -2704,10 +2707,11 @@ function calculateAutoStepTime() {
     }
 }
 
-function saveToUrl() {
+// Generate shareable URL with design data
+function generateShareUrl(includeLayout = false) {
     saveDesign();
 
-    // Create a copy of design for saving (excluding layout info)
+    // Create a copy of design for saving
     let saveData = { ...design };
 
     // Don't save freqMin/freqMax if autoFreq is enabled
@@ -2716,25 +2720,67 @@ function saveToUrl() {
         delete saveData.freqMax;
     }
 
+    // Optionally include Dockview layout
+    if (includeLayout && dockviewApi) {
+        saveData.layout = dockviewApi.toJSON();
+    }
+
     let json = JSON.stringify(saveData);
     // Use pako (zlib) compression for shorter URLs
     let compressed = pako.deflate(json);
     // Convert to base64url encoding
     let base64 = btoa(String.fromCharCode.apply(null, compressed));
     let urlSafe = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    let url = location.pathname + '#' + urlSafe;
-    history.replaceState(null, '', url);
+    return location.origin + location.pathname + '#' + urlSafe;
 }
 
-// Debounced URL update - saves 1 second after last change
-function debouncedSaveToUrl() {
-    if (urlUpdateTimeout) {
-        clearTimeout(urlUpdateTimeout);
+// Copy URL to clipboard and show toast
+async function shareUrl(includeLayout = false) {
+    const url = generateShareUrl(includeLayout);
+    try {
+        await navigator.clipboard.writeText(url);
+        showToast('URL copied to clipboard!');
+    } catch (e) {
+        // Fallback for browsers that don't support clipboard API
+        console.log('Clipboard write failed:', e);
+        showToast('Failed to copy URL', 'warning');
     }
-    urlUpdateTimeout = setTimeout(() => {
-        urlUpdateTimeout = null;
-        saveToUrl();
-    }, 1000);
+}
+
+// Show toast notification
+async function showToast(message, variant = 'success') {
+    // Create a new toast element each time (Shoelace removes toast from DOM after hiding)
+    const toast = document.createElement('sl-alert');
+    toast.variant = variant;
+    toast.closable = true;
+    toast.duration = 3000;
+    toast.innerHTML = `
+        <sl-icon slot="icon" name="${variant === 'success' ? 'check2-circle' : 'exclamation-triangle'}"></sl-icon>
+        ${message}
+    `;
+    toast.style.cssText = 'position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10000;';
+    document.body.appendChild(toast);
+
+    // Wait for autoloader to load and upgrade the element
+    await customElements.whenDefined('sl-alert');
+    // Wait for component to finish updating
+    if (toast.updateComplete) {
+        await toast.updateComplete;
+    }
+    toast.toast();
+}
+
+// Initialize Share menu
+function initializeShareMenu() {
+    const shareDesignOnly = document.getElementById('share-design-only');
+    const shareDesignLayout = document.getElementById('share-design-layout');
+
+    if (shareDesignOnly) {
+        shareDesignOnly.addEventListener('click', () => shareUrl(false));
+    }
+    if (shareDesignLayout) {
+        shareDesignLayout.addEventListener('click', () => shareUrl(true));
+    }
 }
 
 function loadFromUrl() {
