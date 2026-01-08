@@ -187,23 +187,36 @@ function initializeDockview() {
     });
 }
 
-// Create default layout (matches original design) - only used for wide screens
+// Create default panel layout for wide screens
+// Layout structure (3 columns):
+//   Left:   System Definition / Parameters / Stability (vertical stack)
+//   Center: Nyquist Plot / Pole-Zero Map (vertical stack, square aspect ratio)
+//   Right:  Bode Plot + Step Response (side-by-side if wide, stacked if tall)
 function createDefaultLayout() {
-    // Left column: System Definition (top) + Parameters (bottom)
+    // Left column: System Definition (top)
     dockviewApi.addPanel({
         id: 'system-definition',
         component: 'system-definition',
         title: 'System Definition',
     });
 
-    // Right column: Bode Plot (top, larger)
+    // Center column: Nyquist Plot (top)
+    dockviewApi.addPanel({
+        id: 'nyquist',
+        component: 'nyquist',
+        title: 'Nyquist Plot',
+        position: { referencePanel: 'system-definition', direction: 'right' }
+    });
+
+    // Right column: Bode Plot (top)
     dockviewApi.addPanel({
         id: 'bode',
         component: 'bode',
         title: 'Bode Plot',
-        position: { referencePanel: 'system-definition', direction: 'right' }
+        position: { referencePanel: 'nyquist', direction: 'right' }
     });
 
+    // Left column: Parameters (middle)
     dockviewApi.addPanel({
         id: 'parameters',
         component: 'parameters',
@@ -211,7 +224,7 @@ function createDefaultLayout() {
         position: { referencePanel: 'system-definition', direction: 'below' },
     });
 
-    // Bottom right: Stability + Pole-Zero Map
+    // Left column: Stability (bottom)
     dockviewApi.addPanel({
         id: 'stability',
         component: 'stability',
@@ -219,51 +232,92 @@ function createDefaultLayout() {
         position: { referencePanel: 'parameters', direction: 'below' },
     });
 
+    // Center column: Pole-Zero Map (bottom)
     dockviewApi.addPanel({
         id: 'pole-zero',
         component: 'pole-zero',
         title: 'Pole-Zero Map',
-        position: { referencePanel: 'stability', direction: 'right' }
+        position: { referencePanel: 'nyquist', direction: 'below' }
     });
 
-    // Add Nyquist plot as a tab with Pole-Zero Map
-    dockviewApi.addPanel({
-        id: 'nyquist',
-        component: 'nyquist',
-        title: 'Nyquist Plot',
-        position: { referencePanel: 'pole-zero', direction: 'within' }
-    });
-
-    // Add Step Response as a tab behind Bode Plot
+    // Right column: Step Response (initially below Bode, may be repositioned)
     dockviewApi.addPanel({
         id: 'step-response',
         component: 'step-response',
         title: 'Step Response',
-        position: { referencePanel: 'bode', direction: 'within' }
+        position: { referencePanel: 'bode', direction: 'below' }
     });
 
-    // Activate Bode Plot to keep it in front
+    // Activate Bode Plot
     const bodePanel = dockviewApi.getPanel('bode');
     if (bodePanel) {
         bodePanel.api.setActive();
     }
 
-    // Adjust panel proportions after layout is created
+    // Adjust panel sizes and layout after initial rendering
     setTimeout(() => {
         try {
-            // Set System Definition to a smaller height
             const sysDefPanel = dockviewApi.getPanel('system-definition');
             if (sysDefPanel && sysDefPanel.api) {
-                sysDefPanel.api.setSize({ height: 240 });
+                sysDefPanel.api.setSize({ height: 240, width: 360 });
             }
-            const paramsPanel = dockviewApi.getPanel('parameters');
-            if (paramsPanel && paramsPanel.api) {
-                paramsPanel.api.setSize({ height: 260 });
+
+            const stabilityPanel = dockviewApi.getPanel('stability');
+            if (stabilityPanel && stabilityPanel.api) {
+                stabilityPanel.api.setSize({ height: 220 });
             }
+
+            // Constrain Nyquist/Pole-Zero to square aspect ratio
+            adjustPanelsToSquare(['nyquist', 'pole-zero']);
+
+            // Arrange Bode/Step Response based on available space
+            adjustBodeStepResponseLayout();
         } catch (e) {
             // Panel size adjustment may fail during layout changes
         }
     }, 100);
+}
+
+// Constrain specified panels to square aspect ratio
+// Shrinks width to match height, capped at Bode panel width to ensure right column stays visible
+function adjustPanelsToSquare(panelIds) {
+    const bodePanel = dockviewApi.getPanel('bode');
+    const maxWidth = bodePanel ? bodePanel.api.width : 0;
+
+    panelIds.forEach(id => {
+        const panel = dockviewApi.getPanel(id);
+        if (panel && panel.api) {
+            const { width, height } = panel.api;
+            if (width > height && height > 0) {
+                // Use smaller of height (for square) or Bode width (to preserve right column)
+                const targetWidth = Math.min(height, maxWidth);
+                panel.api.setSize({ width: targetWidth });
+            }
+        }
+    });
+}
+
+// Arrange Bode Plot and Step Response based on aspect ratio:
+// - Wide area (width > height): side-by-side layout
+// - Tall area: stacked vertically (default)
+function adjustBodeStepResponseLayout() {
+    const bodePanel = dockviewApi.getPanel('bode');
+    const stepPanel = dockviewApi.getPanel('step-response');
+    if (!bodePanel || !stepPanel) return;
+
+    const bodeWidth = bodePanel.api.width;
+    const totalHeight = bodePanel.api.height + stepPanel.api.height;
+
+    if (bodeWidth > totalHeight) {
+        // Reposition Step Response to the right of Bode Plot
+        dockviewApi.removePanel(stepPanel);
+        dockviewApi.addPanel({
+            id: 'step-response',
+            component: 'step-response',
+            title: 'Step Response',
+            position: { referencePanel: 'bode', direction: 'right' }
+        });
+    }
 }
 
 // Initialize on page load
