@@ -376,32 +376,57 @@ document.addEventListener('DOMContentLoaded', function() {
 function initializeNarrowLayout() {
     // Set up tab switching
     const tabBtns = document.querySelectorAll('.narrow-tab-btn');
-    tabBtns.forEach(btn => {
-        btn.addEventListener('click', function() {
-            const tabName = this.dataset.tab;
 
-            // Update active button
-            tabBtns.forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
+    // Map preferredPlot values to tab names
+    const plotToTab = {
+        'bode': 'bode',
+        'nyquist': 'nyquist',
+        'pole-zero': 'pole-zero',
+        'step-response': 'step'
+    };
 
-            // Show/hide tab content
-            document.getElementById('narrow-tab-bode').style.display = tabName === 'bode' ? 'flex' : 'none';
-            document.getElementById('narrow-tab-pole-zero').style.display = tabName === 'pole-zero' ? 'flex' : 'none';
-            document.getElementById('narrow-tab-nyquist').style.display = tabName === 'nyquist' ? 'flex' : 'none';
-            document.getElementById('narrow-tab-step').style.display = tabName === 'step' ? 'flex' : 'none';
+    // Determine initial tab from preferredPlot in design (loaded from URL)
+    const preferredPlot = design.preferredPlot || 'bode';
+    const initialTab = plotToTab[preferredPlot] || 'bode';
 
-            // Redraw the visible plot
-            if (tabName === 'bode') {
-                updateBodePlot();
-            } else if (tabName === 'pole-zero') {
-                updateNarrowPolePlot();
-            } else if (tabName === 'nyquist') {
-                updateNarrowNyquistPlot();
-            } else if (tabName === 'step') {
-                updateNarrowStepResponsePlot();
+    // Function to switch to a tab
+    function switchToTab(tabName) {
+        // Update active button
+        tabBtns.forEach(b => {
+            if (b.dataset.tab === tabName) {
+                b.classList.add('active');
+            } else {
+                b.classList.remove('active');
             }
         });
+
+        // Show/hide tab content
+        document.getElementById('narrow-tab-bode').style.display = tabName === 'bode' ? 'flex' : 'none';
+        document.getElementById('narrow-tab-pole-zero').style.display = tabName === 'pole-zero' ? 'flex' : 'none';
+        document.getElementById('narrow-tab-nyquist').style.display = tabName === 'nyquist' ? 'flex' : 'none';
+        document.getElementById('narrow-tab-step').style.display = tabName === 'step' ? 'flex' : 'none';
+
+        // Redraw the visible plot
+        if (tabName === 'bode') {
+            updateBodePlot();
+        } else if (tabName === 'pole-zero') {
+            updateNarrowPolePlot();
+        } else if (tabName === 'nyquist') {
+            updateNarrowNyquistPlot();
+        } else if (tabName === 'step') {
+            updateNarrowStepResponsePlot();
+        }
+    }
+
+    // Set up click handlers
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            switchToTab(this.dataset.tab);
+        });
     });
+
+    // Switch to initial tab (from preferredPlot)
+    switchToTab(initialTab);
 
     // Set up Pole-Zero visibility checkboxes for narrow layout (Shoelace sl-checkbox uses 'sl-change' event)
     const chkLpz = document.getElementById('narrow-chk-show-L-pz');
@@ -2708,7 +2733,9 @@ function calculateAutoStepTime() {
 }
 
 // Generate shareable URL with design data
-function generateShareUrl(includeLayout = false) {
+function generateShareUrl(options = {}) {
+    const { includeLayout = false, preferredPlot = null } = options;
+
     saveDesign();
 
     // Create a copy of design for saving
@@ -2718,6 +2745,11 @@ function generateShareUrl(includeLayout = false) {
     if (saveData.autoFreq) {
         delete saveData.freqMin;
         delete saveData.freqMax;
+    }
+
+    // Add preferred plot for narrow layout if specified
+    if (preferredPlot) {
+        saveData.preferredPlot = preferredPlot;
     }
 
     // Optionally include Dockview layout
@@ -2732,19 +2764,6 @@ function generateShareUrl(includeLayout = false) {
     let base64 = btoa(String.fromCharCode.apply(null, compressed));
     let urlSafe = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     return location.origin + location.pathname + '#' + urlSafe;
-}
-
-// Copy URL to clipboard and show toast
-async function shareUrl(includeLayout = false) {
-    const url = generateShareUrl(includeLayout);
-    try {
-        await navigator.clipboard.writeText(url);
-        showToast('URL copied to clipboard!');
-    } catch (e) {
-        // Fallback for browsers that don't support clipboard API
-        console.log('Clipboard write failed:', e);
-        showToast('Failed to copy URL', 'warning');
-    }
 }
 
 // Show toast notification
@@ -2770,16 +2789,117 @@ async function showToast(message, variant = 'success') {
     toast.toast();
 }
 
+// Show QR code dialog
+let currentQrUrl = '';
+
+function generateQrSvg(url) {
+    // Generate QR code
+    // Use error correction level L for shorter URLs, M for longer
+    const errorCorrectionLevel = url.length > 500 ? 'M' : 'L';
+    const typeNumber = 0; // Auto-detect
+    const qr = qrcode(typeNumber, errorCorrectionLevel);
+    qr.addData(url);
+    qr.make();
+
+    // Render as SVG for crisp display
+    const cellSize = 4;
+    const margin = 4;
+    const size = qr.getModuleCount() * cellSize + margin * 2;
+
+    let svg = `<svg viewBox="0 0 ${size} ${size}" width="256" height="256" xmlns="http://www.w3.org/2000/svg">`;
+    svg += `<rect width="${size}" height="${size}" fill="white"/>`;
+
+    for (let row = 0; row < qr.getModuleCount(); row++) {
+        for (let col = 0; col < qr.getModuleCount(); col++) {
+            if (qr.isDark(row, col)) {
+                const x = col * cellSize + margin;
+                const y = row * cellSize + margin;
+                svg += `<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" fill="black"/>`;
+            }
+        }
+    }
+    svg += '</svg>';
+
+    return svg;
+}
+
+function updateQrCode() {
+    const container = document.getElementById('qr-container');
+    const includeLayoutCheckbox = document.getElementById('qr-include-layout');
+    const preferredPlotGroup = document.getElementById('qr-preferred-plot');
+    const plotSelector = document.getElementById('qr-plot-selector');
+
+    if (!container) return;
+
+    const includeLayout = includeLayoutCheckbox?.checked || false;
+    const preferredPlot = preferredPlotGroup?.value || 'bode';
+
+    // Show/hide plot selector based on layout checkbox
+    if (plotSelector) {
+        plotSelector.style.display = includeLayout ? 'none' : 'flex';
+    }
+
+    // Generate URL with current options
+    const options = {
+        includeLayout,
+        preferredPlot: includeLayout ? null : preferredPlot
+    };
+
+    currentQrUrl = generateShareUrl(options);
+    container.innerHTML = generateQrSvg(currentQrUrl);
+}
+
+function showShareDialog() {
+    const dialog = document.getElementById('qr-dialog');
+    const includeLayoutCheckbox = document.getElementById('qr-include-layout');
+    const preferredPlotGroup = document.getElementById('qr-preferred-plot');
+
+    if (!dialog) return;
+
+    // Reset to defaults
+    if (includeLayoutCheckbox) {
+        includeLayoutCheckbox.checked = false;
+    }
+    if (preferredPlotGroup) {
+        preferredPlotGroup.value = 'bode';
+    }
+
+    // Generate initial QR code
+    updateQrCode();
+
+    dialog.show();
+}
+
 // Initialize Share menu
 function initializeShareMenu() {
-    const shareDesignOnly = document.getElementById('share-design-only');
-    const shareDesignLayout = document.getElementById('share-design-layout');
+    const shareButton = document.getElementById('share-button');
+    const includeLayoutCheckbox = document.getElementById('qr-include-layout');
+    const preferredPlotGroup = document.getElementById('qr-preferred-plot');
+    const qrCopyUrl = document.getElementById('qr-copy-url');
 
-    if (shareDesignOnly) {
-        shareDesignOnly.addEventListener('click', () => shareUrl(false));
+    if (shareButton) {
+        shareButton.addEventListener('click', showShareDialog);
     }
-    if (shareDesignLayout) {
-        shareDesignLayout.addEventListener('click', () => shareUrl(true));
+
+    // Update QR code when options change
+    if (includeLayoutCheckbox) {
+        includeLayoutCheckbox.addEventListener('sl-change', updateQrCode);
+    }
+    if (preferredPlotGroup) {
+        preferredPlotGroup.addEventListener('sl-change', updateQrCode);
+    }
+
+    if (qrCopyUrl) {
+        qrCopyUrl.addEventListener('click', async () => {
+            if (currentQrUrl) {
+                try {
+                    await navigator.clipboard.writeText(currentQrUrl);
+                    showToast('URL copied to clipboard!');
+                } catch (e) {
+                    showToast('Failed to copy URL', 'warning');
+                }
+            }
+        });
     }
 }
 

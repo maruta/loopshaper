@@ -11,7 +11,7 @@ A web-based loop shaping control design tool for analyzing and designing feedbac
 - **Pole-Zero Map**: Visual representation of L(s) and T(s) poles/zeros with synchronized display of current s-plane point during Nyquist animation
 - **Real-time Parameter Tuning**: Adjust controller parameters using sliders with instant plot updates (linear or logarithmic scale)
 - **Stability Analysis**: Automatic calculation of gain margin (GM), phase margin (PM), number of open-loop RHP poles (P), and Nyquist winding number (N)
-- **Share via URL**: Share designs using the **Share** menu - design data is compressed with zlib and encoded in the URL hash. Optionally include panel layout for desktop.
+- **Share via URL/QR Code**: Share designs using the **Share** button with QR code display. Optionally include panel layout (for PC) or select default plot (for mobile).
 - **Flexible Layout**: Dockview-based resizable and rearrangeable panels for desktop, with responsive mobile layout
 
 ## Usage
@@ -20,7 +20,7 @@ A web-based loop shaping control design tool for analyzing and designing feedbac
 2. Enter your transfer function definition in the **System Definition** field using math.js syntax
 3. Add parameter sliders to interactively tune your controller
 4. View the Bode plot, Nyquist plot, pole-zero map, and stability margins in real-time
-5. Use the **Share** menu to copy a shareable URL to clipboard
+5. Use the **Share** button to generate a QR code and copy a shareable URL
 6. Use the **View** menu to show/hide panels or reset the layout (desktop only)
 
 ### Transfer Function Syntax
@@ -63,6 +63,7 @@ Add sliders to control parameters in your transfer function:
 - [KaTeX](https://katex.org/) - LaTeX math rendering
 - [math.js](https://mathjs.org/) - Mathematical expression parsing and complex number operations
 - [pako](https://github.com/nodeca/pako) - zlib compression for URL encoding
+- [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) - QR code generation
 
 ## License
 

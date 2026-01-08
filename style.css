@@ -23,6 +23,11 @@ body {
     gap: 4px;
 }
 
+.app-icon {
+    width: 20px;
+    height: 20px;
+}
+
 .app-title {
     font-size: 13px;
     font-weight: 600;
@@ -57,6 +62,68 @@ body {
 
 .menu-items sl-button[variant="text"]::part(caret) {
     margin-left: 2px;
+}
+
+.menubar-spacer {
+    flex: 1;
+}
+
+.github-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    color: var(--sl-color-neutral-600);
+    border-radius: 4px;
+    transition: color 0.15s, background-color 0.15s;
+}
+
+.github-link:hover {
+    color: var(--sl-color-neutral-900);
+    background-color: var(--sl-color-neutral-200);
+}
+
+/* QR Code Dialog */
+#qr-container {
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+}
+
+#qr-dialog::part(panel) {
+    box-shadow: none;
+    border: 1px solid var(--sl-color-neutral-300);
+}
+
+#qr-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0 16px 16px;
+}
+
+#qr-plot-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.qr-plot-label {
+    font-size: 14px;
+    color: var(--sl-color-neutral-700);
+}
+
+#qr-preferred-plot {
+    width: 100%;
+}
+
+#qr-preferred-plot sl-radio-button {
+    flex: 1;
+}
+
+#qr-preferred-plot sl-radio-button::part(button) {
+    width: 100%;
 }
 
 /* Dockview Container */
