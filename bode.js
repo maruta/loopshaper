@@ -291,7 +291,11 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         let data = allData[tfIndex];
         if (!data) return;
 
-        // Draw gain curve
+        // Draw gain curve with clipping to plot area
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(leftMargin, topMargin, plotWidth, plotHeight);
+        ctx.clip();
         ctx.strokeStyle = tf.gainColor || '#0088aa';
         ctx.lineWidth = 2.5;
         ctx.beginPath();
@@ -305,9 +309,15 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
             }
         }
         ctx.stroke();
+        ctx.restore();
 
-        // Draw phase curve
+        // Draw phase curve with clipping to plot area
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(leftMargin, topMargin + plotHeight + midMargin, plotWidth, plotHeight);
+        ctx.clip();
         ctx.strokeStyle = tf.phaseColor || '#0088aa';
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
         for (let i = 0; i < N; i++) {
             let x = w2x(math.log10(w[i]));
@@ -319,6 +329,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
             }
         }
         ctx.stroke();
+        ctx.restore();
     });
 
     ctx.restore();
