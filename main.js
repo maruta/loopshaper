@@ -6,7 +6,7 @@ let design = {
 P = 1/(s^2*(s + 1))
 L = K * P`,
     sliders: [
-        { name: 'Kp', min: 0.01, max: 10, logScale: true, currentValue: 1 },
+        { name: 'Kp', min: 0.01, max: 10, logScale: true, currentValue: 0.1 },
         { name: 'Td', min: 0.1, max: 100, logScale: true, currentValue: 10 }
     ],
     freqMin: -2,
@@ -312,17 +312,17 @@ function adjustPanelsToSquare(panelIds) {
 }
 
 // Arrange Bode Plot and Step Response based on aspect ratio:
-// - Wide area (width > height): side-by-side layout
-// - Tall area: stacked vertically (default)
+// - Wide area (width > 1.5 * height): side-by-side layout
+// - Otherwise: stacked vertically (default)
 function adjustBodeStepResponseLayout() {
     const bodePanel = dockviewApi.getPanel('bode');
     const stepPanel = dockviewApi.getPanel('step-response');
     if (!bodePanel || !stepPanel) return;
 
     const bodeWidth = bodePanel.api.width;
-    const totalHeight = bodePanel.api.height + stepPanel.api.height;
+    const bodeHeight = bodePanel.api.height;
 
-    if (bodeWidth > totalHeight) {
+    if (bodeWidth > 1.5*bodeHeight) {
         // Reposition Step Response to the right of Bode Plot
         dockviewApi.removePanel(stepPanel);
         dockviewApi.addPanel({
