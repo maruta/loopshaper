@@ -6,21 +6,57 @@ A web-based loop shaping control design tool for analyzing and designing feedbac
 
 ## Features
 
-- **Interactive Bode Plot**: Visualize gain and phase response of open-loop transfer function L(s) and closed-loop transfer function T(s) with automatic frequency range adjustment
-- **Nyquist Plot**: Animated Nyquist diagram with compressed display mapping, pole indentation handling, and playback controls
-- **Pole-Zero Map**: Visual representation of L(s) and T(s) poles/zeros with synchronized display of current s-plane point during Nyquist animation
-- **Real-time Parameter Tuning**: Adjust controller parameters using sliders with instant plot updates (linear or logarithmic scale)
-- **Stability Analysis**: Automatic calculation of gain margin (GM), phase margin (PM), number of open-loop RHP poles (P), and Nyquist winding number (N)
-- **URL State Persistence**: Share designs via URL - all settings are compressed with zlib and encoded in the URL hash
-- **Flexible Layout**: Dockview-based resizable and rearrangeable panels for desktop, with responsive mobile layout
+### Visualization Panels
+
+- **Bode Plot**: Gain and phase response visualization for L(s) and T(s)
+  - Stability margin lines (GM/PM) and crossover frequency indicators
+  - Auto-scaling or custom vertical axis range
+  - Auto or manual frequency range adjustment
+  - Right-click context menu for display options
+
+- **Nyquist Plot**: Animated Nyquist diagram with advanced features
+  - Compressed display mapping (`z → z/(1+|z|/R)`) for infinite curves
+  - Adjustable compression radius via mouse wheel
+  - Animation controls: play/pause, seek bar, playback speed (1x-8x)
+  - Pole indentation visualization for imaginary axis poles
+  - Phase markers at 0°, -90°, -180°, -270°
+
+- **Pole-Zero Map**: Visual representation of system poles and zeros
+  - Separate display toggles for L(s) and T(s)
+  - Synchronized s-plane point during Nyquist animation
+
+- **Step Response**: Time-domain step response visualization
+  - Separate display toggles for L(s) and T(s)
+  - Auto time range based on dominant pole, or manual setting
+  - Right-click context menu for time range options
+
+### Analysis & Control
+
+- **Stability Panel**: Real-time stability analysis
+  - Gain Margin (GM) and Phase Margin (PM)
+  - Open-loop RHP poles count (P)
+  - Nyquist winding number (N)
+  - Closed-loop poles display
+  - Stability indicator based on Nyquist criterion (Z = N + P)
+
+- **Parameter Sliders**: Interactive controller tuning
+  - Linear or logarithmic scale support
+  - Real-time plot updates
+
+### System Features
+
+- **URL State Persistence**: Share designs via URL with zlib-compressed settings
+- **Flexible Layout**: Dockview-based resizable and rearrangeable panels for desktop
+- **Responsive Design**: Optimized layout for mobile devices with tabbed plot view
 
 ## Usage
 
 1. Open <https://maruta.github.io/loopshaper/> in a web browser
-2. Enter your transfer function definition in the **System Definition** field using math.js syntax
+2. Enter your transfer function definition in the **System Definition** panel using math.js syntax
 3. Add parameter sliders to interactively tune your controller
-4. View the Bode plot, Nyquist plot, pole-zero map, and stability margins in real-time
+4. View the Bode plot, Nyquist plot, pole-zero map, step response, and stability analysis in real-time
 5. Use the **View** menu to show/hide panels or reset the layout
+6. Right-click on Bode or Step Response plots for display options
 
 ### Transfer Function Syntax
 
@@ -48,12 +84,18 @@ Add sliders to control parameters in your transfer function:
 - **Min/Max**: Slider range
 - **Log**: Enable logarithmic scaling for parameters spanning multiple orders of magnitude
 
-### Nyquist Plot Features
+## Project Structure
 
-- **Compressed Display**: Uses `z → z/(1+|z|/R)` mapping to display infinite curves in a finite area
-- **Adjustable Compression**: Mouse wheel adjusts the compression radius R
-- **Animation Controls**: Play/pause button and seek bar to trace the Nyquist contour
-- **Pole Indentation**: Automatic handling of poles on the imaginary axis with small semicircular detours
+```
+loopshaper/
+├── index.html      # Main HTML with panel templates and context menus
+├── main.js         # Application logic, Dockview setup, state management
+├── bode.js         # Bode plot rendering and crossover detection
+├── nyquist.js      # Nyquist plot rendering and animation
+├── utils.js        # Utility functions and Nyquist contour generation
+├── style.css       # Styles for panels and plots
+└── worker_calcCLP.js  # Web Worker for closed-loop pole calculation
+```
 
 ## Technologies
 
