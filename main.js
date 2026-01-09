@@ -2862,6 +2862,8 @@ const URL_KEY_MAP = {
     stepOptions: 'so',
     autoTime: 'at',
     timeMax: 'tm',
+    // nyquistOptions keys
+    nyquistCompressionRadius: 'ncr',
     // layout
     layout: 'ly'
 };
@@ -2894,6 +2896,8 @@ const URL_DEFAULTS = {
         autoTime: true,
         timeMax: 20
     },
+    // nyquistOptions defaults
+    nyquistCompressionRadius: 3,
     // slider defaults
     sliderDefaults: {
         logScale: false
@@ -3035,6 +3039,9 @@ function generateShareUrl(options = {}) {
         autoTime: stepOptions.autoTime,
         timeMax: stepOptions.timeMax
     };
+
+    // Include Nyquist compression radius
+    saveData.nyquistCompressionRadius = nyquistCompressionRadius;
 
     // Optionally include Dockview layout
     if (includeLayout && dockviewApi) {
@@ -3253,6 +3260,11 @@ function loadFromUrl() {
                 // Restore Step response options if present
                 if (loaded.stepOptions) {
                     Object.assign(stepOptions, loaded.stepOptions);
+                }
+
+                // Restore Nyquist compression radius if present
+                if (loaded.nyquistCompressionRadius !== undefined) {
+                    nyquistCompressionRadius = loaded.nyquistCompressionRadius;
                 }
             }
         } catch (e) {
