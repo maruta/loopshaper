@@ -435,12 +435,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+let narrowLayoutInitialized = false;
+
 // Initialize narrow layout (static HTML, no Dockview)
 function initializeNarrowLayout() {
-    // Set up tab switching
     const tabBtns = document.querySelectorAll('.narrow-tab-btn');
-
-    // Map preferredPlot values to tab names
     const plotToTab = {
         'bode': 'bode',
         'nyquist': 'nyquist',
@@ -448,142 +447,106 @@ function initializeNarrowLayout() {
         'step-response': 'step'
     };
 
-    // Determine initial tab from preferredPlot in design (loaded from URL)
-    const preferredPlot = design.preferredPlot || 'bode';
-    const initialTab = plotToTab[preferredPlot] || 'bode';
-
-    // Function to switch to a tab
     function switchToTab(tabName) {
-        // Update active button
-        tabBtns.forEach(b => {
-            if (b.dataset.tab === tabName) {
-                b.classList.add('active');
-            } else {
-                b.classList.remove('active');
-            }
-        });
-
-        // Show/hide tab content
+        tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
         document.getElementById('narrow-tab-bode').style.display = tabName === 'bode' ? 'flex' : 'none';
         document.getElementById('narrow-tab-pole-zero').style.display = tabName === 'pole-zero' ? 'flex' : 'none';
         document.getElementById('narrow-tab-nyquist').style.display = tabName === 'nyquist' ? 'flex' : 'none';
         document.getElementById('narrow-tab-step').style.display = tabName === 'step' ? 'flex' : 'none';
 
-        // Redraw the visible plot
-        if (tabName === 'bode') {
-            updateBodePlot();
-        } else if (tabName === 'pole-zero') {
-            updateNarrowPolePlot();
-        } else if (tabName === 'nyquist') {
-            updateNarrowNyquistPlot();
-        } else if (tabName === 'step') {
-            updateNarrowStepResponsePlot();
+        if (tabName === 'bode') updateBodePlot();
+        else if (tabName === 'pole-zero') updateNarrowPolePlot();
+        else if (tabName === 'nyquist') updateNarrowNyquistPlot();
+        else if (tabName === 'step') updateNarrowStepResponsePlot();
+    }
+
+    // Set up event listeners only once to prevent duplicates
+    if (!narrowLayoutInitialized) {
+        // Tab buttons
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                switchToTab(this.dataset.tab);
+            });
+        });
+
+        // Pole-Zero visibility checkboxes
+        const chkLpz = document.getElementById('narrow-chk-show-L-pz');
+        const chkTpz = document.getElementById('narrow-chk-show-T-pz');
+        if (chkLpz) chkLpz.addEventListener('sl-change', () => updateNarrowPolePlot());
+        if (chkTpz) chkTpz.addEventListener('sl-change', () => updateNarrowPolePlot());
+
+        // Step Response visibility checkboxes
+        const chkLstep = document.getElementById('narrow-chk-show-L-step');
+        const chkTstep = document.getElementById('narrow-chk-show-T-step');
+        if (chkLstep) chkLstep.addEventListener('sl-change', () => updateNarrowStepResponsePlot());
+        if (chkTstep) chkTstep.addEventListener('sl-change', () => updateNarrowStepResponsePlot());
+
+        // Step Response auto time checkbox
+        const chkAutoTime = document.getElementById('narrow-step-auto-time');
+        const stepTimeControl = document.getElementById('narrow-step-time-control');
+        const stepTimeInput = document.getElementById('narrow-step-time-max');
+        if (chkAutoTime) {
+            chkAutoTime.addEventListener('sl-change', function() {
+                stepOptions.autoTime = this.checked;
+                if (stepTimeControl) stepTimeControl.style.display = this.checked ? 'none' : 'flex';
+                if (stepOptions.autoTime) {
+                    stepOptions.autoTimeMultiplier = 10;
+                    stepTimeMax = calculateAutoStepTime();
+                } else {
+                    stepOptions.timeMax = stepTimeMax;
+                    if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax.toPrecision(3);
+                }
+                updateNarrowStepResponsePlot();
+            });
         }
+
+        // Step Response time input
+        if (stepTimeInput) {
+            stepTimeInput.addEventListener('sl-change', function() {
+                stepOptions.timeMax = parseFloat(this.value) || 20;
+                if (!stepOptions.autoTime) {
+                    stepTimeMax = stepOptions.timeMax;
+                    updateNarrowStepResponsePlot();
+                }
+            });
+        }
+
+        // Mouse wheel for step response time range
+        const narrowStepWrapper = document.getElementById('narrow-step-wrapper');
+        if (narrowStepWrapper) {
+            narrowStepWrapper.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                const factor = 1.05;
+                const increase = e.deltaY < 0;
+                if (stepOptions.autoTime) {
+                    stepOptions.autoTimeMultiplier *= increase ? factor : 1 / factor;
+                    stepOptions.autoTimeMultiplier = Math.max(0.1, Math.min(100, stepOptions.autoTimeMultiplier));
+                    stepTimeMax = calculateAutoStepTime();
+                } else {
+                    stepOptions.timeMax *= increase ? factor : 1 / factor;
+                    stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
+                    stepTimeMax = stepOptions.timeMax;
+                    const input = document.getElementById('narrow-step-time-max');
+                    if (input) input.value = stepOptions.timeMax.toPrecision(3);
+                }
+                updateNarrowStepResponsePlot();
+            }, { passive: false });
+        }
+
+        narrowLayoutInitialized = true;
     }
 
-    // Set up click handlers
-    tabBtns.forEach(btn => {
-        btn.addEventListener('click', function() {
-            switchToTab(this.dataset.tab);
-        });
-    });
-
-    // Switch to initial tab (from preferredPlot)
-    switchToTab(initialTab);
-
-    // Set up Pole-Zero visibility checkboxes for narrow layout (Shoelace sl-checkbox uses 'sl-change' event)
-    const chkLpz = document.getElementById('narrow-chk-show-L-pz');
-    const chkTpz = document.getElementById('narrow-chk-show-T-pz');
-    if (chkLpz) {
-        chkLpz.addEventListener('sl-change', function() {
-            updateNarrowPolePlot();
-        });
-    }
-    if (chkTpz) {
-        chkTpz.addEventListener('sl-change', function() {
-            updateNarrowPolePlot();
-        });
-    }
-
-
-    // Set up Step Response visibility checkboxes for narrow layout
-    const chkLstep = document.getElementById('narrow-chk-show-L-step');
-    const chkTstep = document.getElementById('narrow-chk-show-T-step');
-    if (chkLstep) {
-        chkLstep.addEventListener('sl-change', function() {
-            updateNarrowStepResponsePlot();
-        });
-    }
-    if (chkTstep) {
-        chkTstep.addEventListener('sl-change', function() {
-            updateNarrowStepResponsePlot();
-        });
-    }
-
-    // Set up Step Response auto time checkbox for narrow layout
+    // Initialize UI state (always runs to sync state after layout switch)
     const chkAutoTime = document.getElementById('narrow-step-auto-time');
     const stepTimeControl = document.getElementById('narrow-step-time-control');
     const stepTimeInput = document.getElementById('narrow-step-time-max');
+    if (chkAutoTime) chkAutoTime.checked = stepOptions.autoTime;
+    if (stepTimeControl) stepTimeControl.style.display = stepOptions.autoTime ? 'none' : 'flex';
+    if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax;
 
-    if (chkAutoTime) {
-        // Initialize state
-        chkAutoTime.checked = stepOptions.autoTime;
-        if (stepTimeControl) {
-            stepTimeControl.style.display = stepOptions.autoTime ? 'none' : 'flex';
-        }
-
-        chkAutoTime.addEventListener('sl-change', function() {
-            stepOptions.autoTime = this.checked;
-            if (stepTimeControl) {
-                stepTimeControl.style.display = this.checked ? 'none' : 'flex';
-            }
-            if (stepOptions.autoTime) {
-                // Auto mode: reset multiplier
-                stepOptions.autoTimeMultiplier = 10;
-                stepTimeMax = calculateAutoStepTime();
-            } else {
-                // Manual mode: inherit current time range
-                stepOptions.timeMax = stepTimeMax;
-                if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax.toPrecision(3);
-            }
-            updateNarrowStepResponsePlot();
-        });
-    }
-
-    // Set up Step Response time input for narrow layout
-    if (stepTimeInput) {
-        stepTimeInput.value = stepOptions.timeMax;
-        stepTimeInput.addEventListener('sl-change', function() {
-            stepOptions.timeMax = parseFloat(this.value) || 20;
-            if (!stepOptions.autoTime) {
-                stepTimeMax = stepOptions.timeMax;
-                updateNarrowStepResponsePlot();
-            }
-        });
-    }
-
-    // Mouse wheel: adjust time range (*1.05 or /1.05)
-    const narrowStepWrapper = document.getElementById('narrow-step-wrapper');
-    if (narrowStepWrapper && !narrowStepWrapper.dataset.wheelListenerAttached) {
-        narrowStepWrapper.addEventListener('wheel', function(e) {
-            e.preventDefault();
-            const factor = 1.05;
-            const increase = e.deltaY < 0;
-
-            if (stepOptions.autoTime) {
-                stepOptions.autoTimeMultiplier *= increase ? factor : 1 / factor;
-                stepOptions.autoTimeMultiplier = Math.max(0.1, Math.min(100, stepOptions.autoTimeMultiplier));
-                stepTimeMax = calculateAutoStepTime();
-            } else {
-                stepOptions.timeMax *= increase ? factor : 1 / factor;
-                stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
-                stepTimeMax = stepOptions.timeMax;
-                if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax.toPrecision(3);
-            }
-            updateNarrowStepResponsePlot();
-        }, { passive: false });
-        narrowStepWrapper.dataset.wheelListenerAttached = 'true';
-    }
+    // Switch to initial tab
+    const preferredPlot = design.preferredPlot || 'bode';
+    switchToTab(plotToTab[preferredPlot] || 'bode');
 
     setupPlotResizeObserver();
 }
@@ -721,10 +684,12 @@ function setupEventListeners() {
         window.addEventListener('resize', function() {
             const newIsNarrow = window.innerWidth < 768;
             if (newIsNarrow === isNarrowLayout) return;
-
             isNarrowLayout = newIsNarrow;
 
-            if (!isNarrowLayout && !dockviewApi) {
+            // Initialize the appropriate layout mode
+            if (isNarrowLayout) {
+                initializeNarrowLayout();
+            } else if (!dockviewApi) {
                 initializeDockview();
                 initializeViewMenu();
             }
