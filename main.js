@@ -1546,6 +1546,93 @@ function displayTransferFunctions() {
     }
 }
 
+// Calculate stability margins (gain margin and phase margin) independently of Bode plot.
+// This allows the Stability panel to display correct values even when the Bode panel is hidden.
+function calculateStabilityMargins() {
+    let L = currentVars.L;
+    if (!L || !L.isNode) return null;
+
+    let w = logspace(design.freqMin, design.freqMax, design.freqPoints);
+    let N = w.length;
+    let compiled = L.compile();
+
+    let gain = Array(N);
+    let phase = Array(N);
+    let phaseOffset = 0;
+
+    for (let i = 0; i < N; i++) {
+        let Gjw;
+        try {
+            Gjw = compiled.evaluate({ 's': math.complex(0, w[i]) });
+        } catch (e) {
+            Gjw = math.complex(0, 0);
+        }
+        if (typeof Gjw.abs !== 'function') Gjw = math.complex(Gjw, 0);
+
+        gain[i] = 20 * math.log10(Gjw.abs());
+
+        // Phase unwrapping
+        let rawPhase = Gjw.arg() / math.pi * 180;
+        if (i > 0 && Math.abs(rawPhase + phaseOffset - phase[i - 1]) > 180) {
+            phaseOffset += Math.round(-(rawPhase + phaseOffset - phase[i - 1]) / 360) * 360;
+        }
+        phase[i] = rawPhase + phaseOffset;
+    }
+
+    // Detect crossover frequencies
+    let wgc = [];  // Gain crossover (0 dB)
+    let wpc = [];  // Phase crossover (-180 deg)
+
+    for (let i = 1; i < N; i++) {
+        if ((gain[i - 1] > 0 && gain[i] <= 0) || (gain[i - 1] <= 0 && gain[i] > 0)) {
+            let ratio = -gain[i - 1] / (gain[i] - gain[i - 1]);
+            wgc.push(w[i - 1] + ratio * (w[i] - w[i - 1]));
+        }
+
+        let p1 = phase[i - 1];
+        let p2 = phase[i];
+        let n1 = Math.floor((p1 + 180) / 360);
+        let n2 = Math.floor((p2 + 180) / 360);
+        if (n1 !== n2) {
+            let targetPhase = (p1 > p2) ? n1 * 360 - 180 : n2 * 360 - 180;
+            let ratio = (targetPhase - p1) / (p2 - p1);
+            wpc.push(w[i - 1] + ratio * (w[i] - w[i - 1]));
+        }
+    }
+
+    let gainMargins = [];
+    let phaseMargins = [];
+
+    // Gain margin: -gain at phase crossover frequency
+    wpc.forEach((wc) => {
+        for (let i = 0; i < N - 1; i++) {
+            if (w[i] <= wc && w[i + 1] >= wc) {
+                let ratio = (wc - w[i]) / (w[i + 1] - w[i]);
+                let gainAtWpc = gain[i] + ratio * (gain[i + 1] - gain[i]);
+                gainMargins.push({ frequency: wc, margin: -gainAtWpc, gainAtCrossover: gainAtWpc });
+                break;
+            }
+        }
+    });
+
+    // Phase margin: phase + 180 at gain crossover frequency
+    wgc.forEach((wc) => {
+        for (let i = 0; i < N - 1; i++) {
+            if (w[i] <= wc && w[i + 1] >= wc) {
+                let ratio = (wc - w[i]) / (w[i + 1] - w[i]);
+                let phaseAtGc = phase[i] + ratio * (phase[i + 1] - phase[i]);
+                let n = Math.round((phaseAtGc + 180) / 360);
+                let pm = 180 + phaseAtGc - n * 360;
+                let refPhase = n * 360 - 180;
+                phaseMargins.push({ frequency: wc, margin: pm, phaseAtCrossover: phaseAtGc, referencePhase: refPhase });
+                break;
+            }
+        }
+    });
+
+    return { gainMargins, phaseMargins, gainCrossoverFrequencies: wgc, phaseCrossoverFrequencies: wpc };
+}
+
 function updateBodePlot() {
     try {
         let L = currentVars.L;
@@ -1574,7 +1661,6 @@ function updateBodePlot() {
             });
         }
 
-        // Draw Bode plot with multiple transfer functions
         const prefix = isNarrowLayout ? 'narrow-' : '';
         let margins = drawBodeMulti(transferFunctions, w, prefix + 'bode-wrapper', prefix + 'bode-canvas', {
             showMarginLines: bodeOptions.showMarginLines,
@@ -1585,7 +1671,11 @@ function updateBodePlot() {
             phaseMin: bodeOptions.phaseMin,
             phaseMax: bodeOptions.phaseMax
         });
-        window.lastMargins = margins;
+
+        // Cache margins from Bode plot (may be null if panel is hidden)
+        if (margins) {
+            window.lastMargins = margins;
+        }
 
     } catch (e) {
         console.log('Bode plot error:', e);
@@ -2460,8 +2550,12 @@ function updateNyquistMappingFormula() {
     }
 }
 
+// Update stability margin display in Stability panel
 function updateMargins() {
-    let margins = window.lastMargins;
+    let margins = calculateStabilityMargins();
+    if (margins) {
+        window.lastMargins = margins;
+    }
     if (!margins) return;
 
     const prefix = isNarrowLayout ? 'narrow-' : '';
