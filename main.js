@@ -28,7 +28,6 @@ let showLpz = true;  // Pole-Zero Map: show L(s)
 let showTpz = true;  // Pole-Zero Map: show T(s)
 let showLstep = false;  // Step Response: show L(s)
 let showTstep = true;   // Step Response: show T(s)
-let stepTimeMax = 20;   // Step Response: current simulation time (seconds)
 
 // Step response display options
 let stepOptions = {
@@ -36,6 +35,11 @@ let stepOptions = {
     timeMax: 20,           // Manual time range (seconds, used when autoTime is false)
     autoTimeMultiplier: 10 // Multiplier for auto time: T = multiplier / |Re(dominant pole)|
 };
+
+// Get current step response time range (auto or manual)
+function getStepTimeMax() {
+    return stepOptions.autoTime ? calculateAutoStepTime() : stepOptions.timeMax;
+}
 
 // Bode plot display options
 let bodeOptions = {
@@ -484,9 +488,7 @@ function initializeNarrowLayout() {
                 if (stepTimeControl) stepTimeControl.style.display = this.checked ? 'none' : 'flex';
                 if (stepOptions.autoTime) {
                     stepOptions.autoTimeMultiplier = 10;
-                    stepTimeMax = calculateAutoStepTime();
                 } else {
-                    stepOptions.timeMax = stepTimeMax;
                     if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax.toPrecision(3);
                 }
                 updateNarrowStepResponsePlot();
@@ -498,7 +500,6 @@ function initializeNarrowLayout() {
             stepTimeInput.addEventListener('sl-change', function() {
                 stepOptions.timeMax = parseFloat(this.value) || 20;
                 if (!stepOptions.autoTime) {
-                    stepTimeMax = stepOptions.timeMax;
                     updateNarrowStepResponsePlot();
                 }
             });
@@ -514,11 +515,9 @@ function initializeNarrowLayout() {
                 if (stepOptions.autoTime) {
                     stepOptions.autoTimeMultiplier *= increase ? factor : 1 / factor;
                     stepOptions.autoTimeMultiplier = Math.max(0.1, Math.min(100, stepOptions.autoTimeMultiplier));
-                    stepTimeMax = calculateAutoStepTime();
                 } else {
                     stepOptions.timeMax *= increase ? factor : 1 / factor;
                     stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
-                    stepTimeMax = stepOptions.timeMax;
                     const input = document.getElementById('narrow-step-time-max');
                     if (input) input.value = stepOptions.timeMax.toPrecision(3);
                 }
@@ -901,10 +900,8 @@ function handleStepAutoTimeToggle(autoMode, customTimePanel, timeMaxInput) {
     if (autoMode) {
         // Auto mode: reset multiplier
         stepOptions.autoTimeMultiplier = 10;
-        stepTimeMax = calculateAutoStepTime();
     } else {
-        // Manual mode: inherit current time range
-        stepOptions.timeMax = stepTimeMax;
+        // Manual mode: show current timeMax in input
         if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
     }
 }
@@ -940,7 +937,6 @@ function setupStepContextMenu() {
         timeMaxInput.addEventListener('sl-change', () => {
             stepOptions.timeMax = parseFloat(timeMaxInput.value) || 20;
             if (!stepOptions.autoTime) {
-                stepTimeMax = stepOptions.timeMax;
                 updateStepResponsePlot();
             }
         });
@@ -959,12 +955,10 @@ function setupStepContextMenu() {
                 // Auto mode: adjust multiplier
                 stepOptions.autoTimeMultiplier *= increase ? factor : 1 / factor;
                 stepOptions.autoTimeMultiplier = Math.max(0.1, Math.min(100, stepOptions.autoTimeMultiplier));
-                stepTimeMax = calculateAutoStepTime();
             } else {
                 // Manual mode: adjust time directly
                 stepOptions.timeMax *= increase ? factor : 1 / factor;
                 stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
-                stepTimeMax = stepOptions.timeMax;
                 // Update input field
                 if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
             }
@@ -1388,10 +1382,6 @@ function updateAll() {
         displayTransferFunctions();
         updateClosedLoopPoles();  // Calculate closed-loop poles before frequency range
         autoAdjustFrequencyRange();
-        // Auto-adjust step response time range if enabled
-        if (stepOptions.autoTime) {
-            stepTimeMax = calculateAutoStepTime();
-        }
         updateBodePlot();
         // Skip updating hidden panels for better performance
         if (!isNarrowLayout) {
@@ -2839,6 +2829,176 @@ function calculateAutoStepTime() {
     }
 }
 
+// Key mapping for URL shortening (full key -> short key)
+const URL_KEY_MAP = {
+    // design keys
+    code: 'c',
+    sliders: 's',
+    freqMin: 'fm',
+    freqMax: 'fx',
+    freqPoints: 'fp',
+    showL: 'sl',
+    showT: 'st',
+    autoFreq: 'af',
+    showLpz: 'slp',
+    showTpz: 'stp',
+    preferredPlot: 'pp',
+    // slider keys
+    name: 'n',
+    min: 'i',
+    max: 'x',
+    logScale: 'l',
+    currentValue: 'v',
+    // bodeOptions keys
+    bodeOptions: 'bo',
+    showMarginLines: 'ml',
+    showCrossoverLines: 'cl',
+    autoScaleVertical: 'av',
+    gainMin: 'gi',
+    gainMax: 'gx',
+    phaseMin: 'pi',
+    phaseMax: 'px',
+    // stepOptions keys
+    stepOptions: 'so',
+    autoTime: 'at',
+    timeMax: 'tm',
+    // layout
+    layout: 'ly'
+};
+
+// Reverse mapping (short key -> full key)
+const URL_KEY_MAP_REV = Object.fromEntries(
+    Object.entries(URL_KEY_MAP).map(([k, v]) => [v, k])
+);
+
+// Default values - values matching these will be omitted from URL
+const URL_DEFAULTS = {
+    freqPoints: 300,
+    showL: true,
+    showT: true,
+    autoFreq: true,
+    showLpz: true,
+    showTpz: true,
+    // bodeOptions defaults
+    bodeOptions: {
+        showMarginLines: true,
+        showCrossoverLines: true,
+        autoScaleVertical: true,
+        gainMin: -60,
+        gainMax: 60,
+        phaseMin: -270,
+        phaseMax: 90
+    },
+    // stepOptions defaults
+    stepOptions: {
+        autoTime: true,
+        timeMax: 20
+    },
+    // slider defaults
+    sliderDefaults: {
+        logScale: false
+    }
+};
+
+// Shorten keys recursively for URL serialization
+function shortenForUrl(obj) {
+    if (Array.isArray(obj)) {
+        return obj.map(item => shortenForUrl(item));
+    }
+    if (obj && typeof obj === 'object') {
+        const result = {};
+        for (const [key, value] of Object.entries(obj)) {
+            const shortKey = URL_KEY_MAP[key] || key;
+            result[shortKey] = shortenForUrl(value);
+        }
+        return result;
+    }
+    return obj;
+}
+
+// Expand short keys back to full keys for URL deserialization
+function expandFromUrl(obj) {
+    if (Array.isArray(obj)) {
+        return obj.map(item => expandFromUrl(item));
+    }
+    if (obj && typeof obj === 'object') {
+        const result = {};
+        for (const [key, value] of Object.entries(obj)) {
+            const fullKey = URL_KEY_MAP_REV[key] || key;
+            result[fullKey] = expandFromUrl(value);
+        }
+        return result;
+    }
+    return obj;
+}
+
+// Remove default values from object to minimize URL size
+function removeDefaults(obj, defaults = URL_DEFAULTS) {
+    const result = { ...obj };
+
+    for (const [key, defaultValue] of Object.entries(defaults)) {
+        if (key === 'sliderDefaults') continue; // Handle separately
+
+        if (key in result) {
+            if (typeof defaultValue === 'object' && defaultValue !== null && !Array.isArray(defaultValue)) {
+                // Nested object (bodeOptions, stepOptions)
+                if (typeof result[key] === 'object' && result[key] !== null) {
+                    result[key] = removeDefaults(result[key], defaultValue);
+                    // Remove if all values were defaults (empty object)
+                    if (Object.keys(result[key]).length === 0) {
+                        delete result[key];
+                    }
+                }
+            } else if (result[key] === defaultValue) {
+                delete result[key];
+            }
+        }
+    }
+
+    // Handle slider defaults
+    if (result.sliders && Array.isArray(result.sliders)) {
+        result.sliders = result.sliders.map(slider => {
+            const s = { ...slider };
+            if (s.logScale === URL_DEFAULTS.sliderDefaults.logScale) {
+                delete s.logScale;
+            }
+            return s;
+        });
+    }
+
+    return result;
+}
+
+// Apply defaults to restored object
+function applyDefaults(obj, defaults = URL_DEFAULTS) {
+    const result = { ...obj };
+
+    for (const [key, defaultValue] of Object.entries(defaults)) {
+        if (key === 'sliderDefaults') continue;
+
+        if (!(key in result)) {
+            if (typeof defaultValue === 'object' && defaultValue !== null && !Array.isArray(defaultValue)) {
+                // Don't add missing nested objects, they'll use their own defaults
+            } else {
+                result[key] = defaultValue;
+            }
+        } else if (typeof defaultValue === 'object' && defaultValue !== null && !Array.isArray(defaultValue)) {
+            // Merge nested objects with defaults
+            result[key] = { ...defaultValue, ...result[key] };
+        }
+    }
+
+    // Handle slider defaults
+    if (result.sliders && Array.isArray(result.sliders)) {
+        result.sliders = result.sliders.map(slider => ({
+            logScale: URL_DEFAULTS.sliderDefaults.logScale,
+            ...slider
+        }));
+    }
+
+    return result;
+}
+
 // Generate shareable URL with design data
 function generateShareUrl(options = {}) {
     const { includeLayout = false, preferredPlot = null } = options;
@@ -2881,7 +3041,10 @@ function generateShareUrl(options = {}) {
         saveData.layout = dockviewApi.toJSON();
     }
 
-    let json = JSON.stringify(saveData);
+    // Remove default values and shorten keys for compact URL
+    const compactData = shortenForUrl(removeDefaults(saveData));
+
+    let json = JSON.stringify(compactData);
     // Use pako (zlib) compression for shorter URLs
     let compressed = pako.deflate(json);
     // Convert to base64url encoding
@@ -3069,6 +3232,13 @@ function loadFromUrl() {
 
             if (json && json.charAt(0) === '{') {
                 let loaded = JSON.parse(json);
+
+                // Expand short keys and apply defaults (new compact format)
+                // Check if this is the new compact format by looking for short keys
+                if ('c' in loaded || 's' in loaded) {
+                    loaded = applyDefaults(expandFromUrl(loaded));
+                }
+
                 Object.assign(design, loaded);
 
                 // Restore Bode plot options if present
@@ -3506,6 +3676,9 @@ function updateStepResponsePlot() {
     let canvas = document.getElementById(prefix + 'step-canvas');
 
     if (!wrapper || !canvas) return;
+
+    // Get current time range (auto or manual)
+    const stepTimeMax = getStepTimeMax();
 
     try {
         let L = currentVars.L;
