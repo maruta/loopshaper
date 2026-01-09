@@ -440,24 +440,17 @@ let narrowLayoutInitialized = false;
 // Initialize narrow layout (static HTML, no Dockview)
 function initializeNarrowLayout() {
     const tabBtns = document.querySelectorAll('.narrow-tab-btn');
-    const plotToTab = {
-        'bode': 'bode',
-        'nyquist': 'nyquist',
-        'pole-zero': 'pole-zero',
-        'step-response': 'step'
-    };
-
     function switchToTab(tabName) {
         tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
         document.getElementById('narrow-tab-bode').style.display = tabName === 'bode' ? 'flex' : 'none';
         document.getElementById('narrow-tab-pole-zero').style.display = tabName === 'pole-zero' ? 'flex' : 'none';
         document.getElementById('narrow-tab-nyquist').style.display = tabName === 'nyquist' ? 'flex' : 'none';
-        document.getElementById('narrow-tab-step').style.display = tabName === 'step' ? 'flex' : 'none';
+        document.getElementById('narrow-tab-step').style.display = tabName === 'step-response' ? 'flex' : 'none';
 
         if (tabName === 'bode') updateBodePlot();
         else if (tabName === 'pole-zero') updateNarrowPolePlot();
         else if (tabName === 'nyquist') updateNarrowNyquistPlot();
-        else if (tabName === 'step') updateNarrowStepResponsePlot();
+        else if (tabName === 'step-response') updateNarrowStepResponsePlot();
     }
 
     // Set up event listeners only once to prevent duplicates
@@ -545,8 +538,7 @@ function initializeNarrowLayout() {
     if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax;
 
     // Switch to initial tab
-    const preferredPlot = design.preferredPlot || 'bode';
-    switchToTab(plotToTab[preferredPlot] || 'bode');
+    switchToTab(design.preferredPlot || 'bode');
 
     setupPlotResizeObserver();
 }
@@ -2894,12 +2886,21 @@ function showShareDialog() {
 
     if (!dialog) return;
 
-    // Reset to defaults
+    // Reset options
     if (includeLayoutCheckbox) {
         includeLayoutCheckbox.checked = false;
     }
+
+    // Set default plot based on currently active tab in narrow mode
     if (preferredPlotGroup) {
-        preferredPlotGroup.value = 'bode';
+        let defaultPlot = 'bode';
+        if (isNarrowLayout) {
+            const activeTab = document.querySelector('.narrow-tab-btn.active');
+            if (activeTab) {
+                defaultPlot = activeTab.dataset.tab;
+            }
+        }
+        preferredPlotGroup.value = defaultPlot;
     }
 
     // Generate initial QR code
