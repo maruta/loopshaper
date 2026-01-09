@@ -180,22 +180,20 @@ function initializeDockview() {
         }, 50);
     });
 
-    // Listen for panel activation to reinitialize UI elements
+    // Listen for panel activation to reinitialize UI elements and update plots
     dockviewApi.onDidActivePanelChange((event) => {
-        // Stop Nyquist animation when switching away from it
         stopNyquistAnimation();
 
         setTimeout(() => {
             initializeUI();
             setupEventListeners();
 
-            // Redraw Nyquist plot if it becomes active
-            if (event && event.panel && event.panel.id === 'nyquist') {
-                updateNyquistPlot();
-            }
-            // Redraw Step Response plot if it becomes active
-            if (event && event.panel && event.panel.id === 'step-response') {
-                updateStepResponsePlot();
+            // Update the plot when it becomes active (it may have been skipped during updateAll)
+            if (event && event.panel) {
+                const panelId = event.panel.id;
+                if (panelId === 'pole-zero') updatePolePlot();
+                else if (panelId === 'nyquist') updateNyquistPlot();
+                else if (panelId === 'step-response') updateStepResponsePlot();
             }
         }, 50);
     });
@@ -1380,30 +1378,29 @@ function updateAll() {
             stepTimeMax = calculateAutoStepTime();
         }
         updateBodePlot();
+        // Skip updating hidden panels for better performance
         if (!isNarrowLayout) {
-            updatePolePlot();
-            updateNyquistPlot();
+            // Wide layout: only update panels that are visible (active in their tab group)
+            if (isPanelVisible('pole-zero')) updatePolePlot();
+            if (isPanelVisible('nyquist')) updateNyquistPlot();
+            if (isPanelVisible('step-response')) updateStepResponsePlot();
         } else {
-            // Update narrow plots if the tab is visible
-            let narrowPoleTab = document.getElementById('narrow-tab-pole-zero');
+            // Narrow layout: only update visible tabs
+            const narrowPoleTab = document.getElementById('narrow-tab-pole-zero');
             if (narrowPoleTab && narrowPoleTab.style.display !== 'none') {
                 updateNarrowPolePlot();
             }
-            let narrowNyquistTab = document.getElementById('narrow-tab-nyquist');
+            const narrowNyquistTab = document.getElementById('narrow-tab-nyquist');
             if (narrowNyquistTab && narrowNyquistTab.style.display !== 'none') {
                 updateNarrowNyquistPlot();
             }
-        }
-        updateMargins();
-        updateNyquistInfo();
-        if (!isNarrowLayout) {
-            updateStepResponsePlot();
-        } else {
-            let narrowStepTab = document.getElementById('narrow-tab-step');
+            const narrowStepTab = document.getElementById('narrow-tab-step');
             if (narrowStepTab && narrowStepTab.style.display !== 'none') {
                 updateNarrowStepResponsePlot();
             }
         }
+        updateMargins();
+        updateNyquistInfo();
     } else if (hasErrors) {
         // Show error state
         if (codeField) {
@@ -3050,6 +3047,17 @@ function isPanelOpen(panelId) {
     try {
         const panel = dockviewApi.getPanel(panelId);
         return panel !== undefined && panel !== null;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Check if a panel is currently visible (open and active in its tab group)
+function isPanelVisible(panelId) {
+    if (!dockviewApi) return false;
+    try {
+        const panel = dockviewApi.getPanel(panelId);
+        return panel && panel.api.isVisible;
     } catch (e) {
         return false;
     }

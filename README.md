@@ -94,8 +94,7 @@ loopshaper/
 ├── bode.js         # Bode plot rendering and crossover detection
 ├── nyquist.js      # Nyquist plot rendering and animation
 ├── utils.js        # Utility functions and Nyquist contour generation
-├── style.css       # Styles for panels and plots
-└── worker_calcCLP.js  # Web Worker for closed-loop pole calculation
+└── style.css       # Styles for panels and plots
 ```
 
 ## Technologies
