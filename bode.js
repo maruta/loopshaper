@@ -46,48 +46,69 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
 
         let gain = Array(N);
         let phase = Array(N);
-        let phase_offset = 0;
+        let phaseOffset = 0;
 
+        // Calculate gain and phase with phase unwrapping
         for (let i = 0; i < N; i++) {
-            let omega = w[i];
             let Gjw;
             try {
-                Gjw = tf.compiled.evaluate({ 's': math.complex(0, omega) });
+                Gjw = tf.compiled.evaluate({ 's': math.complex(0, w[i]) });
             } catch (e) {
                 Gjw = math.complex(0, 0);
             }
             if (typeof Gjw.abs !== 'function') Gjw = math.complex(Gjw, 0);
+
             gain[i] = 20 * math.log10(Gjw.abs());
 
-            // Unwrap phase
-            if (i > 0 && Math.abs(Gjw.arg() / math.pi * 180 + phase_offset - phase[i - 1]) > 180) {
-                phase_offset += Math.round(-(Gjw.arg() / math.pi * 180 + phase_offset - phase[i - 1]) / 360) * 360;
+            // Phase unwrapping: adjust offset when phase jumps by more than 180°
+            let rawPhase = Gjw.arg() / math.pi * 180;
+            if (i > 0 && Math.abs(rawPhase + phaseOffset - phase[i - 1]) > 180) {
+                phaseOffset += Math.round(-(rawPhase + phaseOffset - phase[i - 1]) / 360) * 360;
             }
-            phase[i] = Gjw.arg() / math.pi * 180 + phase_offset;
+            phase[i] = rawPhase + phaseOffset;
+        }
 
-            // Detect crossings only for first transfer function (L)
-            if (tfIndex === 0 && i > 0) {
-                // Detect gain crossover (both directions)
+        // For the primary transfer function (L), adjust phase offset so that
+        // phase at the lowest gain crossover frequency is close to -180°.
+        // This makes phase margin easier to read visually.
+        if (tfIndex === 0) {
+            let lowestGcIndex = -1;
+            for (let i = 1; i < N; i++) {
                 if ((gain[i - 1] > 0 && gain[i] <= 0) || (gain[i - 1] <= 0 && gain[i] > 0)) {
-                    // Linear interpolation to find exact crossing frequency
+                    lowestGcIndex = i;
+                    break;
+                }
+            }
+
+            if (lowestGcIndex > 0) {
+                let ratio = -gain[lowestGcIndex - 1] / (gain[lowestGcIndex] - gain[lowestGcIndex - 1]);
+                let phaseAtGc = phase[lowestGcIndex - 1] + ratio * (phase[lowestGcIndex] - phase[lowestGcIndex - 1]);
+                let n = Math.round((phaseAtGc + 180) / 360);
+                let globalOffset = -n * 360;
+                for (let i = 0; i < N; i++) {
+                    phase[i] += globalOffset;
+                }
+            }
+        }
+
+        // Detect crossover frequencies (only for primary transfer function)
+        if (tfIndex === 0) {
+            for (let i = 1; i < N; i++) {
+                // Gain crossover: where gain crosses 0 dB
+                if ((gain[i - 1] > 0 && gain[i] <= 0) || (gain[i - 1] <= 0 && gain[i] > 0)) {
                     let ratio = -gain[i - 1] / (gain[i] - gain[i - 1]);
-                    let wc = w[i - 1] + ratio * (w[i] - w[i - 1]);
-                    wgc.push(wc);
+                    wgc.push(w[i - 1] + ratio * (w[i] - w[i - 1]));
                 }
 
-                // Detect phase crossover (-180 + n*360 degrees)
-                // Normalize phases to find crossings at -180, -540, -900, etc.
+                // Phase crossover: where phase crosses -180° + n*360°
                 let p1 = phase[i - 1];
                 let p2 = phase[i];
-                // Check if phase crosses -180 + n*360 for any integer n
                 let n1 = Math.floor((p1 + 180) / 360);
                 let n2 = Math.floor((p2 + 180) / 360);
                 if (n1 !== n2) {
-                    // Crossing occurred - find the target phase value
                     let targetPhase = (p1 > p2) ? n1 * 360 - 180 : n2 * 360 - 180;
                     let ratio = (targetPhase - p1) / (p2 - p1);
-                    let wc = w[i - 1] + ratio * (w[i] - w[i - 1]);
-                    wpc.push(wc);
+                    wpc.push(w[i - 1] + ratio * (w[i] - w[i - 1]));
                 }
             }
         }
