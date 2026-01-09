@@ -75,9 +75,11 @@ const dockview = window["dockview-core"];
 // Dockview theme selection
 const DOCKVIEW_THEME_CLASS = 'dockview-theme-light';
 
-let dockviewThemeObserver = null;
-let resizeListenerAttached = false;
+// Layout state
 let isNarrowLayout = false;
+let resizeListenerAttached = false;
+let dockviewThemeObserver = null;
+let plotResizeObserver = null;
 
 function applyDockviewTheme(el, themeClass) {
     if (!el) return;
@@ -196,6 +198,69 @@ function initializeDockview() {
                 else if (panelId === 'step-response') updateStepResponsePlot();
             }
         }, 50);
+    });
+
+    setupPlotResizeObserver();
+}
+
+// Setup ResizeObserver for plot wrappers to handle window maximize/restore
+function setupPlotResizeObserver() {
+    if (plotResizeObserver) {
+        plotResizeObserver.disconnect();
+    }
+
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const wrapperIds = [
+        prefix + 'bode-wrapper',
+        prefix + 'pole-wrapper',
+        prefix + 'nyquist-wrapper',
+        prefix + 'step-wrapper'
+    ];
+
+    let resizeTimeout = null;
+
+    plotResizeObserver = new ResizeObserver((entries) => {
+        if (resizeTimeout) clearTimeout(resizeTimeout);
+
+        resizeTimeout = setTimeout(() => {
+            for (const entry of entries) {
+                const id = entry.target.id;
+                if (entry.contentRect.width <= 0 || entry.contentRect.height <= 0) continue;
+
+                if (id.includes('bode')) {
+                    updateBodePlot();
+                } else if (id.includes('pole')) {
+                    if (isNarrowLayout) {
+                        if (document.getElementById('narrow-tab-pole-zero').style.display !== 'none') {
+                            updateNarrowPolePlot();
+                        }
+                    } else {
+                        updatePolePlot();
+                    }
+                } else if (id.includes('nyquist')) {
+                    if (isNarrowLayout) {
+                        if (document.getElementById('narrow-tab-nyquist').style.display !== 'none') {
+                            updateNarrowNyquistPlot();
+                        }
+                    } else {
+                        updateNyquistPlot();
+                    }
+                } else if (id.includes('step')) {
+                    if (isNarrowLayout) {
+                        if (document.getElementById('narrow-tab-step').style.display !== 'none') {
+                            updateNarrowStepResponsePlot();
+                        }
+                    } else {
+                        updateStepResponsePlot();
+                    }
+                }
+            }
+        }, 100);
+    });
+
+    wrapperIds.forEach(id => {
+        const wrapper = document.getElementById(id);
+        if (wrapper) plotResizeObserver.observe(wrapper);
     });
 }
 
@@ -440,22 +505,6 @@ function initializeNarrowLayout() {
         });
     }
 
-    // Set up resize listener
-    if (!resizeListenerAttached) {
-        window.addEventListener('resize', function() {
-            updateBodePlot();
-            if (document.getElementById('narrow-tab-pole-zero').style.display !== 'none') {
-                updateNarrowPolePlot();
-            }
-            if (document.getElementById('narrow-tab-nyquist').style.display !== 'none') {
-                updateNarrowNyquistPlot();
-            }
-            if (document.getElementById('narrow-tab-step').style.display !== 'none') {
-                updateNarrowStepResponsePlot();
-            }
-        });
-        resizeListenerAttached = true;
-    }
 
     // Set up Step Response visibility checkboxes for narrow layout
     const chkLstep = document.getElementById('narrow-chk-show-L-step');
@@ -535,6 +584,8 @@ function initializeNarrowLayout() {
         }, { passive: false });
         narrowStepWrapper.dataset.wheelListenerAttached = 'true';
     }
+
+    setupPlotResizeObserver();
 }
 
 function initializeUI() {
@@ -665,23 +716,28 @@ function setupEventListeners() {
 
     }
 
-    // Window resize listener (only attach once)
+    // Handle layout mode switching on window resize
     if (!resizeListenerAttached) {
         window.addEventListener('resize', function() {
-            updateBodePlot();
-            if (!isNarrowLayout) {
-                updatePolePlot();
-                updateNyquistPlot();
-                updateStepResponsePlot();
+            const newIsNarrow = window.innerWidth < 768;
+            if (newIsNarrow === isNarrowLayout) return;
+
+            isNarrowLayout = newIsNarrow;
+
+            if (!isNarrowLayout && !dockviewApi) {
+                initializeDockview();
+                initializeViewMenu();
             }
+
+            setupPlotResizeObserver();
+            initializeUI();
+            setupEventListeners();
+            updateAll();
         });
         resizeListenerAttached = true;
     }
 
-    // Bode plot context menu
     setupBodeContextMenu();
-
-    // Step response context menu
     setupStepContextMenu();
 }
 
@@ -1064,9 +1120,10 @@ function rebuildSliders() {
 }
 
 function createSliderElement(slider, index) {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
     let div = document.createElement('div');
     div.className = 'slider-row';
-    div.id = 'slider-row-' + index;
+    div.id = prefix + 'slider-row-' + index;
 
     let initialValue = slider.currentValue !== undefined ? slider.currentValue : slider.min;
     let initialPos = valueToSliderPos(initialValue, slider.min, slider.max, slider.logScale);
@@ -1076,12 +1133,12 @@ function createSliderElement(slider, index) {
             <sl-input type="text" class="slider-name" placeholder="Name" value="${slider.name || ''}" data-index="${index}" size="small"></sl-input>
             <sl-input type="number" class="slider-min" placeholder="Min" value="${slider.min || 0.1}" step="any" data-index="${index}" size="small"></sl-input>
             <sl-input type="number" class="slider-max" placeholder="Max" value="${slider.max || 100}" step="any" data-index="${index}" size="small"></sl-input>
-            <sl-checkbox class="slider-log" id="log-${index}" ${slider.logScale ? 'checked' : ''} data-index="${index}" size="medium"></sl-checkbox>
+            <sl-checkbox class="slider-log" id="${prefix}log-${index}" ${slider.logScale ? 'checked' : ''} data-index="${index}" size="medium"></sl-checkbox>
             <sl-icon-button class="remove-slider" name="x-lg" data-index="${index}" label="Remove"></sl-icon-button>
         </div>
         <div class="slider-control">
-            <sl-range class="slider-range" id="range-${index}" min="0" max="1000" value="${initialPos}" data-index="${index}"></sl-range>
-            <span class="slider-value" id="value-${index}">${formatValue(initialValue)}</span>
+            <sl-range class="slider-range" id="${prefix}range-${index}" min="0" max="1000" value="${initialPos}" data-index="${index}"></sl-range>
+            <span class="slider-value" id="${prefix}value-${index}">${formatValue(initialValue)}</span>
         </div>
     `;
 
@@ -1140,9 +1197,10 @@ function createSliderElement(slider, index) {
 }
 
 function updateSliderValue(index) {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
     let slider = design.sliders[index];
-    let rangeInput = document.getElementById('range-' + index);
-    let valueSpan = document.getElementById('value-' + index);
+    let rangeInput = document.getElementById(prefix + 'range-' + index);
+    let valueSpan = document.getElementById(prefix + 'value-' + index);
 
     if (!rangeInput || !valueSpan) return;
 
@@ -1454,13 +1512,14 @@ function substituteVars(expr, vars) {
 }
 
 function syncSlidersFromVars() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
     design.sliders.forEach((slider, index) => {
         if (!slider.name) return;
         let val = currentVars[slider.name];
         if (typeof val === 'number') {
             slider.currentValue = val;
-            let rangeInput = document.getElementById('range-' + index);
-            let valueSpan = document.getElementById('value-' + index);
+            let rangeInput = document.getElementById(prefix + 'range-' + index);
+            let valueSpan = document.getElementById(prefix + 'value-' + index);
             if (rangeInput && valueSpan) {
                 let pos = valueToSliderPos(val, slider.min, slider.max, slider.logScale);
                 rangeInput.value = pos;
