@@ -3039,6 +3039,9 @@ function generateShareUrl(options = {}) {
     // Optionally include Dockview layout
     if (includeLayout && dockviewApi) {
         saveData.layout = dockviewApi.toJSON();
+    } else {
+        // Ensure layout is not included when checkbox is unchecked
+        delete saveData.layout;
     }
 
     // Remove default values and shorten keys for compact URL
@@ -3114,26 +3117,27 @@ function updateQrCode() {
     const container = document.getElementById('qr-container');
     const includeLayoutCheckbox = document.getElementById('qr-include-layout');
     const preferredPlotGroup = document.getElementById('qr-preferred-plot');
-    const plotSelector = document.getElementById('qr-plot-selector');
+    const urlSizeElement = document.getElementById('qr-url-size');
 
     if (!container) return;
 
     const includeLayout = includeLayoutCheckbox?.checked || false;
     const preferredPlot = preferredPlotGroup?.value || 'bode';
 
-    // Show/hide plot selector based on layout checkbox
-    if (plotSelector) {
-        plotSelector.style.display = includeLayout ? 'none' : 'flex';
-    }
-
     // Generate URL with current options
     const options = {
         includeLayout,
-        preferredPlot: includeLayout ? null : preferredPlot
+        preferredPlot
     };
 
     currentQrUrl = generateShareUrl(options);
     container.innerHTML = generateQrSvg(currentQrUrl);
+
+    // Display URL size
+    if (urlSizeElement) {
+        const bytes = new Blob([currentQrUrl]).size;
+        urlSizeElement.textContent = `URL size: ${bytes.toLocaleString()} bytes`;
+    }
 }
 
 function showShareDialog() {

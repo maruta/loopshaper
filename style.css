@@ -126,6 +126,12 @@ body {
     width: 100%;
 }
 
+#qr-url-size {
+    font-size: 13px;
+    color: var(--sl-color-neutral-600);
+    text-align: center;
+}
+
 /* Dockview Container */
 #dockview-container {
     width: 100vw;

@@ -364,9 +364,9 @@
     <sl-dialog id="qr-dialog" label="Share">
         <div id="qr-container"></div>
         <div id="qr-options">
-            <sl-checkbox id="qr-include-layout" class="wide-only">Include layout for PC</sl-checkbox>
+            <sl-checkbox id="qr-include-layout" class="wide-only">Include panel layout for PC</sl-checkbox>
             <div id="qr-plot-selector">
-                <span class="qr-plot-label">Default plot:</span>
+                <span class="qr-plot-label">Default plot for mobile:</span>
                 <sl-radio-group id="qr-preferred-plot" value="bode">
                     <sl-radio-button value="bode">Bode</sl-radio-button>
                     <sl-radio-button value="nyquist">Nyquist</sl-radio-button>
@@ -374,6 +374,7 @@
                     <sl-radio-button value="step-response">Step</sl-radio-button>
                 </sl-radio-group>
             </div>
+            <div id="qr-url-size"></div>
         </div>
         <sl-button slot="footer" variant="primary" id="qr-copy-url">Copy URL</sl-button>
     </sl-dialog>
