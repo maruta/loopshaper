@@ -964,6 +964,75 @@ function setupEventListeners() {
     setupNyquistContextMenu();
 }
 
+// Context menu helper functions
+// Tracks all registered context menus for the global click-outside handler
+const registeredContextMenus = [];
+
+// Global click-outside handler (registered once, handles all context menus)
+let contextMenuClickHandlerAttached = false;
+
+function setupGlobalContextMenuClickHandler() {
+    if (contextMenuClickHandlerAttached) return;
+    contextMenuClickHandlerAttached = true;
+
+    document.addEventListener('click', (e) => {
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+
+        for (const contextMenu of registeredContextMenus) {
+            if (!contextMenu.active) continue;
+
+            const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
+            const clickedInside =
+                (popupPart ? path.includes(popupPart) : false) ||
+                path.includes(contextMenu) ||
+                contextMenu.contains(e.target);
+
+            if (!clickedInside) {
+                contextMenu.active = false;
+            }
+        }
+    }, { capture: true });
+}
+
+// Show a context menu at the cursor position
+function showContextMenuAtCursor(contextMenu, contextAnchor, e) {
+    e.preventDefault();
+    contextAnchor.style.left = e.clientX + 'px';
+    contextAnchor.style.top = e.clientY + 'px';
+    contextMenu.strategy = 'fixed';
+    contextMenu.active = true;
+    requestAnimationFrame(() => {
+        if (typeof contextMenu.reposition === 'function') {
+            contextMenu.reposition();
+        }
+    });
+}
+
+// Setup menu item selection handlers (both click and sl-select)
+function setupMenuItemHandlers(menuInnerId, onItemSelect, contextMenu) {
+    const menuInner = document.getElementById(menuInnerId);
+    if (!menuInner || menuInner.dataset.listenerAttached) return;
+
+    function handleItem(item) {
+        if (!item) return;
+        item.checked = !item.checked;
+        onItemSelect(item);
+        contextMenu.active = false;
+    }
+
+    menuInner.addEventListener('click', (e) => {
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
+        handleItem(item);
+    });
+
+    menuInner.addEventListener('sl-select', (e) => {
+        handleItem(e.detail.item);
+    });
+
+    menuInner.dataset.listenerAttached = 'true';
+}
+
 function setupBodeContextMenu() {
     const prefix = isNarrowLayout ? 'narrow-' : '';
     const bodeWrapper = document.getElementById(prefix + 'bode-wrapper');
@@ -971,10 +1040,14 @@ function setupBodeContextMenu() {
     const contextAnchor = document.getElementById('bode-context-menu-anchor');
 
     if (!bodeWrapper || !contextMenu || !contextAnchor) return;
-
-    // Prevent duplicate listeners
     if (bodeWrapper.dataset.contextMenuAttached) return;
     bodeWrapper.dataset.contextMenuAttached = 'true';
+
+    // Register for global click-outside handling
+    if (!registeredContextMenus.includes(contextMenu)) {
+        registeredContextMenus.push(contextMenu);
+    }
+    setupGlobalContextMenuClickHandler();
 
     // Context menu items
     const optMarginLines = document.getElementById('bode-opt-margin-lines');
@@ -1040,18 +1113,16 @@ function setupBodeContextMenu() {
         }
     });
 
-    // Mouse wheel: zoom (vertical, ±0.2 decades) and pan (horizontal, ±0.1 decades)
+    // Mouse wheel: zoom (vertical) and pan (horizontal)
     if (!bodeWrapper.dataset.wheelListenerAttached) {
         bodeWrapper.addEventListener('wheel', function(e) {
             e.preventDefault();
 
             if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-                // Horizontal scroll: pan
                 const panAmount = e.deltaX > 0 ? 0.1 : -0.1;
                 design.freqMin += panAmount;
                 design.freqMax += panAmount;
             } else {
-                // Vertical scroll: zoom centered at cursor position
                 const leftMargin = 70;
                 const wrapperWidth = bodeWrapper.clientWidth;
                 const plotWidth = wrapperWidth - leftMargin - 20;
@@ -1069,7 +1140,6 @@ function setupBodeContextMenu() {
                 design.freqMax = wCursor + (1 - p) * newRange;
             }
 
-            // Disable auto frequency mode and update UI
             if (autoFreq) {
                 autoFreq = false;
                 if (optAutoFreq) optAutoFreq.checked = false;
@@ -1083,122 +1153,35 @@ function setupBodeContextMenu() {
         bodeWrapper.dataset.wheelListenerAttached = 'true';
     }
 
-    // Show context menu on right-click
-    bodeWrapper.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
+    bodeWrapper.addEventListener('contextmenu', (e) => showContextMenuAtCursor(contextMenu, contextAnchor, e));
 
-        // sl-popup positions relative to its anchor via Floating UI.
-        // Move the (invisible) anchor to the cursor and ask sl-popup to reposition.
-        contextAnchor.style.left = e.clientX + 'px';
-        contextAnchor.style.top = e.clientY + 'px';
-
-        // Use a fixed strategy so coordinates are relative to the viewport.
-        contextMenu.strategy = 'fixed';
-        contextMenu.active = true;
-
-        // Ensure the floating UI run happens after the anchor style updates.
-        requestAnimationFrame(() => {
-            if (typeof contextMenu.reposition === 'function') {
-                contextMenu.reposition();
+    function handleBodeMenuItem(item) {
+        if (item.id === 'bode-opt-margin-lines') {
+            bodeOptions.showMarginLines = item.checked;
+        } else if (item.id === 'bode-opt-crossover-lines') {
+            bodeOptions.showCrossoverLines = item.checked;
+        } else if (item.id === 'bode-opt-auto-scale') {
+            bodeOptions.autoScaleVertical = item.checked;
+            if (customRangePanel) {
+                customRangePanel.style.display = item.checked ? 'none' : 'block';
             }
-        });
-    });
-
-    // Hide context menu when clicking elsewhere
-    document.addEventListener('click', (e) => {
-        if (!contextMenu.active) return;
-
-        // Use composedPath() so clicks inside the popup (shadow DOM) are treated as "inside".
-        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-        const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
-
-        const clickedInside =
-            (popupPart ? path.includes(popupPart) : false) ||
-            path.includes(contextMenu) ||
-            contextMenu.contains(e.target);
-
-        if (!clickedInside) {
-            contextMenu.active = false;
+        } else if (item.id === 'bode-opt-auto-freq') {
+            autoFreq = item.checked;
+            design.autoFreq = autoFreq;
+            if (customFreqPanel) {
+                customFreqPanel.style.display = item.checked ? 'none' : 'block';
+            }
+            if (autoFreq) {
+                autoAdjustFrequencyRange();
+            } else {
+                if (freqMinInput) freqMinInput.value = design.freqMin;
+                if (freqMaxInput) freqMaxInput.value = design.freqMax;
+            }
         }
-    }, { capture: true });
-
-    // Handle menu item selection
-    // NOTE: In some environments, <sl-menu> may not emit sl-select reliably.
-    // We handle direct clicks as a fallback.
-    const menuInner = document.getElementById('bode-context-menu-inner');
-    if (menuInner && !menuInner.dataset.listenerAttached) {
-        menuInner.addEventListener('click', (e) => {
-            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-            const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
-            if (!item) return;
-
-            // Toggle the checkbox state
-            item.checked = !item.checked;
-
-            // Update options based on which item was clicked
-            if (item.id === 'bode-opt-margin-lines') {
-                bodeOptions.showMarginLines = item.checked;
-            } else if (item.id === 'bode-opt-crossover-lines') {
-                bodeOptions.showCrossoverLines = item.checked;
-            } else if (item.id === 'bode-opt-auto-scale') {
-                bodeOptions.autoScaleVertical = item.checked;
-                if (customRangePanel) {
-                    customRangePanel.style.display = item.checked ? 'none' : 'block';
-                }
-            } else if (item.id === 'bode-opt-auto-freq') {
-                autoFreq = item.checked;
-                design.autoFreq = autoFreq;
-                if (customFreqPanel) {
-                    customFreqPanel.style.display = item.checked ? 'none' : 'block';
-                }
-                if (autoFreq) {
-                    autoAdjustFrequencyRange();
-                } else {
-                    if (freqMinInput) freqMinInput.value = design.freqMin;
-                    if (freqMaxInput) freqMaxInput.value = design.freqMax;
-                }
-            }
-
-            updateBodePlot();
-            contextMenu.active = false;
-        });
-
-        // Fallback handler for sl-select event
-        menuInner.addEventListener('sl-select', (e) => {
-            const item = e.detail.item;
-            if (!item) return;
-
-            item.checked = !item.checked;
-
-            if (item.id === 'bode-opt-margin-lines') {
-                bodeOptions.showMarginLines = item.checked;
-            } else if (item.id === 'bode-opt-crossover-lines') {
-                bodeOptions.showCrossoverLines = item.checked;
-            } else if (item.id === 'bode-opt-auto-scale') {
-                bodeOptions.autoScaleVertical = item.checked;
-                if (customRangePanel) {
-                    customRangePanel.style.display = item.checked ? 'none' : 'block';
-                }
-            } else if (item.id === 'bode-opt-auto-freq') {
-                autoFreq = item.checked;
-                design.autoFreq = autoFreq;
-                if (customFreqPanel) {
-                    customFreqPanel.style.display = item.checked ? 'none' : 'block';
-                }
-                if (autoFreq) {
-                    autoAdjustFrequencyRange();
-                } else {
-                    if (freqMinInput) freqMinInput.value = design.freqMin;
-                    if (freqMaxInput) freqMaxInput.value = design.freqMax;
-                }
-            }
-
-            updateBodePlot();
-            contextMenu.active = false;
-        });
-
-        menuInner.dataset.listenerAttached = 'true';
+        updateBodePlot();
     }
+
+    setupMenuItemHandlers('bode-context-menu-inner', handleBodeMenuItem, contextMenu);
 }
 
 // Handle auto/manual time mode toggle for step response
@@ -1208,10 +1191,8 @@ function handleStepAutoTimeToggle(autoMode, customTimePanel, timeMaxInput) {
         customTimePanel.style.display = autoMode ? 'none' : 'block';
     }
     if (autoMode) {
-        // Auto mode: reset multiplier
         stepOptions.autoTimeMultiplier = 10;
     } else {
-        // Manual mode: show current timeMax in input
         if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
     }
 }
@@ -1223,26 +1204,24 @@ function setupStepContextMenu() {
     const contextAnchor = document.getElementById('step-context-menu-anchor');
 
     if (!stepWrapper || !contextMenu || !contextAnchor) return;
-
-    // Prevent duplicate listeners
     if (stepWrapper.dataset.contextMenuAttached) return;
     stepWrapper.dataset.contextMenuAttached = 'true';
 
-    // Context menu items
+    if (!registeredContextMenus.includes(contextMenu)) {
+        registeredContextMenus.push(contextMenu);
+    }
+    setupGlobalContextMenuClickHandler();
+
     const optAutoTime = document.getElementById('step-opt-auto-time');
     const customTimePanel = document.getElementById('step-custom-time-panel');
     const timeMaxInput = document.getElementById('step-time-max-input');
 
-    // Initialize checkbox state
     if (optAutoTime) optAutoTime.checked = stepOptions.autoTime;
-
-    // Initialize custom time panel visibility
     if (customTimePanel) {
         customTimePanel.style.display = stepOptions.autoTime ? 'none' : 'block';
     }
     if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax;
 
-    // Setup time input event listener
     if (timeMaxInput && !timeMaxInput.dataset.listenerAttached) {
         timeMaxInput.addEventListener('sl-change', () => {
             stepOptions.timeMax = parseFloat(timeMaxInput.value) || 20;
@@ -1254,7 +1233,6 @@ function setupStepContextMenu() {
         timeMaxInput.dataset.listenerAttached = 'true';
     }
 
-    // Mouse wheel: adjust time range (*1.05 or /1.05)
     if (!stepWrapper.dataset.wheelListenerAttached) {
         stepWrapper.addEventListener('wheel', function(e) {
             e.preventDefault();
@@ -1262,14 +1240,11 @@ function setupStepContextMenu() {
             const increase = e.deltaY < 0;
 
             if (stepOptions.autoTime) {
-                // Auto mode: adjust multiplier
                 stepOptions.autoTimeMultiplier *= increase ? factor : 1 / factor;
                 stepOptions.autoTimeMultiplier = Math.max(0.1, Math.min(100, stepOptions.autoTimeMultiplier));
             } else {
-                // Manual mode: adjust time directly
                 stepOptions.timeMax *= increase ? factor : 1 / factor;
                 stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
-                // Update input field
                 if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
             }
 
@@ -1278,76 +1253,14 @@ function setupStepContextMenu() {
         stepWrapper.dataset.wheelListenerAttached = 'true';
     }
 
-    // Show context menu on right-click
-    stepWrapper.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
+    stepWrapper.addEventListener('contextmenu', (e) => showContextMenuAtCursor(contextMenu, contextAnchor, e));
 
-        // Move the anchor to the cursor position
-        contextAnchor.style.left = e.clientX + 'px';
-        contextAnchor.style.top = e.clientY + 'px';
-
-        // Use a fixed strategy so coordinates are relative to the viewport
-        contextMenu.strategy = 'fixed';
-        contextMenu.active = true;
-
-        // Ensure the floating UI run happens after the anchor style updates
-        requestAnimationFrame(() => {
-            if (typeof contextMenu.reposition === 'function') {
-                contextMenu.reposition();
-            }
-        });
-    });
-
-    // Hide context menu when clicking elsewhere
-    document.addEventListener('click', (e) => {
-        if (!contextMenu.active) return;
-
-        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-        const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
-
-        const clickedInside =
-            (popupPart ? path.includes(popupPart) : false) ||
-            path.includes(contextMenu) ||
-            contextMenu.contains(e.target);
-
-        if (!clickedInside) {
-            contextMenu.active = false;
+    setupMenuItemHandlers('step-context-menu-inner', (item) => {
+        if (item.id === 'step-opt-auto-time') {
+            handleStepAutoTimeToggle(item.checked, customTimePanel, timeMaxInput);
         }
-    }, { capture: true });
-
-    // Handle menu item selection
-    const menuInner = document.getElementById('step-context-menu-inner');
-    if (menuInner && !menuInner.dataset.listenerAttached) {
-        menuInner.addEventListener('click', (e) => {
-            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-            const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
-            if (!item) return;
-
-            // Toggle the checkbox state
-            item.checked = !item.checked;
-
-            if (item.id === 'step-opt-auto-time') {
-                handleStepAutoTimeToggle(item.checked, customTimePanel, timeMaxInput);
-            }
-            updateStepResponsePlot();
-            contextMenu.active = false;
-        });
-
-        // Fallback handler for sl-select event
-        menuInner.addEventListener('sl-select', (e) => {
-            const item = e.detail.item;
-            if (!item) return;
-            item.checked = !item.checked;
-
-            if (item.id === 'step-opt-auto-time') {
-                handleStepAutoTimeToggle(item.checked, customTimePanel, timeMaxInput);
-            }
-            updateStepResponsePlot();
-            contextMenu.active = false;
-        });
-
-        menuInner.dataset.listenerAttached = 'true';
-    }
+        updateStepResponsePlot();
+    }, contextMenu);
 }
 
 function handlePzmapAutoScaleToggle(checked, customScalePanel, scaleMaxInput) {
@@ -1370,18 +1283,21 @@ function setupPzmapContextMenu() {
     if (poleWrapper.dataset.contextMenuAttached) return;
     poleWrapper.dataset.contextMenuAttached = 'true';
 
+    if (!registeredContextMenus.includes(contextMenu)) {
+        registeredContextMenus.push(contextMenu);
+    }
+    setupGlobalContextMenuClickHandler();
+
     const optAutoScale = document.getElementById('pzmap-opt-auto-scale');
     const customScalePanel = document.getElementById('pzmap-custom-scale-panel');
     const scaleMaxInput = document.getElementById('pzmap-scale-max-input');
 
-    // Initialize UI state
     if (optAutoScale) optAutoScale.checked = pzmapOptions.autoScale;
     if (customScalePanel) {
         customScalePanel.style.display = pzmapOptions.autoScale ? 'none' : 'block';
     }
     if (scaleMaxInput) scaleMaxInput.value = pzmapOptions.scaleMax;
 
-    // Scale input change handler
     if (scaleMaxInput && !scaleMaxInput.dataset.listenerAttached) {
         scaleMaxInput.addEventListener('sl-change', () => {
             pzmapOptions.scaleMax = parseFloat(scaleMaxInput.value) || 10;
@@ -1391,7 +1307,6 @@ function setupPzmapContextMenu() {
         scaleMaxInput.dataset.listenerAttached = 'true';
     }
 
-    // Mouse wheel zoom
     if (!poleWrapper.dataset.wheelListenerAttached) {
         poleWrapper.addEventListener('wheel', function(e) {
             e.preventDefault();
@@ -1411,60 +1326,14 @@ function setupPzmapContextMenu() {
         poleWrapper.dataset.wheelListenerAttached = 'true';
     }
 
-    // Context menu display
-    poleWrapper.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        contextAnchor.style.left = e.clientX + 'px';
-        contextAnchor.style.top = e.clientY + 'px';
-        contextMenu.strategy = 'fixed';
-        contextMenu.active = true;
-        requestAnimationFrame(() => {
-            if (typeof contextMenu.reposition === 'function') {
-                contextMenu.reposition();
-            }
-        });
-    });
+    poleWrapper.addEventListener('contextmenu', (e) => showContextMenuAtCursor(contextMenu, contextAnchor, e));
 
-    // Hide context menu on outside click
-    document.addEventListener('click', (e) => {
-        if (!contextMenu.active) return;
-        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-        const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
-        const clickedInside =
-            (popupPart ? path.includes(popupPart) : false) ||
-            path.includes(contextMenu) ||
-            contextMenu.contains(e.target);
-        if (!clickedInside) contextMenu.active = false;
-    }, { capture: true });
-
-    // Menu item selection
-    const menuInner = document.getElementById('pzmap-context-menu-inner');
-    if (menuInner && !menuInner.dataset.listenerAttached) {
-        menuInner.addEventListener('click', (e) => {
-            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-            const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
-            if (!item) return;
-            item.checked = !item.checked;
-            if (item.id === 'pzmap-opt-auto-scale') {
-                handlePzmapAutoScaleToggle(item.checked, customScalePanel, scaleMaxInput);
-            }
-            updatePolePlot();
-            contextMenu.active = false;
-        });
-
-        menuInner.addEventListener('sl-select', (e) => {
-            const item = e.detail.item;
-            if (!item) return;
-            item.checked = !item.checked;
-            if (item.id === 'pzmap-opt-auto-scale') {
-                handlePzmapAutoScaleToggle(item.checked, customScalePanel, scaleMaxInput);
-            }
-            updatePolePlot();
-            contextMenu.active = false;
-        });
-
-        menuInner.dataset.listenerAttached = 'true';
-    }
+    setupMenuItemHandlers('pzmap-context-menu-inner', (item) => {
+        if (item.id === 'pzmap-opt-auto-scale') {
+            handlePzmapAutoScaleToggle(item.checked, customScalePanel, scaleMaxInput);
+        }
+        updatePolePlot();
+    }, contextMenu);
 }
 
 function setupNyquistContextMenu() {
@@ -1477,73 +1346,26 @@ function setupNyquistContextMenu() {
     if (nyquistWrapper.dataset.contextMenuAttached) return;
     nyquistWrapper.dataset.contextMenuAttached = 'true';
 
-    const optStabilityMargin = document.getElementById('nyquist-opt-stability-margin');
+    if (!registeredContextMenus.includes(contextMenu)) {
+        registeredContextMenus.push(contextMenu);
+    }
+    setupGlobalContextMenuClickHandler();
 
-    // Initialize UI state
+    const optStabilityMargin = document.getElementById('nyquist-opt-stability-margin');
     if (optStabilityMargin) optStabilityMargin.checked = nyquistOptions.showStabilityMargin;
 
-    // Context menu display
-    nyquistWrapper.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        contextAnchor.style.left = e.clientX + 'px';
-        contextAnchor.style.top = e.clientY + 'px';
-        contextMenu.strategy = 'fixed';
-        contextMenu.active = true;
-        requestAnimationFrame(() => {
-            if (typeof contextMenu.reposition === 'function') {
-                contextMenu.reposition();
-            }
-        });
-    });
+    nyquistWrapper.addEventListener('contextmenu', (e) => showContextMenuAtCursor(contextMenu, contextAnchor, e));
 
-    // Hide context menu on outside click
-    document.addEventListener('click', (e) => {
-        if (!contextMenu.active) return;
-        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-        const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
-        const clickedInside =
-            (popupPart ? path.includes(popupPart) : false) ||
-            path.includes(contextMenu) ||
-            contextMenu.contains(e.target);
-        if (!clickedInside) contextMenu.active = false;
-    }, { capture: true });
-
-    // Menu item selection
-    const menuInner = document.getElementById('nyquist-context-menu-inner');
-    if (menuInner && !menuInner.dataset.listenerAttached) {
-        menuInner.addEventListener('click', (e) => {
-            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-            const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
-            if (!item) return;
-            item.checked = !item.checked;
-            if (item.id === 'nyquist-opt-stability-margin') {
-                nyquistOptions.showStabilityMargin = item.checked;
-            }
-            if (isNarrowLayout) {
-                updateNarrowNyquistPlot();
-            } else {
-                updateNyquistPlot();
-            }
-            contextMenu.active = false;
-        });
-
-        menuInner.addEventListener('sl-select', (e) => {
-            const item = e.detail.item;
-            if (!item) return;
-            item.checked = !item.checked;
-            if (item.id === 'nyquist-opt-stability-margin') {
-                nyquistOptions.showStabilityMargin = item.checked;
-            }
-            if (isNarrowLayout) {
-                updateNarrowNyquistPlot();
-            } else {
-                updateNyquistPlot();
-            }
-            contextMenu.active = false;
-        });
-
-        menuInner.dataset.listenerAttached = 'true';
-    }
+    setupMenuItemHandlers('nyquist-context-menu-inner', (item) => {
+        if (item.id === 'nyquist-opt-stability-margin') {
+            nyquistOptions.showStabilityMargin = item.checked;
+        }
+        if (isNarrowLayout) {
+            updateNarrowNyquistPlot();
+        } else {
+            updateNyquistPlot();
+        }
+    }, contextMenu);
 }
 
 // Browser URL synchronization
@@ -2482,14 +2304,15 @@ function displayClosedLoopPoles(poles, isStableByNyquist) {
     updateStabilityIndicator(isStableByNyquist);
 }
 
-function updatePolePlot() {
-    let canvas = document.getElementById('pole-canvas');
-    let wrapper = document.getElementById('pole-wrapper');
+// Unified pole-zero map drawing function
+// options: { wrapperId, canvasId, showLpz, showTpz, showNyquistAnimation }
+function drawPoleZeroMap(options) {
+    const canvas = document.getElementById(options.canvasId);
+    const wrapper = document.getElementById(options.wrapperId);
 
     if (!canvas || !wrapper) return;
 
-    let ctx = canvas.getContext('2d');
-
+    const ctx = canvas.getContext('2d');
     const width = wrapper.clientWidth;
     const height = wrapper.clientHeight;
 
@@ -2501,13 +2324,12 @@ function updatePolePlot() {
     canvas.style.height = height + 'px';
 
     ctx.scale(devicePixelRatio, devicePixelRatio);
-
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
     // T(s) closed-loop poles and zeros (from stability calculation)
-    let Tpoles = window.lastPoles || [];
-    let Tzeros = window.lastZeros || [];
+    const Tpoles = window.lastPoles || [];
+    const Tzeros = window.lastZeros || [];
 
     // L(s) open-loop poles and zeros (from analysis)
     let Lpoles = [];
@@ -2521,12 +2343,12 @@ function updatePolePlot() {
     }
 
     // Collect all points to display based on visibility settings
-    let allPoints = [];
-    if (showLpz) {
+    const allPoints = [];
+    if (options.showLpz) {
         Lpoles.forEach(p => allPoints.push(p));
         Lzeros.forEach(z => allPoints.push(z));
     }
-    if (showTpz) {
+    if (options.showTpz) {
         Tpoles.forEach(p => allPoints.push(p));
         Tzeros.forEach(z => allPoints.push(z));
     }
@@ -2565,320 +2387,15 @@ function updatePolePlot() {
     const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
     const normalized = rawStep / magnitude;
     let niceStep;
-    if (normalized <= 1.5) niceStep = magnitude;
-    else if (normalized <= 3.5) niceStep = magnitude * 2;
-    else if (normalized <= 7.5) niceStep = magnitude * 5;
-    else niceStep = magnitude * 10;
-
-    // Draw circular grid
-    ctx.strokeStyle = '#c0c0c0';
-    ctx.lineWidth = 1;
-
-    let maxCircleRadius = Math.ceil(maxScale / niceStep) * niceStep;
-    for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
-        let pixelRadius = r * scale;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, pixelRadius, 0, 2 * Math.PI);
-        ctx.stroke();
-    }
-
-    // Draw radial lines (every 45 degrees)
-    for (let angle = 0; angle < Math.PI; angle += Math.PI / 4) {
-        let dx = Math.cos(angle) * maxCircleRadius * scale;
-        let dy = Math.sin(angle) * maxCircleRadius * scale;
-        ctx.beginPath();
-        ctx.moveTo(centerX - dx, centerY + dy);
-        ctx.lineTo(centerX + dx, centerY - dy);
-        ctx.stroke();
-    }
-
-    ctx.strokeStyle = '#999999';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(margin, centerY);
-    ctx.lineTo(width - margin, centerY);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(centerX, margin);
-    ctx.lineTo(centerX, height - margin);
-    ctx.stroke();
-
-    ctx.strokeStyle = '#333333';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.beginPath();
-    ctx.moveTo(centerX, margin);
-    ctx.lineTo(centerX, height - margin);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Axis labels
-    ctx.fillStyle = '#333333';
-    ctx.font = '14px Consolas, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Re', width - margin + 18, centerY);
-    ctx.fillText('Im', centerX, margin - 15);
-
-    // Draw tick labels on positive real axis (skip labels if too dense)
-    const labelPixelSpacing = niceStep * scale;
-    const minLabelSpacing = 30;
-    const labelSkip = Math.max(1, Math.ceil(minLabelSpacing / labelPixelSpacing));
-
-    ctx.font = '12px Consolas, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    let labelIndex = 0;
-    for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
-        labelIndex++;
-        if (labelIndex % labelSkip !== 0) continue;
-
-        const px = centerX + r * scale;
-        if (px < width - margin - 15) {
-            let label;
-            if (r >= 1 && r === Math.floor(r)) {
-                label = r.toFixed(0);
-            } else if (r >= 0.1) {
-                label = r.toPrecision(2).replace(/\.?0+$/, '');
-            } else {
-                label = r.toPrecision(1);
-            }
-            ctx.fillText(label, px, centerY + 6);
-        }
-    }
-
-    const colorL = '#0088aa';  // L(s) color (same as Bode plot)
-    const colorT = '#dd6600';  // T(s) color (same as Bode plot)
-
-    // Check if point is within display range
-    function isInRange(p) {
-        return Math.abs(p.re) <= maxScale && Math.abs(p.im) <= maxScale;
-    }
-
-    function drawZero(z, color) {
-        const px = centerX + z.re * scale;
-        const py = centerY - z.im * scale;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(px, py, 5, 0, 2 * Math.PI);
-        ctx.stroke();
-    }
-
-    function drawPole(p, color) {
-        const px = centerX + p.re * scale;
-        const py = centerY - p.im * scale;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(px - 5, py - 5);
-        ctx.lineTo(px + 5, py + 5);
-        ctx.moveTo(px + 5, py - 5);
-        ctx.lineTo(px - 5, py + 5);
-        ctx.stroke();
-    }
-
-    function drawOutOfRangeIndicator(p, isPole, color) {
-        const mag = Math.sqrt(p.re * p.re + p.im * p.im);
-        if (mag < 1e-10) return;
-
-        const angle = Math.atan2(-p.im, p.re);
-        const tipRadius = maxCircleRadius * scale;
-        const tipX = centerX + tipRadius * Math.cos(angle);
-        const tipY = centerY + tipRadius * Math.sin(angle);
-
-        // Draw triangle pointing outward (tip at grid edge)
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        const triDepth = 8, triWidth = 6;
-        const baseRadius = tipRadius - triDepth;
-        const baseX = centerX + baseRadius * Math.cos(angle);
-        const baseY = centerY + baseRadius * Math.sin(angle);
-        const perpAngle = angle + Math.PI / 2;
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(baseX + triWidth * Math.cos(perpAngle), baseY + triWidth * Math.sin(perpAngle));
-        ctx.lineTo(baseX - triWidth * Math.cos(perpAngle), baseY - triWidth * Math.sin(perpAngle));
-        ctx.closePath();
-        ctx.fill();
-
-        // Draw symbol and magnitude label
-        const labelRadius = baseRadius - 10;
-        const labelX = centerX + labelRadius * Math.cos(angle);
-        const labelY = centerY + labelRadius * Math.sin(angle);
-
-        ctx.font = '12px Consolas, monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        let magStr;
-        if (mag >= 100) magStr = mag.toFixed(0);
-        else if (mag >= 10) magStr = mag.toFixed(1);
-        else magStr = mag.toPrecision(2);
-
-        const symbol = isPole ? '×' : '○';
-        const label = symbol + magStr;
-        const textWidth = ctx.measureText(label).width;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-        ctx.fillRect(labelX - textWidth / 2 - 2, labelY - 7, textWidth + 4, 14);
-        ctx.fillStyle = color;
-        ctx.fillText(label, labelX, labelY);
-    }
-
-    // Draw L(s) poles and zeros
-    if (showLpz) {
-        Lzeros.forEach(z => {
-            if (isInRange(z)) drawZero(z, colorL);
-            else drawOutOfRangeIndicator(z, false, colorL);
-        });
-        Lpoles.forEach(p => {
-            if (isInRange(p)) drawPole(p, colorL);
-            else drawOutOfRangeIndicator(p, true, colorL);
-        });
-    }
-
-    // Draw T(s) poles and zeros
-    if (showTpz) {
-        Tzeros.forEach(z => {
-            if (isInRange(z)) drawZero(z, colorT);
-            else drawOutOfRangeIndicator(z, false, colorT);
-        });
-        Tpoles.forEach(p => {
-            if (isInRange(p)) drawPole(p, colorT);
-            else drawOutOfRangeIndicator(p, true, colorT);
-        });
-    }
-
-    // Draw current s point from Nyquist animation
-    if (showLpz && nyquistAnimationData && nyquistAnimationPlaying && isPanelVisible('nyquist')) {
-        const currentS = getCurrentNyquistSValue();
-        if (currentS) {
-            if (currentS.indentation) {
-                const indent = currentS.indentation;
-                const polePx = centerX;
-                const polePy = centerY - indent.poleIm * scale;
-                const circleRadius = 12;
-                ctx.strokeStyle = '#0066ff';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(polePx, polePy, circleRadius, Math.PI / 2, -Math.PI / 2, true);
-                ctx.stroke();
-                const markerX = polePx + circleRadius * Math.cos(indent.theta);
-                const markerY = polePy - circleRadius * Math.sin(indent.theta);
-                ctx.fillStyle = '#0066ff';
-                ctx.beginPath();
-                ctx.arc(markerX, markerY, 4, 0, 2 * Math.PI);
-                ctx.fill();
-            } else {
-                const px = centerX + currentS.re * scale;
-                const py = centerY - currentS.im * scale;
-                ctx.fillStyle = '#0066ff';
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(px, py, 7, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.stroke();
-            }
-        }
-    }
-
-    updateBrowserUrl();
-}
-
-// Narrow layout pole-zero plot (separate function to handle narrow-specific element IDs)
-function updateNarrowPolePlot() {
-    let canvas = document.getElementById('narrow-pole-canvas');
-    let wrapper = document.getElementById('narrow-pole-wrapper');
-
-    if (!canvas || !wrapper) return;
-
-    let ctx = canvas.getContext('2d');
-
-    const width = wrapper.clientWidth;
-    const height = wrapper.clientHeight;
-
-    if (width === 0 || height === 0) return;
-
-    canvas.width = width * devicePixelRatio;
-    canvas.height = height * devicePixelRatio;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
-
-    ctx.scale(devicePixelRatio, devicePixelRatio);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
-
-    // T(s) closed-loop poles and zeros (from stability calculation)
-    let Tpoles = window.lastPoles || [];
-    let Tzeros = window.lastZeros || [];
-
-    // L(s) open-loop poles and zeros (from analysis)
-    let Lpoles = [];
-    let Lzeros = [];
-
-    const analysis = currentVars.analysis;
-    if (analysis) {
-        const olPZ = analysis.openLoopPolesZeros;
-        Lpoles = olPZ.poles;
-        Lzeros = olPZ.zeros;
-    }
-
-    // Get visibility settings from narrow layout checkboxes
-    let narrowShowLpz = document.getElementById('narrow-chk-show-L-pz')?.checked ?? true;
-    let narrowShowTpz = document.getElementById('narrow-chk-show-T-pz')?.checked ?? true;
-
-    // Collect all points to display based on visibility settings
-    let allPoints = [];
-    if (narrowShowLpz) {
-        Lpoles.forEach(p => allPoints.push(p));
-        Lzeros.forEach(z => allPoints.push(z));
-    }
-    if (narrowShowTpz) {
-        Tpoles.forEach(p => allPoints.push(p));
-        Tzeros.forEach(z => allPoints.push(z));
-    }
-
-    if (allPoints.length === 0) return;
-
-    // Calculate scale based on display mode (auto or manual)
-    let maxScale;
-    if (pzmapOptions.autoScale) {
-        // Auto mode: calculate from visible poles and zeros
-        let maxRe = 0, maxIm = 0;
-        allPoints.forEach(p => {
-            maxRe = Math.max(maxRe, Math.abs(p.re));
-            maxIm = Math.max(maxIm, Math.abs(p.im));
-        });
-        maxRe = Math.max(maxRe, 1) * pzmapOptions.autoScaleMultiplier;
-        maxIm = Math.max(maxIm, 1) * pzmapOptions.autoScaleMultiplier;
-        maxScale = Math.max(maxRe, maxIm);
+    if (normalized <= 1.5) {
+        niceStep = magnitude;
+    } else if (normalized <= 3.5) {
+        niceStep = magnitude * 2;
+    } else if (normalized <= 7.5) {
+        niceStep = magnitude * 5;
     } else {
-        // Manual mode: use fixed scale
-        maxScale = pzmapOptions.scaleMax;
+        niceStep = magnitude * 10;
     }
-
-    const margin = 40;
-    const plotWidth = width - 2 * margin;
-    const plotHeight = height - 2 * margin;
-    const scale = Math.min(plotWidth, plotHeight) / (2 * maxScale);
-    const centerX = width / 2;
-    const centerY = height / 2;
-
-    // Calculate grid step size based on panel size (ensure readable spacing)
-    const minPixelSpacing = 30;
-    const maxGridLines = Math.floor(Math.min(plotWidth, plotHeight) / 2 / minPixelSpacing);
-    const targetSteps = Math.max(2, Math.min(6, maxGridLines));
-    const rawStep = maxScale / targetSteps;
-
-    // Round to nice step values (1, 2, 5, 10, 20, 50, ...)
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
-    const normalized = rawStep / magnitude;
-    let niceStep;
-    if (normalized <= 1.5) niceStep = magnitude;
-    else if (normalized <= 3.5) niceStep = magnitude * 2;
-    else if (normalized <= 7.5) niceStep = magnitude * 5;
-    else niceStep = magnitude * 10;
 
     // Draw circular grid
     ctx.strokeStyle = '#c0c0c0';
@@ -2957,8 +2474,8 @@ function updateNarrowPolePlot() {
         }
     }
 
-    const colorL = '#0088aa';
-    const colorT = '#dd6600';
+    const colorL = '#0088aa';  // L(s) color (same as Bode plot)
+    const colorT = '#dd6600';  // T(s) color (same as Bode plot)
 
     function isInRange(p) {
         return Math.abs(p.re) <= maxScale && Math.abs(p.im) <= maxScale;
@@ -3018,11 +2535,15 @@ function updateNarrowPolePlot() {
         ctx.textBaseline = 'middle';
 
         let magStr;
-        if (mag >= 100) magStr = mag.toFixed(0);
-        else if (mag >= 10) magStr = mag.toFixed(1);
-        else magStr = mag.toPrecision(2);
+        if (mag >= 100) {
+            magStr = mag.toFixed(0);
+        } else if (mag >= 10) {
+            magStr = mag.toFixed(1);
+        } else {
+            magStr = mag.toPrecision(2);
+        }
 
-        const symbol = isPole ? '×' : '○';
+        const symbol = isPole ? '\u00d7' : '\u25cb';
         const label = symbol + magStr;
         const textWidth = ctx.measureText(label).width;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
@@ -3031,91 +2552,106 @@ function updateNarrowPolePlot() {
         ctx.fillText(label, labelX, labelY);
     }
 
-    if (narrowShowLpz) {
+    // Draw L(s) poles and zeros
+    if (options.showLpz) {
         Lzeros.forEach(z => {
-            if (isInRange(z)) drawZero(z, colorL);
-            else drawOutOfRangeIndicator(z, false, colorL);
+            if (isInRange(z)) {
+                drawZero(z, colorL);
+            } else {
+                drawOutOfRangeIndicator(z, false, colorL);
+            }
         });
         Lpoles.forEach(p => {
-            if (isInRange(p)) drawPole(p, colorL);
-            else drawOutOfRangeIndicator(p, true, colorL);
+            if (isInRange(p)) {
+                drawPole(p, colorL);
+            } else {
+                drawOutOfRangeIndicator(p, true, colorL);
+            }
         });
     }
 
-    if (narrowShowTpz) {
+    // Draw T(s) poles and zeros
+    if (options.showTpz) {
         Tzeros.forEach(z => {
-            if (isInRange(z)) drawZero(z, colorT);
-            else drawOutOfRangeIndicator(z, false, colorT);
+            if (isInRange(z)) {
+                drawZero(z, colorT);
+            } else {
+                drawOutOfRangeIndicator(z, false, colorT);
+            }
         });
         Tpoles.forEach(p => {
-            if (isInRange(p)) drawPole(p, colorT);
-            else drawOutOfRangeIndicator(p, true, colorT);
+            if (isInRange(p)) {
+                drawPole(p, colorT);
+            } else {
+                drawOutOfRangeIndicator(p, true, colorT);
+            }
         });
     }
 
-    updateBrowserUrl();
-}
-
-function updateNarrowNyquistPlot() {
-    let wrapper = document.getElementById('narrow-nyquist-wrapper');
-    let canvas = document.getElementById('narrow-nyquist-canvas');
-
-    if (!wrapper || !canvas) return;
-
-    // Update the mapping formula display with current R value
-    updateNarrowNyquistMappingFormula();
-
-    let L = currentVars.L;
-    if (!L || !L.isNode) {
-        // Clear canvas if L is not defined
-        let ctx = canvas.getContext('2d');
-        const width = wrapper.clientWidth;
-        const height = wrapper.clientHeight;
-        if (width === 0 || height === 0) return;
-        canvas.width = width * devicePixelRatio;
-        canvas.height = height * devicePixelRatio;
-        canvas.style.width = width + 'px';
-        canvas.style.height = height + 'px';
-        ctx.scale(devicePixelRatio, devicePixelRatio);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, height);
-        return;
-    }
-
-    try {
-        const analysis = currentVars.analysis;
-        if (!analysis) return;
-
-        // Get stability margins for display (only if enabled and closed-loop is stable)
-        let phaseMargins = null;
-        let gainMargins = null;
-        if (nyquistOptions.showStabilityMargin && analysis.isClosedLoopStable) {
-            const margins = analysis.stabilityMargins;
-            if (margins) {
-                phaseMargins = margins.phaseMargins;
-                gainMargins = margins.gainMargins;
+    // Draw current s point from Nyquist animation (only for wide layout)
+    if (options.showNyquistAnimation && options.showLpz && nyquistAnimationData && nyquistAnimationPlaying && isPanelVisible('nyquist')) {
+        const currentS = getCurrentNyquistSValue();
+        if (currentS) {
+            if (currentS.indentation) {
+                const indent = currentS.indentation;
+                const polePx = centerX;
+                const polePy = centerY - indent.poleIm * scale;
+                const circleRadius = 12;
+                ctx.strokeStyle = '#0066ff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(polePx, polePy, circleRadius, Math.PI / 2, -Math.PI / 2, true);
+                ctx.stroke();
+                const markerX = polePx + circleRadius * Math.cos(indent.theta);
+                const markerY = polePy - circleRadius * Math.sin(indent.theta);
+                ctx.fillStyle = '#0066ff';
+                ctx.beginPath();
+                ctx.arc(markerX, markerY, 4, 0, 2 * Math.PI);
+                ctx.fill();
+            } else {
+                const px = centerX + currentS.re * scale;
+                const py = centerY - currentS.im * scale;
+                ctx.fillStyle = '#0066ff';
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(px, py, 7, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
             }
         }
-
-        drawNyquist(analysis.lCompiled, analysis.imagAxisPoles, {
-            wrapperId: 'narrow-nyquist-wrapper',
-            canvasId: 'narrow-nyquist-canvas',
-            animate: true,
-            analysis: analysis.nyquistAnalysis,
-            phaseMargins: phaseMargins,
-            showPhaseMarginArc: nyquistOptions.showStabilityMargin,
-            gainMargins: gainMargins,
-            showGainMarginLine: nyquistOptions.showStabilityMargin
-        });
-    } catch (e) {
-        console.log('Narrow Nyquist plot error:', e);
     }
 
     updateBrowserUrl();
 }
 
-function updateNarrowNyquistMappingFormula() {
-    let formulaEl = document.getElementById('narrow-nyquist-mapping-formula');
+// Wide layout pole-zero plot
+function updatePolePlot() {
+    drawPoleZeroMap({
+        wrapperId: 'pole-wrapper',
+        canvasId: 'pole-canvas',
+        showLpz: showLpz,
+        showTpz: showTpz,
+        showNyquistAnimation: true
+    });
+}
+
+// Narrow layout pole-zero plot
+function updateNarrowPolePlot() {
+    const narrowShowLpz = document.getElementById('narrow-chk-show-L-pz')?.checked ?? true;
+    const narrowShowTpz = document.getElementById('narrow-chk-show-T-pz')?.checked ?? true;
+    drawPoleZeroMap({
+        wrapperId: 'narrow-pole-wrapper',
+        canvasId: 'narrow-pole-canvas',
+        showLpz: narrowShowLpz,
+        showTpz: narrowShowTpz,
+        showNyquistAnimation: false
+    });
+}
+
+// Unified Nyquist mapping formula update function
+function updateNyquistMappingFormula(elementId) {
+    const formulaEl = document.getElementById(elementId);
     if (!formulaEl) return;
 
     const R = nyquistCompressionRadius;
@@ -3128,23 +2664,24 @@ function updateNarrowNyquistMappingFormula() {
             { throwOnError: false, displayMode: false }
         );
     } catch (e) {
-        formulaEl.textContent = `z → z/(1+|z|/${RStr})`;
+        formulaEl.textContent = `z \u2192 z/(1+|z|/${RStr})`;
     }
 }
 
-function updateNyquistPlot() {
-    let wrapper = document.getElementById('nyquist-wrapper');
-    let canvas = document.getElementById('nyquist-canvas');
+// Unified Nyquist plot rendering function
+function renderNyquistPlot(wrapperId, canvasId, formulaElementId) {
+    const wrapper = document.getElementById(wrapperId);
+    const canvas = document.getElementById(canvasId);
 
     if (!wrapper || !canvas) return;
 
     // Update the mapping formula display with current R value
-    updateNyquistMappingFormula();
+    updateNyquistMappingFormula(formulaElementId);
 
-    let L = currentVars.L;
+    const L = currentVars.L;
     if (!L || !L.isNode) {
         // Clear canvas if L is not defined
-        let ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d');
         const width = wrapper.clientWidth;
         const height = wrapper.clientHeight;
         if (width === 0 || height === 0) return;
@@ -3174,8 +2711,8 @@ function updateNyquistPlot() {
         }
 
         drawNyquist(analysis.lCompiled, analysis.imagAxisPoles, {
-            wrapperId: 'nyquist-wrapper',
-            canvasId: 'nyquist-canvas',
+            wrapperId: wrapperId,
+            canvasId: canvasId,
             animate: true,
             analysis: analysis.nyquistAnalysis,
             phaseMargins: phaseMargins,
@@ -3190,22 +2727,12 @@ function updateNyquistPlot() {
     updateBrowserUrl();
 }
 
-function updateNyquistMappingFormula() {
-    let formulaEl = document.getElementById('nyquist-mapping-formula');
-    if (!formulaEl) return;
+function updateNarrowNyquistPlot() {
+    renderNyquistPlot('narrow-nyquist-wrapper', 'narrow-nyquist-canvas', 'narrow-nyquist-mapping-formula');
+}
 
-    const R = nyquistCompressionRadius;
-    const RStr = R % 1 === 0 ? R.toFixed(0) : R.toFixed(1);
-
-    try {
-        katex.render(
-            `z \\mapsto \\frac{z}{1 + |z|/${RStr}}`,
-            formulaEl,
-            { throwOnError: false, displayMode: false }
-        );
-    } catch (e) {
-        formulaEl.textContent = `z → z/(1+|z|/${RStr})`;
-    }
+function updateNyquistPlot() {
+    renderNyquistPlot('nyquist-wrapper', 'nyquist-canvas', 'nyquist-mapping-formula');
 }
 
 // Update stability margin display in Stability panel
