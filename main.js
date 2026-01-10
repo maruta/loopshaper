@@ -932,84 +932,91 @@ function initializeUI() {
 function setupEventListeners() {
     const prefix = isNarrowLayout ? 'narrow-' : '';
 
-    const codeField = document.getElementById(prefix + 'field-code');
-    const addSliderBtn = document.getElementById(prefix + 'btn-add-slider');
+    // Code field and add slider button
+    attachListenerOnce(
+        document.getElementById(prefix + 'field-code'),
+        'sl-input',
+        debounceUpdate
+    );
+    attachListenerOnce(
+        document.getElementById(prefix + 'btn-add-slider'),
+        'click',
+        addSlider
+    );
 
-    // Use data attribute to prevent duplicate event listeners
-    if (codeField && !codeField.dataset.listenerAttached) {
-        // Shoelace sl-textarea uses 'sl-input' event
-        codeField.addEventListener('sl-input', debounceUpdate);
-        codeField.dataset.listenerAttached = 'true';
-    }
-    if (addSliderBtn && !addSliderBtn.dataset.listenerAttached) {
-        addSliderBtn.addEventListener('click', addSlider);
-        addSliderBtn.dataset.listenerAttached = 'true';
-    }
-
-    // Bode plot visibility checkboxes (Shoelace sl-checkbox uses 'sl-change' event)
-    const chkL = document.getElementById(prefix + 'chk-show-L');
-    const chkT = document.getElementById(prefix + 'chk-show-T');
-    if (chkL && !chkL.dataset.listenerAttached) {
-        chkL.addEventListener('sl-change', function() {
+    // Bode plot visibility checkboxes
+    attachListenerOnce(
+        document.getElementById(prefix + 'chk-show-L'),
+        'sl-change',
+        function() {
             displayOptions.showL = this.checked;
             design.showL = displayOptions.showL;
             updateBodePlot();
-        });
-        chkL.dataset.listenerAttached = 'true';
-    }
-    if (chkT && !chkT.dataset.listenerAttached) {
-        chkT.addEventListener('sl-change', function() {
+        }
+    );
+    attachListenerOnce(
+        document.getElementById(prefix + 'chk-show-T'),
+        'sl-change',
+        function() {
             displayOptions.showT = this.checked;
             design.showT = displayOptions.showT;
             updateBodePlot();
-        });
-        chkT.dataset.listenerAttached = 'true';
-    }
+        }
+    );
 
     // Wide layout only elements
     if (!isNarrowLayout) {
-        // Pole-Zero Map visibility checkboxes (Shoelace sl-checkbox uses 'sl-change' event)
-        const chkLpz = document.getElementById('chk-show-L-pz');
-        const chkTpz = document.getElementById('chk-show-T-pz');
-        if (chkLpz && !chkLpz.dataset.listenerAttached) {
-            chkLpz.addEventListener('sl-change', function() {
+        // Pole-Zero Map visibility checkboxes
+        attachListenerOnce(
+            document.getElementById('chk-show-L-pz'),
+            'sl-change',
+            function() {
                 displayOptions.showLpz = this.checked;
                 design.showLpz = displayOptions.showLpz;
                 updatePolePlot();
-            });
-            chkLpz.dataset.listenerAttached = 'true';
-        }
-        if (chkTpz && !chkTpz.dataset.listenerAttached) {
-            chkTpz.addEventListener('sl-change', function() {
+            }
+        );
+        attachListenerOnce(
+            document.getElementById('chk-show-T-pz'),
+            'sl-change',
+            function() {
                 displayOptions.showTpz = this.checked;
                 design.showTpz = displayOptions.showTpz;
                 updatePolePlot();
-            });
-            chkTpz.dataset.listenerAttached = 'true';
-        }
+            }
+        );
 
         // Nyquist plot mouse wheel for compression radius
-        const nyquistWrapper = document.getElementById('nyquist-wrapper');
-        attachListenerOnce(nyquistWrapper, 'wheel', function(e) {
-            e.preventDefault();
-            // Adjust compression radius with mouse wheel
-            const delta = e.deltaY > 0 ? -0.5 : 0.5;
-            nyquistCompressionRadius = Math.max(0.5, Math.min(100, nyquistCompressionRadius + delta));
-            updateNyquistPlot();
-        }, '', { passive: false });
+        attachListenerOnce(
+            document.getElementById('nyquist-wrapper'),
+            'wheel',
+            function(e) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.5 : 0.5;
+                nyquistCompressionRadius = Math.max(0.5, Math.min(100, nyquistCompressionRadius + delta));
+                updateNyquistPlot();
+            },
+            '',
+            { passive: false }
+        );
 
         // Step Response visibility checkboxes
-        const chkLstep = document.getElementById('chk-show-L-step');
-        const chkTstep = document.getElementById('chk-show-T-step');
-        attachListenerOnce(chkLstep, 'sl-change', function() {
-            displayOptions.showLstep = this.checked;
-            updateStepResponsePlot();
-        });
-        attachListenerOnce(chkTstep, 'sl-change', function() {
-            displayOptions.showTstep = this.checked;
-            updateStepResponsePlot();
-        });
-
+        attachListenerOnce(
+            document.getElementById('chk-show-L-step'),
+            'sl-change',
+            function() {
+                displayOptions.showLstep = this.checked;
+                updateStepResponsePlot();
+            }
+        );
+        attachListenerOnce(
+            document.getElementById('chk-show-T-step'),
+            'sl-change',
+            function() {
+                displayOptions.showTstep = this.checked;
+                updateStepResponsePlot();
+            }
+        );
     }
 
     // Handle layout mode switching on window resize
@@ -1019,7 +1026,6 @@ function setupEventListeners() {
             if (newIsNarrow === isNarrowLayout) return;
             isNarrowLayout = newIsNarrow;
 
-            // Initialize the appropriate layout mode
             if (isNarrowLayout) {
                 initializeNarrowLayout();
             } else if (!dockviewApi) {
@@ -1108,6 +1114,72 @@ function setupMenuItemHandlers(menuInnerId, onItemSelect, contextMenu) {
     });
 
     menuInner.dataset.listenerAttached = 'true';
+}
+
+/**
+ * Generic context menu setup for plot wrappers.
+ * Consolidates common patterns across Bode, Step, PZ Map, and Nyquist context menus.
+ * @param {Object} config - Configuration object
+ * @param {string} config.wrapperId - Base ID of the wrapper element (prefix will be added)
+ * @param {string} config.menuId - ID of the context menu element
+ * @param {string} config.anchorId - ID of the context menu anchor element
+ * @param {string} config.menuInnerId - ID of the inner menu for item handlers
+ * @param {Function} config.onWheel - Wheel event handler (optional)
+ * @param {Function} config.onContextMenu - Called before showing context menu (optional, for syncing state)
+ * @param {Function} config.onItemSelect - Menu item selection handler
+ * @param {Function} config.initializeState - Initialize menu checkbox/input states (optional)
+ * @param {Array<Object>} config.inputs - Array of input configurations for sl-change handlers (optional)
+ *   Each input config: { id, onChange }
+ */
+function setupPlotContextMenu(config) {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const wrapper = document.getElementById(prefix + config.wrapperId);
+    const contextMenu = document.getElementById(config.menuId);
+    const contextAnchor = document.getElementById(config.anchorId);
+
+    if (!wrapper || !contextMenu || !contextAnchor) return;
+    if (wrapper.dataset.contextMenuAttached) return;
+    wrapper.dataset.contextMenuAttached = 'true';
+
+    // Register for global click-outside handling
+    if (!registeredContextMenus.includes(contextMenu)) {
+        registeredContextMenus.push(contextMenu);
+    }
+    setupGlobalContextMenuClickHandler();
+
+    // Initialize state if provided
+    if (config.initializeState) {
+        config.initializeState();
+    }
+
+    // Setup input event listeners
+    if (config.inputs) {
+        config.inputs.forEach(({ id, onChange }) => {
+            const input = document.getElementById(id);
+            if (input && !input.dataset.listenerAttached) {
+                input.addEventListener('sl-change', onChange);
+                input.addEventListener('click', (e) => e.stopPropagation());
+                input.dataset.listenerAttached = 'true';
+            }
+        });
+    }
+
+    // Mouse wheel handler
+    if (config.onWheel && !wrapper.dataset.wheelListenerAttached) {
+        wrapper.addEventListener('wheel', config.onWheel, { passive: false });
+        wrapper.dataset.wheelListenerAttached = 'true';
+    }
+
+    // Context menu trigger
+    wrapper.addEventListener('contextmenu', (e) => {
+        if (config.onContextMenu) {
+            config.onContextMenu();
+        }
+        showContextMenuAtCursor(contextMenu, contextAnchor, e);
+    });
+
+    // Menu item handlers
+    setupMenuItemHandlers(config.menuInnerId, config.onItemSelect, contextMenu);
 }
 
 function setupBodeContextMenu() {
@@ -1240,27 +1312,32 @@ function setupBodeContextMenu() {
     });
 
     function handleBodeMenuItem(item) {
-        if (item.id === 'bode-opt-margin-lines') {
-            bodeOptions.showMarginLines = item.checked;
-        } else if (item.id === 'bode-opt-crossover-lines') {
-            bodeOptions.showCrossoverLines = item.checked;
-        } else if (item.id === 'bode-opt-auto-scale') {
-            bodeOptions.autoScaleVertical = item.checked;
-            if (customRangePanel) {
-                customRangePanel.style.display = item.checked ? 'none' : 'block';
-            }
-        } else if (item.id === 'bode-opt-auto-freq') {
-            autoFreq = item.checked;
-            design.autoFreq = autoFreq;
-            if (customFreqPanel) {
-                customFreqPanel.style.display = item.checked ? 'none' : 'block';
-            }
-            if (autoFreq) {
-                autoAdjustFrequencyRange();
-            } else {
-                if (freqMinInput) freqMinInput.value = design.freqMin;
-                if (freqMaxInput) freqMaxInput.value = design.freqMax;
-            }
+        switch (item.id) {
+            case 'bode-opt-margin-lines':
+                bodeOptions.showMarginLines = item.checked;
+                break;
+            case 'bode-opt-crossover-lines':
+                bodeOptions.showCrossoverLines = item.checked;
+                break;
+            case 'bode-opt-auto-scale':
+                bodeOptions.autoScaleVertical = item.checked;
+                if (customRangePanel) {
+                    customRangePanel.style.display = item.checked ? 'none' : 'block';
+                }
+                break;
+            case 'bode-opt-auto-freq':
+                autoFreq = item.checked;
+                design.autoFreq = autoFreq;
+                if (customFreqPanel) {
+                    customFreqPanel.style.display = item.checked ? 'none' : 'block';
+                }
+                if (autoFreq) {
+                    autoAdjustFrequencyRange();
+                } else {
+                    if (freqMinInput) freqMinInput.value = design.freqMin;
+                    if (freqMaxInput) freqMaxInput.value = design.freqMax;
+                }
+                break;
         }
         updateBodePlot();
     }
@@ -1268,57 +1345,36 @@ function setupBodeContextMenu() {
     setupMenuItemHandlers('bode-context-menu-inner', handleBodeMenuItem, contextMenu);
 }
 
-// Handle auto/manual time mode toggle for step response
-function handleStepAutoTimeToggle(autoMode, customTimePanel, timeMaxInput) {
-    stepOptions.autoTime = autoMode;
-    if (customTimePanel) {
-        customTimePanel.style.display = autoMode ? 'none' : 'block';
-    }
-    if (autoMode) {
-        stepOptions.autoTimeMultiplier = 10;
-    } else {
-        if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
-    }
-}
-
 function setupStepContextMenu() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const stepWrapper = document.getElementById(prefix + 'step-wrapper');
-    const contextMenu = document.getElementById('step-context-menu');
-    const contextAnchor = document.getElementById('step-context-menu-anchor');
-
-    if (!stepWrapper || !contextMenu || !contextAnchor) return;
-    if (stepWrapper.dataset.contextMenuAttached) return;
-    stepWrapper.dataset.contextMenuAttached = 'true';
-
-    if (!registeredContextMenus.includes(contextMenu)) {
-        registeredContextMenus.push(contextMenu);
-    }
-    setupGlobalContextMenuClickHandler();
-
-    const optAutoTime = document.getElementById('step-opt-auto-time');
     const customTimePanel = document.getElementById('step-custom-time-panel');
     const timeMaxInput = document.getElementById('step-time-max-input');
 
-    if (optAutoTime) optAutoTime.checked = stepOptions.autoTime;
-    if (customTimePanel) {
-        customTimePanel.style.display = stepOptions.autoTime ? 'none' : 'block';
-    }
-    if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax;
+    setupPlotContextMenu({
+        wrapperId: 'step-wrapper',
+        menuId: 'step-context-menu',
+        anchorId: 'step-context-menu-anchor',
+        menuInnerId: 'step-context-menu-inner',
 
-    if (timeMaxInput && !timeMaxInput.dataset.listenerAttached) {
-        timeMaxInput.addEventListener('sl-change', () => {
-            stepOptions.timeMax = parseFloat(timeMaxInput.value) || 20;
-            if (!stepOptions.autoTime) {
-                updateStepResponsePlot();
+        initializeState: function() {
+            const optAutoTime = document.getElementById('step-opt-auto-time');
+            if (optAutoTime) optAutoTime.checked = stepOptions.autoTime;
+            if (customTimePanel) {
+                customTimePanel.style.display = stepOptions.autoTime ? 'none' : 'block';
             }
-        });
-        timeMaxInput.addEventListener('click', (e) => e.stopPropagation());
-        timeMaxInput.dataset.listenerAttached = 'true';
-    }
+            if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax;
+        },
 
-    if (!stepWrapper.dataset.wheelListenerAttached) {
-        stepWrapper.addEventListener('wheel', function(e) {
+        inputs: [
+            {
+                id: 'step-time-max-input',
+                onChange: function() {
+                    stepOptions.timeMax = parseFloat(timeMaxInput.value) || 20;
+                    if (!stepOptions.autoTime) updateStepResponsePlot();
+                }
+            }
+        ],
+
+        onWheel: function(e) {
             e.preventDefault();
             const factor = 1.05;
             const increase = e.deltaY < 0;
@@ -1331,68 +1387,56 @@ function setupStepContextMenu() {
                 stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
                 if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
             }
-
             updateStepResponsePlot();
-        }, { passive: false });
-        stepWrapper.dataset.wheelListenerAttached = 'true';
-    }
+        },
 
-    stepWrapper.addEventListener('contextmenu', (e) => showContextMenuAtCursor(contextMenu, contextAnchor, e));
-
-    setupMenuItemHandlers('step-context-menu-inner', (item) => {
-        if (item.id === 'step-opt-auto-time') {
-            handleStepAutoTimeToggle(item.checked, customTimePanel, timeMaxInput);
+        onItemSelect: function(item) {
+            if (item.id === 'step-opt-auto-time') {
+                stepOptions.autoTime = item.checked;
+                if (customTimePanel) {
+                    customTimePanel.style.display = item.checked ? 'none' : 'block';
+                }
+                if (item.checked) {
+                    stepOptions.autoTimeMultiplier = 10;
+                } else if (timeMaxInput) {
+                    timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
+                }
+            }
+            updateStepResponsePlot();
         }
-        updateStepResponsePlot();
-    }, contextMenu);
-}
-
-function handlePzmapAutoScaleToggle(checked, customScalePanel, scaleMaxInput) {
-    pzmapOptions.autoScale = checked;
-    if (customScalePanel) {
-        customScalePanel.style.display = checked ? 'none' : 'block';
-    }
-    if (!checked && scaleMaxInput) {
-        scaleMaxInput.value = pzmapOptions.scaleMax.toPrecision(3);
-    }
+    });
 }
 
 function setupPzmapContextMenu() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const poleWrapper = document.getElementById(prefix + 'pole-wrapper');
-    const contextMenu = document.getElementById('pzmap-context-menu');
-    const contextAnchor = document.getElementById('pzmap-context-menu-anchor');
-
-    if (!poleWrapper || !contextMenu || !contextAnchor) return;
-    if (poleWrapper.dataset.contextMenuAttached) return;
-    poleWrapper.dataset.contextMenuAttached = 'true';
-
-    if (!registeredContextMenus.includes(contextMenu)) {
-        registeredContextMenus.push(contextMenu);
-    }
-    setupGlobalContextMenuClickHandler();
-
-    const optAutoScale = document.getElementById('pzmap-opt-auto-scale');
     const customScalePanel = document.getElementById('pzmap-custom-scale-panel');
     const scaleMaxInput = document.getElementById('pzmap-scale-max-input');
 
-    if (optAutoScale) optAutoScale.checked = pzmapOptions.autoScale;
-    if (customScalePanel) {
-        customScalePanel.style.display = pzmapOptions.autoScale ? 'none' : 'block';
-    }
-    if (scaleMaxInput) scaleMaxInput.value = pzmapOptions.scaleMax;
+    setupPlotContextMenu({
+        wrapperId: 'pole-wrapper',
+        menuId: 'pzmap-context-menu',
+        anchorId: 'pzmap-context-menu-anchor',
+        menuInnerId: 'pzmap-context-menu-inner',
 
-    if (scaleMaxInput && !scaleMaxInput.dataset.listenerAttached) {
-        scaleMaxInput.addEventListener('sl-change', () => {
-            pzmapOptions.scaleMax = parseFloat(scaleMaxInput.value) || 10;
-            if (!pzmapOptions.autoScale) updatePolePlot();
-        });
-        scaleMaxInput.addEventListener('click', (e) => e.stopPropagation());
-        scaleMaxInput.dataset.listenerAttached = 'true';
-    }
+        initializeState: function() {
+            const optAutoScale = document.getElementById('pzmap-opt-auto-scale');
+            if (optAutoScale) optAutoScale.checked = pzmapOptions.autoScale;
+            if (customScalePanel) {
+                customScalePanel.style.display = pzmapOptions.autoScale ? 'none' : 'block';
+            }
+            if (scaleMaxInput) scaleMaxInput.value = pzmapOptions.scaleMax;
+        },
 
-    if (!poleWrapper.dataset.wheelListenerAttached) {
-        poleWrapper.addEventListener('wheel', function(e) {
+        inputs: [
+            {
+                id: 'pzmap-scale-max-input',
+                onChange: function() {
+                    pzmapOptions.scaleMax = parseFloat(scaleMaxInput.value) || 10;
+                    if (!pzmapOptions.autoScale) updatePolePlot();
+                }
+            }
+        ],
+
+        onWheel: function(e) {
             e.preventDefault();
             const factor = 1.05;
             const increase = e.deltaY < 0;
@@ -1406,50 +1450,46 @@ function setupPzmapContextMenu() {
                 if (scaleMaxInput) scaleMaxInput.value = pzmapOptions.scaleMax.toPrecision(3);
             }
             updatePolePlot();
-        }, { passive: false });
-        poleWrapper.dataset.wheelListenerAttached = 'true';
-    }
+        },
 
-    poleWrapper.addEventListener('contextmenu', (e) => showContextMenuAtCursor(contextMenu, contextAnchor, e));
-
-    setupMenuItemHandlers('pzmap-context-menu-inner', (item) => {
-        if (item.id === 'pzmap-opt-auto-scale') {
-            handlePzmapAutoScaleToggle(item.checked, customScalePanel, scaleMaxInput);
+        onItemSelect: function(item) {
+            if (item.id === 'pzmap-opt-auto-scale') {
+                pzmapOptions.autoScale = item.checked;
+                if (customScalePanel) {
+                    customScalePanel.style.display = item.checked ? 'none' : 'block';
+                }
+                if (!item.checked && scaleMaxInput) {
+                    scaleMaxInput.value = pzmapOptions.scaleMax.toPrecision(3);
+                }
+            }
+            updatePolePlot();
         }
-        updatePolePlot();
-    }, contextMenu);
+    });
 }
 
 function setupNyquistContextMenu() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const nyquistWrapper = document.getElementById(prefix + 'nyquist-wrapper');
-    const contextMenu = document.getElementById('nyquist-context-menu');
-    const contextAnchor = document.getElementById('nyquist-context-menu-anchor');
+    setupPlotContextMenu({
+        wrapperId: 'nyquist-wrapper',
+        menuId: 'nyquist-context-menu',
+        anchorId: 'nyquist-context-menu-anchor',
+        menuInnerId: 'nyquist-context-menu-inner',
 
-    if (!nyquistWrapper || !contextMenu || !contextAnchor) return;
-    if (nyquistWrapper.dataset.contextMenuAttached) return;
-    nyquistWrapper.dataset.contextMenuAttached = 'true';
+        initializeState: function() {
+            const optStabilityMargin = document.getElementById('nyquist-opt-stability-margin');
+            if (optStabilityMargin) optStabilityMargin.checked = nyquistOptions.showStabilityMargin;
+        },
 
-    if (!registeredContextMenus.includes(contextMenu)) {
-        registeredContextMenus.push(contextMenu);
-    }
-    setupGlobalContextMenuClickHandler();
-
-    const optStabilityMargin = document.getElementById('nyquist-opt-stability-margin');
-    if (optStabilityMargin) optStabilityMargin.checked = nyquistOptions.showStabilityMargin;
-
-    nyquistWrapper.addEventListener('contextmenu', (e) => showContextMenuAtCursor(contextMenu, contextAnchor, e));
-
-    setupMenuItemHandlers('nyquist-context-menu-inner', (item) => {
-        if (item.id === 'nyquist-opt-stability-margin') {
-            nyquistOptions.showStabilityMargin = item.checked;
+        onItemSelect: function(item) {
+            if (item.id === 'nyquist-opt-stability-margin') {
+                nyquistOptions.showStabilityMargin = item.checked;
+            }
+            if (isNarrowLayout) {
+                updateNarrowNyquistPlot();
+            } else {
+                updateNyquistPlot();
+            }
         }
-        if (isNarrowLayout) {
-            updateNarrowNyquistPlot();
-        } else {
-            updateNyquistPlot();
-        }
-    }, contextMenu);
+    });
 }
 
 // Browser URL synchronization
@@ -2728,26 +2768,26 @@ function drawPoleZeroMap(options) {
 
 // Wide layout pole-zero plot
 function updatePolePlot() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const showLpz = isNarrowLayout
+        ? (document.getElementById('narrow-chk-show-L-pz')?.checked ?? true)
+        : displayOptions.showLpz;
+    const showTpz = isNarrowLayout
+        ? (document.getElementById('narrow-chk-show-T-pz')?.checked ?? true)
+        : displayOptions.showTpz;
+
     drawPoleZeroMap({
-        wrapperId: 'pole-wrapper',
-        canvasId: 'pole-canvas',
-        showLpz: displayOptions.showLpz,
-        showTpz: displayOptions.showTpz,
-        showNyquistAnimation: true
+        wrapperId: prefix + 'pole-wrapper',
+        canvasId: prefix + 'pole-canvas',
+        showLpz: showLpz,
+        showTpz: showTpz,
+        showNyquistAnimation: !isNarrowLayout
     });
 }
 
-// Narrow layout pole-zero plot
+// Narrow layout pole-zero plot (convenience wrapper)
 function updateNarrowPolePlot() {
-    const narrowShowLpz = document.getElementById('narrow-chk-show-L-pz')?.checked ?? true;
-    const narrowShowTpz = document.getElementById('narrow-chk-show-T-pz')?.checked ?? true;
-    drawPoleZeroMap({
-        wrapperId: 'narrow-pole-wrapper',
-        canvasId: 'narrow-pole-canvas',
-        showLpz: narrowShowLpz,
-        showTpz: narrowShowTpz,
-        showNyquistAnimation: false
-    });
+    updatePolePlot();
 }
 
 // Unified Nyquist mapping formula update function
@@ -2826,12 +2866,18 @@ function renderNyquistPlot(wrapperId, canvasId, formulaElementId) {
     }
 }
 
-function updateNarrowNyquistPlot() {
-    renderNyquistPlot('narrow-nyquist-wrapper', 'narrow-nyquist-canvas', 'narrow-nyquist-mapping-formula');
+function updateNyquistPlot() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    renderNyquistPlot(
+        prefix + 'nyquist-wrapper',
+        prefix + 'nyquist-canvas',
+        prefix + 'nyquist-mapping-formula'
+    );
 }
 
-function updateNyquistPlot() {
-    renderNyquistPlot('nyquist-wrapper', 'nyquist-canvas', 'nyquist-mapping-formula');
+// Narrow layout Nyquist plot (convenience wrapper)
+function updateNarrowNyquistPlot() {
+    updateNyquistPlot();
 }
 
 // Update stability margin display in Stability panel
@@ -2840,10 +2886,8 @@ function updateMargins() {
     if (!analysis) return;
 
     const margins = analysis.stabilityMargins;
-    if (margins) {
-        window.lastMargins = margins;
-    }
     if (!margins) return;
+    window.lastMargins = margins;
 
     const prefix = isNarrowLayout ? 'narrow-' : '';
     let gmDisplay = document.getElementById(prefix + 'gm-display');
@@ -4113,23 +4157,22 @@ function renderStepResponsePlot(wrapperId, canvasId, options) {
     }
 }
 
-// Update step response plot (wide layout)
 function updateStepResponsePlot() {
     const prefix = isNarrowLayout ? 'narrow-' : '';
+    const showL = isNarrowLayout
+        ? (document.getElementById('narrow-chk-show-L-step')?.checked ?? true)
+        : displayOptions.showLstep;
+    const showT = isNarrowLayout
+        ? (document.getElementById('narrow-chk-show-T-step')?.checked ?? true)
+        : displayOptions.showTstep;
+
     renderStepResponsePlot(prefix + 'step-wrapper', prefix + 'step-canvas', {
-        showL: displayOptions.showLstep,
-        showT: displayOptions.showTstep
+        showL: showL,
+        showT: showT
     });
 }
 
-// Narrow layout step response plot
+// Narrow layout step response plot (convenience wrapper)
 function updateNarrowStepResponsePlot() {
-    // Get visibility settings from narrow layout checkboxes
-    const narrowShowLstep = document.getElementById('narrow-chk-show-L-step')?.checked ?? true;
-    const narrowShowTstep = document.getElementById('narrow-chk-show-T-step')?.checked ?? true;
-
-    renderStepResponsePlot('narrow-step-wrapper', 'narrow-step-canvas', {
-        showL: narrowShowLstep,
-        showT: narrowShowTstep
-    });
+    updateStepResponsePlot();
 }
