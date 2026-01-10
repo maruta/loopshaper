@@ -8,6 +8,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+CLAUDE.md
 
 # Node.js (if using npm in the future)
 node_modules/

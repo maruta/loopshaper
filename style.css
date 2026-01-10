@@ -655,19 +655,22 @@ sl-textarea.is-invalid::part(base) {
     pointer-events: none;
 }
 
-#bode-context-menu {
+#bode-context-menu,
+#nyquist-context-menu {
     /* Keep above Dockview (some overlays are transparent but still capture clicks). */
     z-index: 2147483647 !important;
     pointer-events: auto !important;
 }
 
 /* Primary: ensure the popup panel itself is above everything */
-#bode-context-menu::part(popup) {
+#bode-context-menu::part(popup),
+#nyquist-context-menu::part(popup) {
     z-index: 2147483647 !important;
     pointer-events: auto !important;
 }
 
-#bode-context-menu-inner {
+#bode-context-menu-inner,
+#nyquist-context-menu-inner {
     min-width: 220px;
     background: var(--sl-color-neutral-0);
     border: 1px solid var(--sl-color-neutral-200);

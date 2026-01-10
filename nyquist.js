@@ -107,13 +107,17 @@ let nyquistCompressionRadius = 3;
 // Draw Nyquist plot with z/(1+|z|/R) mapping
 // Lcompiled: compiled transfer function L(s)
 // imagAxisPoles: poles on imaginary axis (for indentation)
-// options: { wrapperId, canvasId, animate }
+// options: { wrapperId, canvasId, animate, phaseMargins, showPhaseMarginArc, gainMargins, showGainMarginLine }
 function drawNyquist(Lcompiled, imagAxisPoles, options) {
     options = options || {};
     const wrapperId = options.wrapperId || 'nyquist-wrapper';
     const canvasId = options.canvasId || 'nyquist-canvas';
     const R = nyquistCompressionRadius;  // Use global compression radius
     const animate = options.animate !== false;
+    const phaseMargins = options.phaseMargins || null;
+    const showPhaseMarginArc = options.showPhaseMarginArc !== false;
+    const gainMargins = options.gainMargins || null;
+    const showGainMarginLine = options.showGainMarginLine !== false;
 
     let wrapper = document.getElementById(wrapperId);
     let canvas = document.getElementById(canvasId);
@@ -167,6 +171,16 @@ function drawNyquist(Lcompiled, imagAxisPoles, options) {
     // Draw polar grid
     drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R);
 
+    // Draw phase margin arcs (if enabled and margins provided)
+    if (showPhaseMarginArc && phaseMargins) {
+        drawPhaseMarginArcs(ctx, centerX, centerY, scale, R, phaseMargins);
+    }
+
+    // Draw gain margin lines (if enabled and margins provided)
+    if (showGainMarginLine && gainMargins) {
+        drawGainMarginLines(ctx, centerX, centerY, scale, R, gainMargins);
+    }
+
     // Draw critical point at -1
     const criticalX = toCanvasX(compressPoint(-1, 0, R).x);
     const criticalY = toCanvasY(compressPoint(-1, 0, R).y);
@@ -177,7 +191,7 @@ function drawNyquist(Lcompiled, imagAxisPoles, options) {
 
     // Start animation if enabled
     if (animate) {
-        startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R, wrapperId);
+        startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R, wrapperId, phaseMargins, showPhaseMarginArc, gainMargins, showGainMarginLine);
     }
 
     return nyquistData;
@@ -428,6 +442,162 @@ function drawCriticalPoint(ctx, x, y) {
     ctx.fillText('-1', x - size - 4, y);
 }
 
+// Draw phase margin arcs on the unit circle
+// phaseMargins: array of { frequency, margin, phaseAtCrossover } from calculateStabilityMargins
+// Shows arc from -180° to the phase at gain crossover
+function drawPhaseMarginArcs(ctx, centerX, centerY, scale, R, phaseMargins) {
+    if (!phaseMargins || phaseMargins.length === 0) return;
+
+    // Unit circle in compressed coordinates: radius = 1 / (1 + 1/R) = R / (R + 1)
+    const compressedUnitRadius = R / (R + 1);
+    const pixelRadius = compressedUnitRadius * scale;
+
+    // Stability check is now done in main.js before passing phaseMargins
+    // phaseMargins is only passed when closed-loop system is stable (Z = N + P = 0)
+
+    ctx.save();
+    ctx.strokeStyle = '#000000';  // Black for stable system (matching Bode)
+    ctx.lineWidth = 2;
+
+    for (const pm of phaseMargins) {
+        // Phase at gain crossover (in degrees)
+        const phaseAtGc = pm.phaseAtCrossover;
+
+        // Reference phase line (typically -180° or -180° + n*360°)
+        const refPhase = pm.referencePhase !== undefined ? pm.referencePhase : -180;
+
+        // Convert phases to canvas angles
+        // Standard math: angle = phase * π/180, measured counter-clockwise from +x
+        // Canvas: y is flipped, so we negate the angle
+        const refAngle = -refPhase * Math.PI / 180;  // Reference angle (-180° → π)
+        const gcAngle = -phaseAtGc * Math.PI / 180;  // Gain crossover angle
+
+        // Draw arc from reference phase to phase at gain crossover
+        ctx.beginPath();
+        let startAngle = refAngle;
+        let endAngle = gcAngle;
+
+        // Normalize angles to be close to each other
+        while (endAngle - startAngle > Math.PI) endAngle -= 2 * Math.PI;
+        while (startAngle - endAngle > Math.PI) endAngle += 2 * Math.PI;
+
+        // Draw arc (counterclockwise if endAngle > startAngle)
+        const counterClockwise = endAngle < startAngle;
+        ctx.arc(centerX, centerY, pixelRadius, startAngle, endAngle, counterClockwise);
+        ctx.stroke();
+
+        // Draw phase margin value at the midpoint of the arc, outside the circle
+        const midAngle = (startAngle + endAngle) / 2;
+        const labelOffset = 4;  // Small gap from the arc
+        const labelRadius = pixelRadius + labelOffset;
+        const labelX = centerX + labelRadius * Math.cos(midAngle);
+        const labelY = centerY + labelRadius * Math.sin(midAngle);
+
+        // Format the phase margin value
+        const pmValue = Math.round(pm.margin);
+        const labelText = 'PM=' + pmValue + '°';
+
+        // Draw rotated text radially (perpendicular to the arc)
+        ctx.save();
+        ctx.translate(labelX, labelY);
+        // Rotate so text is along the radial direction
+        let textAngle = midAngle;
+        // Ensure text is not upside down (rotate 180° if needed)
+        // When flipped, we also need to swap alignment direction
+        const isFlipped = midAngle > Math.PI / 2 || midAngle < -Math.PI / 2;
+        if (isFlipped) {
+            textAngle += Math.PI;
+        }
+        ctx.rotate(textAngle);
+
+        ctx.fillStyle = '#000000';
+        ctx.font = '12px Consolas, monospace';
+        // Right-align so "°" is near the arc, text extends outward
+        // When flipped, use 'right' to put "°" at anchor; otherwise use 'left'
+        ctx.textAlign = isFlipped ? 'right' : 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(labelText, 0, 0);
+        ctx.restore();
+    }
+
+    ctx.restore();
+}
+
+// Draw gain margin lines on the negative real axis
+// gainMargins: array of { frequency, margin, gainAtCrossover } from calculateStabilityMargins
+// Shows line from L(jωpc) to -1 on the negative real axis
+function drawGainMarginLines(ctx, centerX, centerY, scale, R, gainMargins) {
+    if (!gainMargins || gainMargins.length === 0) return;
+
+    // Stability check is now done in main.js before passing gainMargins
+    // gainMargins is only passed when closed-loop system is stable (Z = N + P = 0)
+
+    // Filter to finite gain margins only (exclude infinite GM)
+    const finiteGMs = gainMargins.filter(gm => isFinite(gm.margin) && Math.abs(gm.margin) < 1000);
+    if (finiteGMs.length === 0) return;
+
+    // Find the smallest positive and smallest negative (or largest negative = closest to 0) gain margins
+    const positiveGMs = finiteGMs.filter(gm => gm.margin > 0);
+    const negativeGMs = finiteGMs.filter(gm => gm.margin < 0);
+
+    // Get the one with smallest margin in each direction
+    let gmToShow = [];
+    if (positiveGMs.length > 0) {
+        const minPositive = positiveGMs.reduce((a, b) => a.margin < b.margin ? a : b);
+        gmToShow.push(minPositive);
+    }
+    if (negativeGMs.length > 0) {
+        const maxNegative = negativeGMs.reduce((a, b) => a.margin > b.margin ? a : b);
+        gmToShow.push(maxNegative);
+    }
+
+    if (gmToShow.length === 0) return;
+
+    ctx.save();
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+
+    for (const gm of gmToShow) {
+        // gainAtCrossover is in dB, margin is -gainAtCrossover
+        // |L(jωpc)| = 10^(gainAtCrossover/20)
+        const gainLinear = Math.pow(10, gm.gainAtCrossover / 20);
+        // L(jωpc) is on negative real axis: L = -gainLinear
+        const Lvalue = -gainLinear;
+
+        // Compress the points
+        const LCompressed = compressPoint(Lvalue, 0, R);
+        const criticalCompressed = compressPoint(-1, 0, R);
+
+        // Convert to canvas coordinates
+        const Lx = centerX + LCompressed.x * scale;
+        const Ly = centerY - LCompressed.y * scale;
+        const critX = centerX + criticalCompressed.x * scale;
+        const critY = centerY - criticalCompressed.y * scale;
+
+        // Draw line from L(jωpc) to -1
+        ctx.beginPath();
+        ctx.moveTo(Lx, Ly);
+        ctx.lineTo(critX, critY);
+        ctx.stroke();
+
+        // Draw label with GM value in dB
+        const gmValue = Math.round(gm.margin);
+        const labelText = 'GM=' + (gmValue >= 0 ? '+' : '') + gmValue + 'dB';
+
+        // Position label at midpoint, slightly above the line
+        const midX = (Lx + critX) / 2;
+        const midY = (Ly + critY) / 2 - 1;  // Above the line
+
+        ctx.fillStyle = '#000000';
+        ctx.font = '12px Consolas, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(labelText, midX, midY);
+    }
+
+    ctx.restore();
+}
+
 // Draw the Nyquist curve
 // R: compression radius, used to scale discontinuity threshold
 function drawNyquistCurve(ctx, points, toCanvasX, toCanvasY, R) {
@@ -565,7 +735,7 @@ function getPointAtArcLength(points, cumulativeLength, targetLength) {
 }
 
 // Start animation of moving point on the curve
-function startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R, wrapperId) {
+function startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R, wrapperId, phaseMargins, showPhaseMarginArc, gainMargins, showGainMarginLine) {
     // Stop any existing animation (preserves progress in nyquistAnimationProgress)
     stopNyquistAnimation();
 
@@ -578,7 +748,11 @@ function startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, c
     // Store animation data for seeking and UI updates
     nyquistAnimationData = {
         canvas, ctx, points, cumulativeLength, totalLength,
-        toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R
+        toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R,
+        phaseMargins: phaseMargins || null,
+        showPhaseMarginArc: showPhaseMarginArc !== false,
+        gainMargins: gainMargins || null,
+        showGainMarginLine: showGainMarginLine !== false
     };
     nyquistCurrentWrapperId = wrapperId;
 
@@ -658,6 +832,16 @@ function renderNyquistFrame(canvas, ctx, points, cumulativeLength,
 
     // Redraw grid
     drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R);
+
+    // Redraw phase margin arcs (get from stored animation data)
+    if (nyquistAnimationData && nyquistAnimationData.showPhaseMarginArc && nyquistAnimationData.phaseMargins) {
+        drawPhaseMarginArcs(ctx, centerX, centerY, scale, R, nyquistAnimationData.phaseMargins);
+    }
+
+    // Redraw gain margin lines (get from stored animation data)
+    if (nyquistAnimationData && nyquistAnimationData.showGainMarginLine && nyquistAnimationData.gainMargins) {
+        drawGainMarginLines(ctx, centerX, centerY, scale, R, nyquistAnimationData.gainMargins);
+    }
 
     // Redraw critical point
     const criticalCompressed = compressPoint(-1, 0, R);

@@ -378,6 +378,16 @@
         </sl-menu>
     </sl-popup>
 
+    <!-- Nyquist Plot Context Menu -->
+    <sl-popup id="nyquist-context-menu" placement="bottom-start" flip shift>
+        <!-- Invisible anchor that we move to the cursor position on right-click -->
+        <span id="nyquist-context-menu-anchor" slot="anchor" class="context-menu-anchor" aria-hidden="true"></span>
+
+        <sl-menu id="nyquist-context-menu-inner">
+            <sl-menu-item type="checkbox" id="nyquist-opt-stability-margin" value="stability-margin" checked>Show stability margin</sl-menu-item>
+        </sl-menu>
+    </sl-popup>
+
     <!-- QR Code Dialog -->
     <sl-dialog id="qr-dialog" label="Share">
         <div id="qr-container"></div>

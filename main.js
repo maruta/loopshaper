@@ -60,6 +60,11 @@ let pzmapOptions = {
     autoScaleMultiplier: 1.5    // Multiplier for auto scale margin
 };
 
+// Nyquist plot display options
+let nyquistOptions = {
+    showStabilityMargin: true   // Show stability margin (PM arc and GM line) on Nyquist plot
+};
+
 // Cached Nyquist analysis (evaluate L(s) once, reuse for both plot and stability info)
 window.lastNyquistAnalysis = null;
 window.lastNyquistAnalysisKey = null;
@@ -707,6 +712,7 @@ function setupEventListeners() {
     setupBodeContextMenu();
     setupStepContextMenu();
     setupPzmapContextMenu();
+    setupNyquistContextMenu();
 }
 
 function setupBodeContextMenu() {
@@ -1162,6 +1168,85 @@ function setupPzmapContextMenu() {
                 handlePzmapAutoScaleToggle(item.checked, customScalePanel, scaleMaxInput);
             }
             updatePolePlot();
+            contextMenu.active = false;
+        });
+
+        menuInner.dataset.listenerAttached = 'true';
+    }
+}
+
+function setupNyquistContextMenu() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const nyquistWrapper = document.getElementById(prefix + 'nyquist-wrapper');
+    const contextMenu = document.getElementById('nyquist-context-menu');
+    const contextAnchor = document.getElementById('nyquist-context-menu-anchor');
+
+    if (!nyquistWrapper || !contextMenu || !contextAnchor) return;
+    if (nyquistWrapper.dataset.contextMenuAttached) return;
+    nyquistWrapper.dataset.contextMenuAttached = 'true';
+
+    const optStabilityMargin = document.getElementById('nyquist-opt-stability-margin');
+
+    // Initialize UI state
+    if (optStabilityMargin) optStabilityMargin.checked = nyquistOptions.showStabilityMargin;
+
+    // Context menu display
+    nyquistWrapper.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        contextAnchor.style.left = e.clientX + 'px';
+        contextAnchor.style.top = e.clientY + 'px';
+        contextMenu.strategy = 'fixed';
+        contextMenu.active = true;
+        requestAnimationFrame(() => {
+            if (typeof contextMenu.reposition === 'function') {
+                contextMenu.reposition();
+            }
+        });
+    });
+
+    // Hide context menu on outside click
+    document.addEventListener('click', (e) => {
+        if (!contextMenu.active) return;
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
+        const clickedInside =
+            (popupPart ? path.includes(popupPart) : false) ||
+            path.includes(contextMenu) ||
+            contextMenu.contains(e.target);
+        if (!clickedInside) contextMenu.active = false;
+    }, { capture: true });
+
+    // Menu item selection
+    const menuInner = document.getElementById('nyquist-context-menu-inner');
+    if (menuInner && !menuInner.dataset.listenerAttached) {
+        menuInner.addEventListener('click', (e) => {
+            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+            const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
+            if (!item) return;
+            item.checked = !item.checked;
+            if (item.id === 'nyquist-opt-stability-margin') {
+                nyquistOptions.showStabilityMargin = item.checked;
+            }
+            if (isNarrowLayout) {
+                updateNarrowNyquistPlot();
+            } else {
+                updateNyquistPlot();
+            }
+            contextMenu.active = false;
+        });
+
+        menuInner.addEventListener('sl-select', (e) => {
+            const item = e.detail.item;
+            if (!item) return;
+            item.checked = !item.checked;
+            if (item.id === 'nyquist-opt-stability-margin') {
+                nyquistOptions.showStabilityMargin = item.checked;
+            }
+            if (isNarrowLayout) {
+                updateNarrowNyquistPlot();
+            } else {
+                updateNyquistPlot();
+            }
             contextMenu.active = false;
         });
 
@@ -1694,10 +1779,33 @@ function calculateStabilityMargins() {
     let L = currentVars.L;
     if (!L || !L.isNode) return null;
 
-    let w = logspace(design.freqMin, design.freqMax, design.freqPoints);
-    let N = w.length;
     let compiled = L.compile();
 
+    // Build frequency array, potentially including ω = 0
+    let w = logspace(design.freqMin, design.freqMax, design.freqPoints);
+
+    // Try to evaluate L(0) - if finite, include ω = 0 in the sweep
+    // This catches crossovers at ω = 0 (e.g., L(s) = -1/(s+1) has phase = -180° at ω = 0)
+    let includeZero = false;
+    try {
+        let L0 = compiled.evaluate({ 's': math.complex(0, 0) });
+        if (typeof L0.abs === 'function') {
+            let mag0 = L0.abs();
+            if (isFinite(mag0) && mag0 > 0 && mag0 < 1e10) {
+                includeZero = true;
+            }
+        } else if (typeof L0 === 'number' && isFinite(L0) && Math.abs(L0) > 0) {
+            includeZero = true;
+        }
+    } catch (e) {
+        // L(0) evaluation failed - probably has a pole at origin
+    }
+
+    if (includeZero) {
+        w = [0, ...w];
+    }
+
+    let N = w.length;
     let gain = Array(N);
     let phase = Array(N);
     let phaseOffset = 0;
@@ -1725,12 +1833,32 @@ function calculateStabilityMargins() {
     let wgc = [];  // Gain crossover (0 dB)
     let wpc = [];  // Phase crossover (-180 deg)
 
+    // Check for exact crossover at ω = 0 (first point if included)
+    // This handles cases like L(s) = -1/(s+1) where L(0) = -1 (gain = 0dB, phase = -180°)
+    if (N > 0 && w[0] === 0) {
+        // Check for gain crossover at ω = 0 (gain exactly 0 dB)
+        if (Math.abs(gain[0]) < 0.01) {  // Within 0.01 dB of 0
+            wgc.push(0);
+        }
+        // Check for phase crossover at ω = 0 (phase exactly -180° ± n×360°)
+        let phaseRemainder = ((phase[0] + 180) % 360 + 360) % 360;  // Normalize to [0, 360)
+        if (phaseRemainder < 1 || phaseRemainder > 359) {  // Within 1° of -180° ± n×360°
+            wpc.push(0);
+        }
+    }
+
     for (let i = 1; i < N; i++) {
+        // Gain crossover: detect when gain crosses 0 dB in either direction
         if ((gain[i - 1] > 0 && gain[i] <= 0) || (gain[i - 1] <= 0 && gain[i] > 0)) {
             let ratio = -gain[i - 1] / (gain[i] - gain[i - 1]);
-            wgc.push(w[i - 1] + ratio * (w[i] - w[i - 1]));
+            let wCross = w[i - 1] + ratio * (w[i] - w[i - 1]);
+            // Avoid duplicate detection if we already added ω ≈ 0
+            if (wCross > 1e-6 || !wgc.some(wc => Math.abs(wc - wCross) < 1e-6)) {
+                wgc.push(wCross);
+            }
         }
 
+        // Phase crossover: detect when phase crosses -180° ± n×360°
         let p1 = phase[i - 1];
         let p2 = phase[i];
         let n1 = Math.floor((p1 + 180) / 360);
@@ -1738,7 +1866,11 @@ function calculateStabilityMargins() {
         if (n1 !== n2) {
             let targetPhase = (p1 > p2) ? n1 * 360 - 180 : n2 * 360 - 180;
             let ratio = (targetPhase - p1) / (p2 - p1);
-            wpc.push(w[i - 1] + ratio * (w[i] - w[i - 1]));
+            let wCross = w[i - 1] + ratio * (w[i] - w[i - 1]);
+            // Avoid duplicate detection if we already added ω ≈ 0
+            if (wCross > 1e-6 || !wpc.some(wc => Math.abs(wc - wCross) < 1e-6)) {
+                wpc.push(wCross);
+            }
         }
     }
 
@@ -2767,11 +2899,38 @@ function updateNarrowNyquistPlot() {
 
         const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
 
+        // Get stability margins for display (only if enabled and closed-loop is stable)
+        let phaseMargins = null;
+        let gainMargins = null;
+        if (nyquistOptions.showStabilityMargin) {
+            // Check if closed-loop system is stable (Z = N + P = 0)
+            let isClosedLoopStable = false;
+            if (nyq && structure.type !== 'unknown' && structure.rationalPart) {
+                const P = countRHPpoles(structure.rationalPart);
+                const N = nyq.N;
+                if (P !== null) {
+                    isClosedLoopStable = (N + P === 0);
+                }
+            }
+
+            if (isClosedLoopStable) {
+                const margins = calculateStabilityMargins();
+                if (margins) {
+                    phaseMargins = margins.phaseMargins;
+                    gainMargins = margins.gainMargins;
+                }
+            }
+        }
+
         drawNyquist(Lcompiled, imagAxisPoles, {
             wrapperId: 'narrow-nyquist-wrapper',
             canvasId: 'narrow-nyquist-canvas',
             animate: true,
-            analysis: nyq
+            analysis: nyq,
+            phaseMargins: phaseMargins,
+            showPhaseMarginArc: nyquistOptions.showStabilityMargin,
+            gainMargins: gainMargins,
+            showGainMarginLine: nyquistOptions.showStabilityMargin
         });
     } catch (e) {
         console.log('Narrow Nyquist plot error:', e);
@@ -2836,11 +2995,38 @@ function updateNyquistPlot() {
 
         const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
 
+        // Get stability margins for display (only if enabled and closed-loop is stable)
+        let phaseMargins = null;
+        let gainMargins = null;
+        if (nyquistOptions.showStabilityMargin) {
+            // Check if closed-loop system is stable (Z = N + P = 0)
+            let isClosedLoopStable = false;
+            if (nyq && structure.type !== 'unknown' && structure.rationalPart) {
+                const P = countRHPpoles(structure.rationalPart);
+                const N = nyq.N;
+                if (P !== null) {
+                    isClosedLoopStable = (N + P === 0);
+                }
+            }
+
+            if (isClosedLoopStable) {
+                const margins = calculateStabilityMargins();
+                if (margins) {
+                    phaseMargins = margins.phaseMargins;
+                    gainMargins = margins.gainMargins;
+                }
+            }
+        }
+
         drawNyquist(Lcompiled, imagAxisPoles, {
             wrapperId: 'nyquist-wrapper',
             canvasId: 'nyquist-canvas',
             animate: true,
-            analysis: nyq
+            analysis: nyq,
+            phaseMargins: phaseMargins,
+            showPhaseMarginArc: nyquistOptions.showStabilityMargin,
+            gainMargins: gainMargins,
+            showGainMarginLine: nyquistOptions.showStabilityMargin
         });
     } catch (e) {
         console.log('Nyquist plot error:', e);
@@ -2881,10 +3067,14 @@ function updateMargins() {
 
     if (!gmDisplay || !pmDisplay) return;
 
-    // Check overall stability (all margins positive)
-    let allGmPositive = margins.gainMargins.every(gm => gm.margin > 0);
-    let allPmPositive = margins.phaseMargins.every(pm => pm.margin > 0);
-    let isStable = allGmPositive && allPmPositive;
+    // Determine closed-loop stability from Nyquist criterion (Z = N + P = 0)
+    // Use cached values from updateClosedLoopPoles() / updateNyquistInfo()
+    let isClosedLoopStable = false;
+    const P = window.lastNyquistP;
+    const N = window.lastNyquistN;
+    if (P !== null && P !== undefined && N !== null && N !== undefined) {
+        isClosedLoopStable = (N + P === 0);
+    }
 
     // Helper function to format margin list
     function formatMarginList(marginList, unit, formatMargin, formatFreq) {
@@ -2892,7 +3082,7 @@ function updateMargins() {
 
         // Sort: stable -> by margin ascending, unstable -> by frequency ascending
         let sorted;
-        if (isStable) {
+        if (isClosedLoopStable) {
             sorted = [...marginList].sort((a, b) => a.margin - b.margin);
         } else {
             sorted = [...marginList].sort((a, b) => a.frequency - b.frequency);
@@ -2910,6 +3100,9 @@ function updateMargins() {
         return result;
     }
 
+    // Color based on closed-loop stability (not individual margin signs)
+    const colorClass = isClosedLoopStable ? 'text-success' : 'text-danger';
+
     // Gain margin display
     if (margins.gainMargins.length > 0) {
         let gmStr = formatMarginList(
@@ -2919,10 +3112,10 @@ function updateMargins() {
             (f) => f.toFixed(3)
         );
         gmDisplay.textContent = gmStr;
-        gmDisplay.className = allGmPositive ? 'text-success' : 'text-danger';
+        gmDisplay.className = colorClass;
     } else {
         gmDisplay.textContent = '∞';
-        gmDisplay.className = 'text-success';
+        gmDisplay.className = colorClass;
     }
 
     // Phase margin display
@@ -2934,7 +3127,7 @@ function updateMargins() {
             (f) => f.toFixed(3)
         );
         pmDisplay.textContent = pmStr;
-        pmDisplay.className = allPmPositive ? 'text-success' : 'text-danger';
+        pmDisplay.className = colorClass;
     } else {
         pmDisplay.textContent = 'N/A';
         pmDisplay.className = 'text-muted';
@@ -3190,6 +3383,8 @@ const URL_KEY_MAP = {
     autoTime: 'at',
     timeMax: 'tm',
     // nyquistOptions keys
+    nyquistOptions: 'no',
+    showStabilityMargin: 'ssm',
     nyquistCompressionRadius: 'ncr',
     // pzmapOptions keys
     pzmapOptions: 'po',
@@ -3229,6 +3424,9 @@ const URL_DEFAULTS = {
         timeMax: 20
     },
     // nyquistOptions defaults
+    nyquistOptions: {
+        showStabilityMargin: true
+    },
     nyquistCompressionRadius: 3,
     // pzmapOptions defaults
     pzmapOptions: {
@@ -3380,6 +3578,11 @@ function generateShareUrl(options = {}) {
 
     // Include Nyquist compression radius
     saveData.nyquistCompressionRadius = nyquistCompressionRadius;
+
+    // Include Nyquist plot options
+    saveData.nyquistOptions = {
+        showStabilityMargin: nyquistOptions.showStabilityMargin
+    };
 
     // Include Pole-Zero Map options
     saveData.pzmapOptions = {
@@ -3610,6 +3813,11 @@ function loadFromUrl() {
                 // Restore Nyquist compression radius if present
                 if (loaded.nyquistCompressionRadius !== undefined) {
                     nyquistCompressionRadius = loaded.nyquistCompressionRadius;
+                }
+
+                // Restore Nyquist plot options if present
+                if (loaded.nyquistOptions) {
+                    Object.assign(nyquistOptions, loaded.nyquistOptions);
                 }
 
                 // Restore Pole-Zero Map options if present
