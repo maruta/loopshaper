@@ -1,5 +1,96 @@
 // Main logic for loop shaping control design tool
 
+// ============================================================================
+// Constants
+// ============================================================================
+const CONSTANTS = {
+    // Layout breakpoints
+    NARROW_BREAKPOINT: 768,
+
+    // Plot colors
+    COLORS: {
+        L: '#0088aa',      // Open-loop transfer function L(s)
+        T: '#dd6600',      // Closed-loop transfer function T(s)
+        GRID: '#c0c0c0',
+        AXIS: '#999999',
+        TEXT: '#333333',
+        BACKGROUND: '#ffffff',
+        NYQUIST_MARKER: '#0066ff'
+    },
+
+    // Plot margins
+    MARGINS: {
+        LEFT: 70,
+        RIGHT: 20,
+        TOP: 20,
+        BOTTOM: 50
+    },
+
+    // Timing
+    DEBOUNCE_DELAY: 300,
+    URL_UPDATE_DELAY: 1000,
+    LAYOUT_SETTLE_DELAY: 50,
+    RESIZE_DEBOUNCE: 100,
+
+    // Slider range (0-1000 maps to min-max)
+    SLIDER_RESOLUTION: 1000
+};
+
+// ============================================================================
+// Display Options (consolidated global state)
+// ============================================================================
+const displayOptions = {
+    // Bode plot visibility
+    showL: true,
+    showT: true,
+
+    // Pole-Zero Map visibility
+    showLpz: true,
+    showTpz: true,
+
+    // Step Response visibility
+    showLstep: false,
+    showTstep: true
+};
+
+// ============================================================================
+// Event Listener Utilities
+// ============================================================================
+
+/**
+ * Attach an event listener only once per element/event/key combination.
+ * Uses data attributes to track attached listeners and prevent duplicates.
+ * @param {HTMLElement} element - The element to attach the listener to
+ * @param {string} event - The event name (e.g., 'click', 'sl-change')
+ * @param {Function} handler - The event handler function
+ * @param {string} [key] - Optional key to distinguish multiple listeners on same event
+ * @param {Object} [options] - Optional event listener options (e.g., { passive: false })
+ * @returns {boolean} - True if listener was attached, false if already attached
+ */
+function attachListenerOnce(element, event, handler, key = '', options = undefined) {
+    if (!element) return false;
+
+    // Convert event name to valid dataset property (replace hyphens with camelCase)
+    const safeEvent = event.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    const attrName = `listenerAttached${safeEvent}${key ? '_' + key : ''}`;
+    if (element.dataset[attrName]) return false;
+
+    element.addEventListener(event, handler, options);
+    element.dataset[attrName] = 'true';
+    return true;
+}
+
+/**
+ * Get an element by ID with optional layout prefix
+ * @param {string} id - The base element ID
+ * @param {boolean} [useNarrowPrefix] - If true, prepend 'narrow-' to the ID
+ * @returns {HTMLElement|null}
+ */
+function getElement(id, useNarrowPrefix = isNarrowLayout) {
+    const prefix = useNarrowPrefix ? 'narrow-' : '';
+    return document.getElementById(prefix + id);
+}
+
 // Default design
 let design = {
     code: `K = Kp*(1 + Td*s)
@@ -228,13 +319,8 @@ function createSystemAnalysis(L, Lrat) {
 
     return analysis;
 }
-let showL = true;
-let showT = true;
+// Note: showL, showT, showLpz, showTpz, showLstep, showTstep are now in displayOptions
 let autoFreq = true;
-let showLpz = true;  // Pole-Zero Map: show L(s)
-let showTpz = true;  // Pole-Zero Map: show T(s)
-let showLstep = false;  // Step Response: show L(s)
-let showTstep = true;   // Step Response: show T(s)
 
 // Step response display options
 let stepOptions = {
@@ -631,7 +717,7 @@ function adjustBodeStepResponseLayout() {
 document.addEventListener('DOMContentLoaded', function() {
     loadFromUrl();
 
-    isNarrowLayout = window.innerWidth < 768;
+    isNarrowLayout = window.innerWidth < CONSTANTS.NARROW_BREAKPOINT;
 
     // Initialize Share menu (available on all layouts)
     initializeShareMenu();
@@ -823,24 +909,24 @@ function initializeUI() {
     // Wide layout only settings
     if (!isNarrowLayout) {
         // Apply Pole-Zero Map visibility settings
-        showLpz = design.showLpz !== undefined ? design.showLpz : true;
-        showTpz = design.showTpz !== undefined ? design.showTpz : true;
+        displayOptions.showLpz = design.showLpz !== undefined ? design.showLpz : true;
+        displayOptions.showTpz = design.showTpz !== undefined ? design.showTpz : true;
         const chkLpz = document.getElementById('chk-show-L-pz');
         const chkTpz = document.getElementById('chk-show-T-pz');
-        if (chkLpz) chkLpz.checked = showLpz;
-        if (chkTpz) chkTpz.checked = showTpz;
+        if (chkLpz) chkLpz.checked = displayOptions.showLpz;
+        if (chkTpz) chkTpz.checked = displayOptions.showTpz;
     }
 
     rebuildSliders();
 
     // Apply Bode plot visibility settings
-    showL = design.showL !== undefined ? design.showL : true;
-    showT = design.showT !== undefined ? design.showT : true;
+    displayOptions.showL = design.showL !== undefined ? design.showL : true;
+    displayOptions.showT = design.showT !== undefined ? design.showT : true;
     const chkL = document.getElementById(prefix + 'chk-show-L');
     const chkT = document.getElementById(prefix + 'chk-show-T');
     // Shoelace sl-checkbox uses 'checked' property
-    if (chkL) chkL.checked = showL;
-    if (chkT) chkT.checked = showT;
+    if (chkL) chkL.checked = displayOptions.showL;
+    if (chkT) chkT.checked = displayOptions.showT;
 }
 
 function setupEventListeners() {
@@ -865,16 +951,16 @@ function setupEventListeners() {
     const chkT = document.getElementById(prefix + 'chk-show-T');
     if (chkL && !chkL.dataset.listenerAttached) {
         chkL.addEventListener('sl-change', function() {
-            showL = this.checked;
-            design.showL = showL;
+            displayOptions.showL = this.checked;
+            design.showL = displayOptions.showL;
             updateBodePlot();
         });
         chkL.dataset.listenerAttached = 'true';
     }
     if (chkT && !chkT.dataset.listenerAttached) {
         chkT.addEventListener('sl-change', function() {
-            showT = this.checked;
-            design.showT = showT;
+            displayOptions.showT = this.checked;
+            design.showT = displayOptions.showT;
             updateBodePlot();
         });
         chkT.dataset.listenerAttached = 'true';
@@ -887,16 +973,16 @@ function setupEventListeners() {
         const chkTpz = document.getElementById('chk-show-T-pz');
         if (chkLpz && !chkLpz.dataset.listenerAttached) {
             chkLpz.addEventListener('sl-change', function() {
-                showLpz = this.checked;
-                design.showLpz = showLpz;
+                displayOptions.showLpz = this.checked;
+                design.showLpz = displayOptions.showLpz;
                 updatePolePlot();
             });
             chkLpz.dataset.listenerAttached = 'true';
         }
         if (chkTpz && !chkTpz.dataset.listenerAttached) {
             chkTpz.addEventListener('sl-change', function() {
-                showTpz = this.checked;
-                design.showTpz = showTpz;
+                displayOptions.showTpz = this.checked;
+                design.showTpz = displayOptions.showTpz;
                 updatePolePlot();
             });
             chkTpz.dataset.listenerAttached = 'true';
@@ -904,41 +990,32 @@ function setupEventListeners() {
 
         // Nyquist plot mouse wheel for compression radius
         const nyquistWrapper = document.getElementById('nyquist-wrapper');
-        if (nyquistWrapper && !nyquistWrapper.dataset.wheelListenerAttached) {
-            nyquistWrapper.addEventListener('wheel', function(e) {
-                e.preventDefault();
-                // Adjust compression radius with mouse wheel
-                const delta = e.deltaY > 0 ? -0.5 : 0.5;
-                nyquistCompressionRadius = Math.max(0.5, Math.min(100, nyquistCompressionRadius + delta));
-                updateNyquistPlot();
-            }, { passive: false });
-            nyquistWrapper.dataset.wheelListenerAttached = 'true';
-        }
+        attachListenerOnce(nyquistWrapper, 'wheel', function(e) {
+            e.preventDefault();
+            // Adjust compression radius with mouse wheel
+            const delta = e.deltaY > 0 ? -0.5 : 0.5;
+            nyquistCompressionRadius = Math.max(0.5, Math.min(100, nyquistCompressionRadius + delta));
+            updateNyquistPlot();
+        }, '', { passive: false });
 
         // Step Response visibility checkboxes
         const chkLstep = document.getElementById('chk-show-L-step');
         const chkTstep = document.getElementById('chk-show-T-step');
-        if (chkLstep && !chkLstep.dataset.listenerAttached) {
-            chkLstep.addEventListener('sl-change', function() {
-                showLstep = this.checked;
-                updateStepResponsePlot();
-            });
-            chkLstep.dataset.listenerAttached = 'true';
-        }
-        if (chkTstep && !chkTstep.dataset.listenerAttached) {
-            chkTstep.addEventListener('sl-change', function() {
-                showTstep = this.checked;
-                updateStepResponsePlot();
-            });
-            chkTstep.dataset.listenerAttached = 'true';
-        }
+        attachListenerOnce(chkLstep, 'sl-change', function() {
+            displayOptions.showLstep = this.checked;
+            updateStepResponsePlot();
+        });
+        attachListenerOnce(chkTstep, 'sl-change', function() {
+            displayOptions.showTstep = this.checked;
+            updateStepResponsePlot();
+        });
 
     }
 
     // Handle layout mode switching on window resize
     if (!resizeListenerAttached) {
         window.addEventListener('resize', function() {
-            const newIsNarrow = window.innerWidth < 768;
+            const newIsNarrow = window.innerWidth < CONSTANTS.NARROW_BREAKPOINT;
             if (newIsNarrow === isNarrowLayout) return;
             isNarrowLayout = newIsNarrow;
 
@@ -1398,7 +1475,7 @@ function debounceUpdate() {
     updateTimeout = setTimeout(function() {
         saveDesign();
         updateAll();
-    }, 300);
+    }, CONSTANTS.DEBOUNCE_DELAY);
 }
 
 function saveDesign() {
@@ -1410,14 +1487,18 @@ function saveDesign() {
 
 function rebuildSliders() {
     const prefix = isNarrowLayout ? 'narrow-' : '';
-    let container = document.getElementById(prefix + 'sliders-container');
+    const container = document.getElementById(prefix + 'sliders-container');
     if (!container) return;
 
     container.innerHTML = '';
 
     design.sliders.forEach((slider, index) => {
-        let div = createSliderElement(slider, index);
+        const div = createSliderElement(slider, index);
         container.appendChild(div);
+        // Setup listeners after element is in the DOM
+        if (div.setupListeners) {
+            div.setupListeners();
+        }
     });
 }
 
@@ -1444,56 +1525,71 @@ function createSliderElement(slider, index) {
         </div>
     `;
 
-    setTimeout(() => {
-        let nameInput = div.querySelector('.slider-name');
-        let minInput = div.querySelector('.slider-min');
-        let maxInput = div.querySelector('.slider-max');
-        let logCheck = div.querySelector('.slider-log');
-        let rangeInput = div.querySelector('.slider-range');
-        let removeBtn = div.querySelector('.remove-slider');
+    // Setup function to attach event listeners after element is in DOM
+    div.setupListeners = function() {
+        const nameInput = div.querySelector('.slider-name');
+        const minInput = div.querySelector('.slider-min');
+        const maxInput = div.querySelector('.slider-max');
+        const logCheck = div.querySelector('.slider-log');
+        const rangeInput = div.querySelector('.slider-range');
+        const removeBtn = div.querySelector('.remove-slider');
 
         // Set tooltip formatter to show actual parameter value
-        rangeInput.tooltipFormatter = (pos) => {
-            const s = design.sliders[index];
-            if (!s) return pos;
-            const value = sliderPosToValue(pos, s.min, s.max, s.logScale);
-            return formatValue(value);
-        };
+        if (rangeInput) {
+            rangeInput.tooltipFormatter = (pos) => {
+                const s = design.sliders[index];
+                if (!s) return pos;
+                const value = sliderPosToValue(pos, s.min, s.max, s.logScale);
+                return formatValue(value);
+            };
+        }
 
         // Shoelace sl-input uses 'sl-input' event
-        nameInput.addEventListener('sl-input', function() {
-            design.sliders[index].name = this.value;
-            updateCodeFromSliders();
-            debounceUpdate();
-        });
+        if (nameInput) {
+            nameInput.addEventListener('sl-input', function() {
+                design.sliders[index].name = this.value;
+                updateCodeFromSliders();
+                debounceUpdate();
+            });
+        }
 
-        minInput.addEventListener('sl-input', function() {
-            design.sliders[index].min = parseFloat(this.value) || 0.1;
-            updateSliderValue(index);
-        });
+        if (minInput) {
+            minInput.addEventListener('sl-input', function() {
+                design.sliders[index].min = parseFloat(this.value) || 0.1;
+                updateSliderValue(index);
+            });
+        }
 
-        maxInput.addEventListener('sl-input', function() {
-            design.sliders[index].max = parseFloat(this.value) || 100;
-            updateSliderValue(index);
-        });
+        if (maxInput) {
+            maxInput.addEventListener('sl-input', function() {
+                design.sliders[index].max = parseFloat(this.value) || 100;
+                updateSliderValue(index);
+            });
+        }
 
         // Shoelace sl-checkbox uses 'sl-change' event
-        logCheck.addEventListener('sl-change', function() {
-            design.sliders[index].logScale = this.checked;
-            updateSliderValue(index);
-        });
+        if (logCheck) {
+            logCheck.addEventListener('sl-change', function() {
+                design.sliders[index].logScale = this.checked;
+                updateSliderValue(index);
+            });
+        }
 
         // Shoelace sl-range uses 'sl-input' event
-        rangeInput.addEventListener('sl-input', function() {
-            updateSliderValue(index);
-        });
+        if (rangeInput) {
+            rangeInput.addEventListener('sl-input', function() {
+                updateSliderValue(index);
+            });
+        }
 
-        removeBtn.addEventListener('click', function() {
-            design.sliders.splice(index, 1);
-            rebuildSliders();
-            debounceUpdate();
-        });
-    }, 0);
+        if (removeBtn) {
+            removeBtn.addEventListener('click', function() {
+                design.sliders.splice(index, 1);
+                rebuildSliders();
+                debounceUpdate();
+            });
+        }
+    };
 
     return div;
 }
@@ -2034,18 +2130,18 @@ function updateBodePlot() {
         let transferFunctions = [
             {
                 compiled: L.compile(),
-                gainColor: '#0088aa',
-                phaseColor: '#0088aa',
-                visible: showL
+                gainColor: CONSTANTS.COLORS.L,
+                phaseColor: CONSTANTS.COLORS.L,
+                visible: displayOptions.showL
             }
         ];
 
         if (T && T.isNode) {
             transferFunctions.push({
                 compiled: T.compile(),
-                gainColor: '#dd6600',
-                phaseColor: '#dd6600',
-                visible: showT
+                gainColor: CONSTANTS.COLORS.T,
+                phaseColor: CONSTANTS.COLORS.T,
+                visible: displayOptions.showT
             });
         }
 
@@ -2236,7 +2332,7 @@ function updateTpzCheckboxState(enabled) {
     updateCheckbox(narrowChkTpz);
 
     if (!enabled) {
-        showTpz = false;
+        displayOptions.showTpz = false;
     }
 }
 
@@ -2474,8 +2570,8 @@ function drawPoleZeroMap(options) {
         }
     }
 
-    const colorL = '#0088aa';  // L(s) color (same as Bode plot)
-    const colorT = '#dd6600';  // T(s) color (same as Bode plot)
+    const colorL = CONSTANTS.COLORS.L;  // L(s) color (same as Bode plot)
+    const colorT = CONSTANTS.COLORS.T;  // T(s) color (same as Bode plot)
 
     function isInRange(p) {
         return Math.abs(p.re) <= maxScale && Math.abs(p.im) <= maxScale;
@@ -2597,22 +2693,22 @@ function drawPoleZeroMap(options) {
                 const polePx = centerX;
                 const polePy = centerY - indent.poleIm * scale;
                 const circleRadius = 12;
-                ctx.strokeStyle = '#0066ff';
+                ctx.strokeStyle = CONSTANTS.COLORS.NYQUIST_MARKER;
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.arc(polePx, polePy, circleRadius, Math.PI / 2, -Math.PI / 2, true);
                 ctx.stroke();
                 const markerX = polePx + circleRadius * Math.cos(indent.theta);
                 const markerY = polePy - circleRadius * Math.sin(indent.theta);
-                ctx.fillStyle = '#0066ff';
+                ctx.fillStyle = CONSTANTS.COLORS.NYQUIST_MARKER;
                 ctx.beginPath();
                 ctx.arc(markerX, markerY, 4, 0, 2 * Math.PI);
                 ctx.fill();
             } else {
                 const px = centerX + currentS.re * scale;
                 const py = centerY - currentS.im * scale;
-                ctx.fillStyle = '#0066ff';
-                ctx.strokeStyle = '#ffffff';
+                ctx.fillStyle = CONSTANTS.COLORS.NYQUIST_MARKER;
+                ctx.strokeStyle = CONSTANTS.COLORS.BACKGROUND;
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.arc(px, py, 7, 0, 2 * Math.PI);
@@ -2628,8 +2724,8 @@ function updatePolePlot() {
     drawPoleZeroMap({
         wrapperId: 'pole-wrapper',
         canvasId: 'pole-canvas',
-        showLpz: showLpz,
-        showTpz: showTpz,
+        showLpz: displayOptions.showLpz,
+        showTpz: displayOptions.showTpz,
         showNyquistAnimation: true
     });
 }
@@ -3762,10 +3858,10 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
     let y2y = (y) => topMargin + (yMax - y) / (yMax - yMin) * plotHeight;
 
     // Draw grid
-    ctx.strokeStyle = '#c0c0c0';
+    ctx.strokeStyle = CONSTANTS.COLORS.GRID;
     ctx.lineWidth = 1;
     ctx.font = '14px Consolas, monospace';
-    ctx.fillStyle = '#333333';
+    ctx.fillStyle = CONSTANTS.COLORS.TEXT;
 
     // Time axis grid
     let tStep = calculateNiceStep(tMax - tMin, 6);
@@ -3797,7 +3893,7 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
 
     // Draw y=0 line if visible
     if (yMin < 0 && yMax > 0) {
-        ctx.strokeStyle = '#999999';
+        ctx.strokeStyle = CONSTANTS.COLORS.AXIS;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(leftMargin, y2y(0));
@@ -3807,7 +3903,7 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
 
     // Draw y=1 line (steady-state reference for closed-loop)
     if (yMin < 1 && yMax > 1) {
-        ctx.strokeStyle = '#999999';
+        ctx.strokeStyle = CONSTANTS.COLORS.AXIS;
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
@@ -3818,7 +3914,7 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
     }
 
     // Draw axis labels
-    ctx.fillStyle = '#333333';
+    ctx.fillStyle = CONSTANTS.COLORS.TEXT;
     ctx.font = '14px Consolas, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
@@ -3833,7 +3929,7 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
 
     // Draw L(s) response
     if (showL && simData.yL) {
-        ctx.strokeStyle = '#0088aa';
+        ctx.strokeStyle = CONSTANTS.COLORS.L;
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         let started = false;
@@ -3854,7 +3950,7 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
 
     // Draw T(s) response
     if (showT && simData.yT) {
-        ctx.strokeStyle = '#dd6600';
+        ctx.strokeStyle = CONSTANTS.COLORS.T;
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         let started = false;
@@ -3874,7 +3970,7 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
     }
 
     // Draw plot border
-    ctx.strokeStyle = '#333333';
+    ctx.strokeStyle = CONSTANTS.COLORS.TEXT;
     ctx.lineWidth = 1;
     ctx.strokeRect(leftMargin, topMargin, plotWidth, plotHeight);
 }
@@ -3903,11 +3999,11 @@ function formatAxisValue(value) {
     return parseFloat(value.toPrecision(3)).toString();
 }
 
-// Update step response plot
-function updateStepResponsePlot() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    let wrapper = document.getElementById(prefix + 'step-wrapper');
-    let canvas = document.getElementById(prefix + 'step-canvas');
+// Core step response rendering function
+// options: { showL, showT }
+function renderStepResponsePlot(wrapperId, canvasId, options) {
+    const wrapper = document.getElementById(wrapperId);
+    const canvas = document.getElementById(canvasId);
 
     if (!wrapper || !canvas) return;
 
@@ -3918,7 +4014,7 @@ function updateStepResponsePlot() {
         const analysis = currentVars.analysis;
         if (!analysis) {
             // Clear canvas
-            let ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d');
             const width = wrapper.clientWidth;
             const height = wrapper.clientHeight;
             if (width === 0 || height === 0) return;
@@ -3927,7 +4023,7 @@ function updateStepResponsePlot() {
             canvas.style.width = width + 'px';
             canvas.style.height = height + 'px';
             ctx.scale(devicePixelRatio, devicePixelRatio);
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = CONSTANTS.COLORS.BACKGROUND;
             ctx.fillRect(0, 0, width, height);
             return;
         }
@@ -3973,15 +4069,15 @@ function updateStepResponsePlot() {
             // Build state-space for T = L/(1+L)
             // T numerator = L numerator
             // T denominator = L denominator + L numerator
-            let delayT = 0;
+            const delayT = 0;
             try {
-                let Tnum = LCoeffs.num.slice();
+                const Tnum = LCoeffs.num.slice();
                 let Tden = [];
 
                 // Add polynomials: ensure same length
-                let maxLen = Math.max(LCoeffs.num.length, LCoeffs.den.length);
-                let numPadded = LCoeffs.num.slice();
-                let denPadded = LCoeffs.den.slice();
+                const maxLen = Math.max(LCoeffs.num.length, LCoeffs.den.length);
+                const numPadded = LCoeffs.num.slice();
+                const denPadded = LCoeffs.den.slice();
                 while (numPadded.length < maxLen) numPadded.push(0);
                 while (denPadded.length < maxLen) denPadded.push(0);
 
@@ -4002,43 +4098,31 @@ function updateStepResponsePlot() {
             simData = simulateStepResponse(ssL, ssT, stepTimeMax, nPoints, 0, delayT);
         }
 
-
         // Draw
-        drawStepResponse(simData, prefix + 'step-wrapper', prefix + 'step-canvas', {
-            showL: showLstep,
-            showT: showTstep
-        });
+        drawStepResponse(simData, wrapperId, canvasId, options);
 
     } catch (e) {
         console.log('Step response plot error:', e);
     }
 }
 
+// Update step response plot (wide layout)
+function updateStepResponsePlot() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    renderStepResponsePlot(prefix + 'step-wrapper', prefix + 'step-canvas', {
+        showL: displayOptions.showLstep,
+        showT: displayOptions.showTstep
+    });
+}
+
 // Narrow layout step response plot
 function updateNarrowStepResponsePlot() {
-    let wrapper = document.getElementById('narrow-step-wrapper');
-    let canvas = document.getElementById('narrow-step-canvas');
-
-    if (!wrapper || !canvas) return;
-
     // Get visibility settings from narrow layout checkboxes
-    let narrowShowLstep = document.getElementById('narrow-chk-show-L-step')?.checked ?? true;
-    let narrowShowTstep = document.getElementById('narrow-chk-show-T-step')?.checked ?? true;
+    const narrowShowLstep = document.getElementById('narrow-chk-show-L-step')?.checked ?? true;
+    const narrowShowTstep = document.getElementById('narrow-chk-show-T-step')?.checked ?? true;
 
-    // Temporarily override global settings
-    let origShowLstep = showLstep;
-    let origShowTstep = showTstep;
-    showLstep = narrowShowLstep;
-    showTstep = narrowShowTstep;
-
-    // Save narrow layout state and temporarily set to call the right element IDs
-    let origNarrow = isNarrowLayout;
-    isNarrowLayout = true;
-
-    updateStepResponsePlot();
-
-    // Restore
-    isNarrowLayout = origNarrow;
-    showLstep = origShowLstep;
-    showTstep = origShowTstep;
+    renderStepResponsePlot('narrow-step-wrapper', 'narrow-step-canvas', {
+        showL: narrowShowLstep,
+        showT: narrowShowTstep
+    });
 }
