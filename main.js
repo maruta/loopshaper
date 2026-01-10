@@ -1369,7 +1369,9 @@ function setupNyquistContextMenu() {
 }
 
 // Browser URL synchronization
-// Updates address bar with shareable URL containing current design and layout
+// Updates address bar with shareable URL containing current design and layout.
+// Called from: updateAll(), onDidLayoutChange, and initialization.
+// Uses debouncing to avoid excessive URL updates during rapid changes.
 let urlUpdateTimeout = null;
 const URL_UPDATE_DELAY = 1000;
 
@@ -1384,7 +1386,7 @@ function updateBrowserUrl() {
             const url = generateShareUrl({ includeLayout: true });
             history.replaceState(null, '', url);
         } catch (e) {
-            console.log('Error updating browser URL:', e);
+            console.error('Error updating browser URL:', e);
         }
     }, URL_UPDATE_DELAY);
 }
@@ -2066,8 +2068,6 @@ function updateBodePlot() {
     } catch (e) {
         console.log('Bode plot error:', e);
     }
-
-    updateBrowserUrl();
 }
 
 function buildNyquistCacheKey(Lnode, imagAxisPoles) {
@@ -2621,8 +2621,6 @@ function drawPoleZeroMap(options) {
             }
         }
     }
-
-    updateBrowserUrl();
 }
 
 // Wide layout pole-zero plot
@@ -2723,8 +2721,6 @@ function renderNyquistPlot(wrapperId, canvasId, formulaElementId) {
     } catch (e) {
         console.log('Nyquist plot error:', e);
     }
-
-    updateBrowserUrl();
 }
 
 function updateNarrowNyquistPlot() {
@@ -4016,8 +4012,6 @@ function updateStepResponsePlot() {
     } catch (e) {
         console.log('Step response plot error:', e);
     }
-
-    updateBrowserUrl();
 }
 
 // Narrow layout step response plot
