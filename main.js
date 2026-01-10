@@ -113,7 +113,7 @@ function createSystemAnalysis(L, Lrat) {
                         try {
                             LratForPZ = util_rationalize(struct.rationalPart);
                         } catch (e) {
-                            // Ignore errors
+                            // Non-rationalizable expressions are handled gracefully
                         }
                     }
                 }
@@ -128,7 +128,7 @@ function createSystemAnalysis(L, Lrat) {
                             poles = root2math(denRoots);
                         }
                     } catch (e) {
-                        // Ignore errors
+                        // Root finding may fail for some polynomials
                     }
 
                     // Get zeros from numerator
@@ -140,7 +140,7 @@ function createSystemAnalysis(L, Lrat) {
                             zeros = root2math(numRoots);
                         }
                     } catch (e) {
-                        // Ignore errors
+                        // Root finding may fail for some polynomials
                     }
                 }
 
@@ -170,7 +170,7 @@ function createSystemAnalysis(L, Lrat) {
                             poles = root2math(roots);
                         }
                     } catch (e) {
-                        // Ignore errors
+                        // Root finding may fail for some polynomials
                     }
 
                     // Calculate zeros from L's numerator
@@ -182,7 +182,7 @@ function createSystemAnalysis(L, Lrat) {
                             zeros = root2math(numRoots);
                         }
                     } catch (e) {
-                        // Ignore errors
+                        // Root finding may fail for some polynomials
                     }
                 }
 
@@ -406,7 +406,7 @@ function initializeDockview() {
         updateBrowserUrl();
     });
 
-    // Listen for panel activation to reinitialize UI elements and update plots
+    // Listen for panel activation to update plots that were skipped
     dockviewApi.onDidActivePanelChange((event) => {
         stopNyquistAnimation();
 
@@ -414,12 +414,18 @@ function initializeDockview() {
             initializeUI();
             setupEventListeners();
 
-            // Update the plot when it becomes active (it may have been skipped during updateAll)
+            // Render plots that were skipped during updateAll (only plot panels need this)
             if (event && event.panel) {
                 const panelId = event.panel.id;
-                if (panelId === 'pole-zero') updatePolePlot();
-                else if (panelId === 'nyquist') updateNyquistPlot();
-                else if (panelId === 'step-response') updateStepResponsePlot();
+                if (panelId === 'pole-zero') {
+                    updatePolePlot();
+                } else if (panelId === 'nyquist') {
+                    updateNyquistPlot();
+                } else if (panelId === 'step-response') {
+                    updateStepResponsePlot();
+                }
+                // Note: stability panel doesn't need special handling since all
+                // calculations are always done in updateAll()
             }
         }, 50);
     });
@@ -506,7 +512,7 @@ function createDefaultLayout() {
         id: 'nyquist',
         component: 'nyquist',
         title: 'Nyquist Plot',
-        position: { referencePanel: 'system-definition', direction: 'right' }
+        position: { referencePanel: 'system-definition', direction: 'right' },
     });
 
     // Right column: Bode Plot (top)
@@ -514,7 +520,7 @@ function createDefaultLayout() {
         id: 'bode',
         component: 'bode',
         title: 'Bode Plot',
-        position: { referencePanel: 'nyquist', direction: 'right' }
+        position: { referencePanel: 'nyquist', direction: 'right' },
     });
 
     // Left column: Parameters (middle)
@@ -538,7 +544,7 @@ function createDefaultLayout() {
         id: 'pole-zero',
         component: 'pole-zero',
         title: 'Pole-Zero Map',
-        position: { referencePanel: 'nyquist', direction: 'below' }
+        position: { referencePanel: 'nyquist', direction: 'below' },
     });
 
     // Right column: Step Response (initially below Bode, may be repositioned)
@@ -546,7 +552,7 @@ function createDefaultLayout() {
         id: 'step-response',
         component: 'step-response',
         title: 'Step Response',
-        position: { referencePanel: 'bode', direction: 'below' }
+        position: { referencePanel: 'bode', direction: 'below' },
     });
 
     // Activate Bode Plot
@@ -616,7 +622,7 @@ function adjustBodeStepResponseLayout() {
             id: 'step-response',
             component: 'step-response',
             title: 'Step Response',
-            position: { referencePanel: 'bode', direction: 'right' }
+            position: { referencePanel: 'bode', direction: 'right' },
         });
     }
 }
@@ -657,8 +663,9 @@ document.addEventListener('DOMContentLoaded', function() {
             throwOnError: false
         });
 
-        // Enable browser URL synchronization after initialization
+        // Enable and trigger browser URL synchronization
         isInitialized = true;
+        updateBrowserUrl();
     });
 });
 
@@ -1820,36 +1827,32 @@ function updateAll() {
             codeField.classList.remove('is-invalid');
             codeField.classList.add('is-valid');
         }
+        // Calculate closed-loop TF first (sets currentVars.Lrat)
+        calculateClosedLoopTF();
         // Create system analysis object with lazy evaluation
         currentVars.analysis = createSystemAnalysis(currentVars.L, currentVars.Lrat);
-        calculateClosedLoopTF();
         displayTransferFunctions();
-        updateClosedLoopPoles();  // Calculate closed-loop poles before frequency range
+
+        // Always perform all calculations (lazy evaluation caching prevents redundant work)
+        updateClosedLoopPoles();
         autoAdjustFrequencyRange();
         updateBodePlot();
-        // Skip updating hidden panels for better performance
+        updateMargins();
+        updateNyquistInfo();
+
+        // Only skip plot rendering for hidden panels (drawing is expensive)
         if (!isNarrowLayout) {
-            // Wide layout: only update panels that are visible (active in their tab group)
             if (isPanelVisible('pole-zero')) updatePolePlot();
             if (isPanelVisible('nyquist')) updateNyquistPlot();
             if (isPanelVisible('step-response')) updateStepResponsePlot();
         } else {
-            // Narrow layout: only update visible tabs
             const narrowPoleTab = document.getElementById('narrow-tab-pole-zero');
-            if (narrowPoleTab && narrowPoleTab.style.display !== 'none') {
-                updateNarrowPolePlot();
-            }
+            if (narrowPoleTab && narrowPoleTab.style.display !== 'none') updateNarrowPolePlot();
             const narrowNyquistTab = document.getElementById('narrow-tab-nyquist');
-            if (narrowNyquistTab && narrowNyquistTab.style.display !== 'none') {
-                updateNarrowNyquistPlot();
-            }
+            if (narrowNyquistTab && narrowNyquistTab.style.display !== 'none') updateNarrowNyquistPlot();
             const narrowStepTab = document.getElementById('narrow-tab-step');
-            if (narrowStepTab && narrowStepTab.style.display !== 'none') {
-                updateNarrowStepResponsePlot();
-            }
+            if (narrowStepTab && narrowStepTab.style.display !== 'none') updateNarrowStepResponsePlot();
         }
-        updateMargins();
-        updateNyquistInfo();
     } else if (hasErrors) {
         // Show error state
         if (codeField) {
@@ -2186,7 +2189,7 @@ function getOrComputeNyquistAnalysisCached(Lnode, Lcompiled, imagAxisPoles) {
     const analysis = computeNyquistAnalysis(Lcompiled, imagAxisPoles, {
         wMinDecade: -4,
         wMaxDecade: 6,
-        wPoints: 2000,
+        wPoints: 1000,
         nIndentPoints: 50,
         epsilon: 1e-4
     });
@@ -2229,30 +2232,16 @@ function updateClosedLoopPoles() {
             return;
         }
 
+        // Get Nyquist analysis results (uses lazy evaluation with caching)
         const P = analysis.rhpPoleCount;
-        if (P === null) {
-            if (clpEl) clpEl.textContent = '--';
-            if (indicator) {
-                indicator.textContent = '--';
-                indicator.variant = 'neutral';
-            }
-            window.lastPoles = [];
-            window.lastZeros = [];
-            return;
-        }
-
-        // Trigger Nyquist analysis (lazy evaluation)
         const N = analysis.windingNumber;
-
-        // Cache for other functions
         window.lastNyquistP = P;
         window.lastNyquistN = N;
 
-        // Nyquist criterion: Z = N + P
-        const Z = N + P;
-        const isStable = (Z === 0);
+        // Determine stability using Nyquist criterion: Z = N + P
+        const Z = (P !== null) ? N + P : null;
+        const isStable = (Z !== null) ? (Z === 0) : false;
 
-        // Display closed-loop poles if L is rational (can calculate exactly)
         if (structure.type === 'rational') {
             const clPZ = analysis.closedLoopPolesZeros;
             if (clPZ.poles.length > 0) {
@@ -2264,7 +2253,18 @@ function updateClosedLoopPoles() {
             }
             window.lastZeros = clPZ.zeros;
         } else {
-            // For rational_delay, show Nyquist-based stability only
+            // For rational_delay, show Nyquist-based stability
+            if (P === null) {
+                if (clpEl) clpEl.textContent = '--';
+                if (indicator) {
+                    indicator.textContent = '--';
+                    indicator.variant = 'neutral';
+                }
+                window.lastPoles = [];
+                window.lastZeros = [];
+                return;
+            }
+
             if (clpEl) {
                 clpEl.textContent = isStable ? '(Nyquist stable)' : `(${Z} RHP poles)`;
                 clpEl.classList.remove('text-danger', 'text-muted');
@@ -2343,12 +2343,14 @@ function updateTpzCheckboxState(enabled) {
 function displayClosedLoopPoles(poles, isStableByNyquist) {
     const prefix = isNarrowLayout ? 'narrow-' : '';
     let clpEl = document.getElementById(prefix + 'clp-display');
-    if (!clpEl) return;
 
+    // Handle empty poles case
     if (!poles || poles.length === 0) {
-        clpEl.textContent = 'No poles';
-        clpEl.classList.add('text-muted');
-        clpEl.classList.remove('text-danger');
+        if (clpEl) {
+            clpEl.textContent = 'No poles';
+            clpEl.classList.add('text-muted');
+            clpEl.classList.remove('text-danger');
+        }
         updateStabilityIndicator(isStableByNyquist);
         window.lastPoles = [];
         return;
@@ -2385,17 +2387,21 @@ function displayClosedLoopPoles(poles, isStableByNyquist) {
         poleStrings.push(poleStr);
     }
 
-    let latex = poleStrings.join(',\\; ');
-    clpEl.classList.remove('text-danger', 'text-muted');
-    katex.render(latex, clpEl, {
-        displayMode: false,
-        throwOnError: false
-    });
+    // Store poles for use by Pole-Zero Map (even if Stability panel is hidden)
+    window.lastPoles = poles;
+
+    // Update Stability panel display if visible
+    if (clpEl) {
+        let latex = poleStrings.join(',\\; ');
+        clpEl.classList.remove('text-danger', 'text-muted');
+        katex.render(latex, clpEl, {
+            displayMode: false,
+            throwOnError: false
+        });
+    }
 
     // Use Nyquist-based stability determination
     updateStabilityIndicator(isStableByNyquist);
-
-    window.lastPoles = poles;
 }
 
 function updatePolePlot() {
@@ -3288,7 +3294,7 @@ function autoAdjustFrequencyRange() {
                 poles = root2math(denRoots);
             }
         } catch (e) {
-            // Ignore errors
+            // Root finding may fail for some polynomials
         }
 
         // Get numerator coefficients for zeros
@@ -3300,7 +3306,7 @@ function autoAdjustFrequencyRange() {
                 zeros = root2math(numRoots);
             }
         } catch (e) {
-            // Ignore errors
+            // Root finding may fail for some polynomials
         }
 
         // Also get closed-loop poles (roots of 1+L)
@@ -3309,7 +3315,7 @@ function autoAdjustFrequencyRange() {
             let clPoles = window.lastPoles || [];
             closedLoopPoles = clPoles.map(p => ({ re: p.re, im: p.im }));
         } catch (e) {
-            // Ignore errors
+            // Gracefully handle missing pole data
         }
 
         // Combine open-loop poles, zeros, and closed-loop poles
@@ -3985,7 +3991,7 @@ function openPanel(panelId) {
     const options = {
         id: panelDef.id,
         component: panelDef.component,
-        title: panelDef.title
+        title: panelDef.title,
     };
 
     // Determine best position based on panel type
