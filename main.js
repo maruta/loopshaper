@@ -21,6 +21,213 @@ L = K * P`,
 
 let currentVars = {};
 let updateTimeout = null;
+
+// System analysis with lazy evaluation
+// Only computes values when first accessed, then caches them
+function createSystemAnalysis(L, Lrat) {
+    const cache = {};
+
+    const analysis = {
+        // Raw inputs
+        L: L,
+        Lrat: Lrat,
+
+        // Lazy-evaluated properties
+        get lStructure() {
+            if (!cache.lStructure) {
+                cache.lStructure = analyzeLstructure(L);
+            }
+            return cache.lStructure;
+        },
+
+        get lCompiled() {
+            if (!cache.lCompiled) {
+                cache.lCompiled = L.compile();
+            }
+            return cache.lCompiled;
+        },
+
+        get imagAxisPoles() {
+            if (!cache.hasOwnProperty('imagAxisPoles')) {
+                const struct = this.lStructure;
+                if (struct.type !== 'unknown' && struct.rationalPart) {
+                    cache.imagAxisPoles = findImaginaryAxisPoles(struct.rationalPart);
+                } else {
+                    cache.imagAxisPoles = [];
+                }
+            }
+            return cache.imagAxisPoles;
+        },
+
+        get rhpPoleCount() {
+            if (!cache.hasOwnProperty('rhpPoleCount')) {
+                const struct = this.lStructure;
+                if (struct.type !== 'unknown' && struct.rationalPart) {
+                    cache.rhpPoleCount = countRHPpoles(struct.rationalPart);
+                } else {
+                    cache.rhpPoleCount = null;
+                }
+            }
+            return cache.rhpPoleCount;
+        },
+
+        get nyquistAnalysis() {
+            if (!cache.hasOwnProperty('nyquistAnalysis')) {
+                cache.nyquistAnalysis = getOrComputeNyquistAnalysisCached(
+                    L, this.lCompiled, this.imagAxisPoles
+                );
+            }
+            return cache.nyquistAnalysis;
+        },
+
+        get windingNumber() {
+            const nyq = this.nyquistAnalysis;
+            return nyq ? nyq.N : 0;
+        },
+
+        get isClosedLoopStable() {
+            const P = this.rhpPoleCount;
+            const N = this.windingNumber;
+            if (P === null) return null;
+            return (N + P === 0);
+        },
+
+        get stabilityMargins() {
+            if (!cache.hasOwnProperty('stabilityMargins')) {
+                cache.stabilityMargins = calculateStabilityMargins();
+            }
+            return cache.stabilityMargins;
+        },
+
+        // Open-loop poles and zeros (from Lrat or rationalPart)
+        get openLoopPolesZeros() {
+            if (!cache.hasOwnProperty('openLoopPolesZeros')) {
+                let poles = [];
+                let zeros = [];
+
+                // Use Lrat if available, otherwise try rationalPart from structure
+                let LratForPZ = Lrat;
+                if (!LratForPZ) {
+                    const struct = this.lStructure;
+                    if (struct.rationalPart) {
+                        try {
+                            LratForPZ = util_rationalize(struct.rationalPart);
+                        } catch (e) {
+                            // Ignore errors
+                        }
+                    }
+                }
+
+                if (LratForPZ) {
+                    // Get poles from denominator
+                    try {
+                        let denStr = LratForPZ.denominator.toString();
+                        let denPoly = math.rationalize(denStr, true);
+                        if (denPoly.coefficients && denPoly.coefficients.length > 1) {
+                            let denRoots = findRoots(denPoly.coefficients);
+                            poles = root2math(denRoots);
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+
+                    // Get zeros from numerator
+                    try {
+                        let numStr = LratForPZ.numerator.toString();
+                        let numPoly = math.rationalize(numStr, true);
+                        if (numPoly.coefficients && numPoly.coefficients.length > 1) {
+                            let numRoots = findRoots(numPoly.coefficients);
+                            zeros = root2math(numRoots);
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+                }
+
+                cache.openLoopPolesZeros = { poles, zeros };
+            }
+            return cache.openLoopPolesZeros;
+        },
+
+        // Closed-loop poles and zeros
+        get closedLoopPolesZeros() {
+            if (!cache.hasOwnProperty('closedLoopPolesZeros')) {
+                let poles = [];
+                let zeros = [];
+
+                const struct = this.lStructure;
+                if (struct.type === 'rational' && Lrat) {
+                    // Get characteristic polynomial: 1 + L = 0
+                    try {
+                        let charPolyNode = new math.OperatorNode('+', 'add',
+                            [Lrat.denominator.clone(), Lrat.numerator.clone()]);
+                        let charPolyStr = charPolyNode.toString();
+                        let charPoly = math.rationalize(charPolyStr, true);
+
+                        let coeffs = charPoly.coefficients;
+                        if (coeffs && coeffs.length > 0) {
+                            let roots = findRoots(coeffs);
+                            poles = root2math(roots);
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+
+                    // Calculate zeros from L's numerator
+                    try {
+                        let numStr = Lrat.numerator.toString();
+                        let numPoly = math.rationalize(numStr, true);
+                        if (numPoly.coefficients && numPoly.coefficients.length > 1) {
+                            let numRoots = findRoots(numPoly.coefficients);
+                            zeros = root2math(numRoots);
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+                }
+
+                cache.closedLoopPolesZeros = { poles, zeros };
+            }
+            return cache.closedLoopPolesZeros;
+        },
+
+        // For step response simulation
+        get stepResponseData() {
+            if (!cache.hasOwnProperty('stepResponseData')) {
+                cache.stepResponseData = null;
+
+                const struct = this.lStructure;
+                if (struct.type === 'unknown') {
+                    return cache.stepResponseData;
+                }
+
+                const delayL = struct.delayTime || 0;
+
+                let LratSim = null;
+                try {
+                    LratSim = util_rationalize(struct.rationalPart);
+                } catch (e) {
+                    return cache.stepResponseData;
+                }
+
+                let LCoeffs = extractTFCoeffs(LratSim);
+                if (!LCoeffs) {
+                    return cache.stepResponseData;
+                }
+
+                cache.stepResponseData = {
+                    type: struct.type,
+                    delayL: delayL,
+                    LCoeffs: LCoeffs,
+                    ssL: tf2ss(LCoeffs.num, LCoeffs.den)
+                };
+            }
+            return cache.stepResponseData;
+        }
+    };
+
+    return analysis;
+}
 let showL = true;
 let showT = true;
 let autoFreq = true;
@@ -1613,6 +1820,8 @@ function updateAll() {
             codeField.classList.remove('is-invalid');
             codeField.classList.add('is-valid');
         }
+        // Create system analysis object with lazy evaluation
+        currentVars.analysis = createSystemAnalysis(currentVars.L, currentVars.Lrat);
         calculateClosedLoopTF();
         displayTransferFunctions();
         updateClosedLoopPoles();  // Calculate closed-loop poles before frequency range
@@ -1994,8 +2203,8 @@ function updateClosedLoopPoles() {
     let indicator = document.getElementById(prefix + 'stability-indicator');
 
     try {
-        let L = currentVars.L;
-        if (!L || !L.isNode) {
+        const analysis = currentVars.analysis;
+        if (!analysis) {
             if (clpEl) clpEl.textContent = '--';
             if (indicator) {
                 indicator.textContent = '--';
@@ -2007,11 +2216,8 @@ function updateClosedLoopPoles() {
             return;
         }
 
-        // Analyze L structure to determine stability calculation method
-        let structure = analyzeLstructure(L);
-
+        const structure = analysis.lStructure;
         if (structure.type === 'unknown') {
-            // Cannot determine P, skip stability calculation
             if (clpEl) clpEl.textContent = '--';
             if (indicator) {
                 indicator.textContent = '--';
@@ -2023,8 +2229,7 @@ function updateClosedLoopPoles() {
             return;
         }
 
-        // Calculate P (number of open-loop RHP poles)
-        let P = countRHPpoles(structure.rationalPart);
+        const P = analysis.rhpPoleCount;
         if (P === null) {
             if (clpEl) clpEl.textContent = '--';
             if (indicator) {
@@ -2036,61 +2241,35 @@ function updateClosedLoopPoles() {
             return;
         }
 
-        // Find poles on imaginary axis (need special handling in Nyquist)
-        let imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
+        // Trigger Nyquist analysis (lazy evaluation)
+        const N = analysis.windingNumber;
 
-        // Evaluate L(s) on Nyquist contour once and reuse (plot + stability)
-        let Lcompiled = L.compile();
-        const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
-        let N = nyq ? nyq.N : 0;
-
+        // Cache for other functions
         window.lastNyquistP = P;
         window.lastNyquistN = N;
 
         // Nyquist criterion: Z = N + P
-        // Z = number of closed-loop RHP poles
-        // System is stable if Z = 0
-        let Z = N + P;
+        const Z = N + P;
+        const isStable = (Z === 0);
 
         // Display closed-loop poles if L is rational (can calculate exactly)
         if (structure.type === 'rational') {
-            let Lrat = currentVars.Lrat;
-            if (Lrat) {
-                // Get characteristic polynomial: 1 + L = 0
-                let charPolyNode = new math.OperatorNode('+', 'add', [Lrat.denominator.clone(), Lrat.numerator.clone()]);
-                let charPolyStr = charPolyNode.toString();
-                let charPoly = math.rationalize(charPolyStr, true);
-
-                let coeffs = charPoly.coefficients;
-                if (coeffs && coeffs.length > 0) {
-                    let roots = findRoots(coeffs);
-                    displayClosedLoopPoles(roots, Z === 0);
-                } else {
-                    if (clpEl) clpEl.textContent = 'No poles';
-                    updateStabilityIndicator(Z === 0);
-                }
-
-                // Calculate zeros from L's numerator
-                try {
-                    let numStr = Lrat.numerator.toString();
-                    let numPoly = math.rationalize(numStr, true);
-                    if (numPoly.coefficients && numPoly.coefficients.length > 1) {
-                        let numRoots = findRoots(numPoly.coefficients);
-                        window.lastZeros = root2math(numRoots);
-                    } else {
-                        window.lastZeros = [];
-                    }
-                } catch (e) {
-                    window.lastZeros = [];
-                }
+            const clPZ = analysis.closedLoopPolesZeros;
+            if (clPZ.poles.length > 0) {
+                displayClosedLoopPoles(clPZ.poles, isStable);
+            } else {
+                if (clpEl) clpEl.textContent = 'No poles';
+                updateStabilityIndicator(isStable);
+                window.lastPoles = [];
             }
+            window.lastZeros = clPZ.zeros;
         } else {
             // For rational_delay, show Nyquist-based stability only
             if (clpEl) {
-                clpEl.textContent = Z === 0 ? '(Nyquist stable)' : `(${Z} RHP poles)`;
+                clpEl.textContent = isStable ? '(Nyquist stable)' : `(${Z} RHP poles)`;
                 clpEl.classList.remove('text-danger', 'text-muted');
             }
-            updateStabilityIndicator(Z === 0);
+            updateStabilityIndicator(isStable);
             window.lastPoles = [];
             window.lastZeros = [];
         }
@@ -2161,20 +2340,20 @@ function updateTpzCheckboxState(enabled) {
     }
 }
 
-function displayClosedLoopPoles(roots, isStableByNyquist) {
+function displayClosedLoopPoles(poles, isStableByNyquist) {
     const prefix = isNarrowLayout ? 'narrow-' : '';
     let clpEl = document.getElementById(prefix + 'clp-display');
     if (!clpEl) return;
 
-    if (!roots || roots[0].length === 0) {
+    if (!poles || poles.length === 0) {
         clpEl.textContent = 'No poles';
         clpEl.classList.add('text-muted');
         clpEl.classList.remove('text-danger');
         updateStabilityIndicator(isStableByNyquist);
+        window.lastPoles = [];
         return;
     }
 
-    let poles = root2math(roots);
     let poleStrings = [];
 
     for (let i = 0; i < poles.length; i++) {
@@ -2246,50 +2425,15 @@ function updatePolePlot() {
     let Tpoles = window.lastPoles || [];
     let Tzeros = window.lastZeros || [];
 
-    // L(s) open-loop poles and zeros (from Lrat or rationalPart for delay systems)
+    // L(s) open-loop poles and zeros (from analysis)
     let Lpoles = [];
     let Lzeros = [];
 
-    // Calculate L(s) poles and zeros from Lrat or rationalPart
-    let Lrat = currentVars.Lrat;
-    let LratForPZ = Lrat;
-
-    // If Lrat is null but L exists, try to get rationalPart from analyzeLstructure
-    if (!LratForPZ && currentVars.L) {
-        try {
-            let structure = analyzeLstructure(currentVars.L);
-            if (structure.rationalPart) {
-                LratForPZ = util_rationalize(structure.rationalPart);
-            }
-        } catch (e) {
-            // Ignore errors
-        }
-    }
-
-    if (LratForPZ) {
-        // Get poles from denominator
-        try {
-            let denStr = LratForPZ.denominator.toString();
-            let denPoly = math.rationalize(denStr, true);
-            if (denPoly.coefficients && denPoly.coefficients.length > 1) {
-                let denRoots = findRoots(denPoly.coefficients);
-                Lpoles = root2math(denRoots);
-            }
-        } catch (e) {
-            // Ignore errors
-        }
-
-        // Get zeros from numerator
-        try {
-            let numStr = LratForPZ.numerator.toString();
-            let numPoly = math.rationalize(numStr, true);
-            if (numPoly.coefficients && numPoly.coefficients.length > 1) {
-                let numRoots = findRoots(numPoly.coefficients);
-                Lzeros = root2math(numRoots);
-            }
-        } catch (e) {
-            // Ignore errors
-        }
+    const analysis = currentVars.analysis;
+    if (analysis) {
+        const olPZ = analysis.openLoopPolesZeros;
+        Lpoles = olPZ.poles;
+        Lzeros = olPZ.zeros;
     }
 
     // Collect all points to display based on visibility settings
@@ -2585,48 +2729,15 @@ function updateNarrowPolePlot() {
     let Tpoles = window.lastPoles || [];
     let Tzeros = window.lastZeros || [];
 
-    // L(s) open-loop poles and zeros (from Lrat or rationalPart for delay systems)
+    // L(s) open-loop poles and zeros (from analysis)
     let Lpoles = [];
     let Lzeros = [];
 
-    // Calculate L(s) poles and zeros from Lrat or rationalPart
-    let Lrat = currentVars.Lrat;
-    let LratForPZ = Lrat;
-
-    // If Lrat is null but L exists, try to get rationalPart from analyzeLstructure
-    if (!LratForPZ && currentVars.L) {
-        try {
-            let structure = analyzeLstructure(currentVars.L);
-            if (structure.rationalPart) {
-                LratForPZ = util_rationalize(structure.rationalPart);
-            }
-        } catch (e) {
-            // Ignore errors
-        }
-    }
-
-    if (LratForPZ) {
-        try {
-            let denStr = LratForPZ.denominator.toString();
-            let denPoly = math.rationalize(denStr, true);
-            if (denPoly.coefficients && denPoly.coefficients.length > 1) {
-                let denRoots = findRoots(denPoly.coefficients);
-                Lpoles = root2math(denRoots);
-            }
-        } catch (e) {
-            // Ignore errors
-        }
-
-        try {
-            let numStr = LratForPZ.numerator.toString();
-            let numPoly = math.rationalize(numStr, true);
-            if (numPoly.coefficients && numPoly.coefficients.length > 1) {
-                let numRoots = findRoots(numPoly.coefficients);
-                Lzeros = root2math(numRoots);
-            }
-        } catch (e) {
-            // Ignore errors
-        }
+    const analysis = currentVars.analysis;
+    if (analysis) {
+        const olPZ = analysis.openLoopPolesZeros;
+        Lpoles = olPZ.poles;
+        Lzeros = olPZ.zeros;
     }
 
     // Get visibility settings from narrow layout checkboxes
@@ -2888,45 +2999,25 @@ function updateNarrowNyquistPlot() {
     }
 
     try {
-        let Lcompiled = L.compile();
-
-        // Analyze L structure to get imaginary axis poles
-        let structure = analyzeLstructure(L);
-        let imagAxisPoles = [];
-        if (structure.type !== 'unknown' && structure.rationalPart) {
-            imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
-        }
-
-        const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
+        const analysis = currentVars.analysis;
+        if (!analysis) return;
 
         // Get stability margins for display (only if enabled and closed-loop is stable)
         let phaseMargins = null;
         let gainMargins = null;
-        if (nyquistOptions.showStabilityMargin) {
-            // Check if closed-loop system is stable (Z = N + P = 0)
-            let isClosedLoopStable = false;
-            if (nyq && structure.type !== 'unknown' && structure.rationalPart) {
-                const P = countRHPpoles(structure.rationalPart);
-                const N = nyq.N;
-                if (P !== null) {
-                    isClosedLoopStable = (N + P === 0);
-                }
-            }
-
-            if (isClosedLoopStable) {
-                const margins = calculateStabilityMargins();
-                if (margins) {
-                    phaseMargins = margins.phaseMargins;
-                    gainMargins = margins.gainMargins;
-                }
+        if (nyquistOptions.showStabilityMargin && analysis.isClosedLoopStable) {
+            const margins = analysis.stabilityMargins;
+            if (margins) {
+                phaseMargins = margins.phaseMargins;
+                gainMargins = margins.gainMargins;
             }
         }
 
-        drawNyquist(Lcompiled, imagAxisPoles, {
+        drawNyquist(analysis.lCompiled, analysis.imagAxisPoles, {
             wrapperId: 'narrow-nyquist-wrapper',
             canvasId: 'narrow-nyquist-canvas',
             animate: true,
-            analysis: nyq,
+            analysis: analysis.nyquistAnalysis,
             phaseMargins: phaseMargins,
             showPhaseMarginArc: nyquistOptions.showStabilityMargin,
             gainMargins: gainMargins,
@@ -2984,45 +3075,25 @@ function updateNyquistPlot() {
     }
 
     try {
-        let Lcompiled = L.compile();
-
-        // Analyze L structure to get imaginary axis poles
-        let structure = analyzeLstructure(L);
-        let imagAxisPoles = [];
-        if (structure.type !== 'unknown' && structure.rationalPart) {
-            imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
-        }
-
-        const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
+        const analysis = currentVars.analysis;
+        if (!analysis) return;
 
         // Get stability margins for display (only if enabled and closed-loop is stable)
         let phaseMargins = null;
         let gainMargins = null;
-        if (nyquistOptions.showStabilityMargin) {
-            // Check if closed-loop system is stable (Z = N + P = 0)
-            let isClosedLoopStable = false;
-            if (nyq && structure.type !== 'unknown' && structure.rationalPart) {
-                const P = countRHPpoles(structure.rationalPart);
-                const N = nyq.N;
-                if (P !== null) {
-                    isClosedLoopStable = (N + P === 0);
-                }
-            }
-
-            if (isClosedLoopStable) {
-                const margins = calculateStabilityMargins();
-                if (margins) {
-                    phaseMargins = margins.phaseMargins;
-                    gainMargins = margins.gainMargins;
-                }
+        if (nyquistOptions.showStabilityMargin && analysis.isClosedLoopStable) {
+            const margins = analysis.stabilityMargins;
+            if (margins) {
+                phaseMargins = margins.phaseMargins;
+                gainMargins = margins.gainMargins;
             }
         }
 
-        drawNyquist(Lcompiled, imagAxisPoles, {
+        drawNyquist(analysis.lCompiled, analysis.imagAxisPoles, {
             wrapperId: 'nyquist-wrapper',
             canvasId: 'nyquist-canvas',
             animate: true,
-            analysis: nyq,
+            analysis: analysis.nyquistAnalysis,
             phaseMargins: phaseMargins,
             showPhaseMarginArc: nyquistOptions.showStabilityMargin,
             gainMargins: gainMargins,
@@ -3055,7 +3126,10 @@ function updateNyquistMappingFormula() {
 
 // Update stability margin display in Stability panel
 function updateMargins() {
-    let margins = calculateStabilityMargins();
+    const analysis = currentVars.analysis;
+    if (!analysis) return;
+
+    const margins = analysis.stabilityMargins;
     if (margins) {
         window.lastMargins = margins;
     }
@@ -3067,14 +3141,8 @@ function updateMargins() {
 
     if (!gmDisplay || !pmDisplay) return;
 
-    // Determine closed-loop stability from Nyquist criterion (Z = N + P = 0)
-    // Use cached values from updateClosedLoopPoles() / updateNyquistInfo()
-    let isClosedLoopStable = false;
-    const P = window.lastNyquistP;
-    const N = window.lastNyquistN;
-    if (P !== null && P !== undefined && N !== null && N !== undefined) {
-        isClosedLoopStable = (N + P === 0);
-    }
+    // Determine closed-loop stability from analysis
+    const isClosedLoopStable = analysis.isClosedLoopStable || false;
 
     // Helper function to format margin list
     function formatMarginList(marginList, unit, formatMargin, formatFreq) {
@@ -3144,8 +3212,8 @@ function updateNyquistInfo() {
         return;
     }
 
-    let L = currentVars.L;
-    if (!L || !L.isNode) {
+    const analysis = currentVars.analysis;
+    if (!analysis) {
         openLoopDisplay.textContent = '--';
         openLoopDisplay.className = 'text-muted';
         windingDisplay.textContent = '--';
@@ -3154,8 +3222,7 @@ function updateNyquistInfo() {
     }
 
     try {
-        // Analyze L structure to get rational part and imaginary axis poles
-        let structure = analyzeLstructure(L);
+        const structure = analysis.lStructure;
         if (structure.type === 'unknown' || !structure.rationalPart) {
             openLoopDisplay.textContent = '--';
             openLoopDisplay.className = 'text-muted';
@@ -3164,17 +3231,7 @@ function updateNyquistInfo() {
             return;
         }
 
-        // Get imaginary axis poles for proper Nyquist contour handling
-        let imagAxisPoles = findImaginaryAxisPoles(structure.rationalPart);
-
-        // Prefer cached values from updateClosedLoopPoles()
-        const key = buildNyquistCacheKey(L, imagAxisPoles);
-        let P = (window.lastNyquistAnalysisKey === key) ? window.lastNyquistP : null;
-        let N = (window.lastNyquistAnalysisKey === key) ? window.lastNyquistN : null;
-
-        if (P === null || P === undefined) {
-            P = countRHPpoles(structure.rationalPart);
-        }
+        const P = analysis.rhpPoleCount;
         if (P === null) {
             openLoopDisplay.textContent = '--';
             openLoopDisplay.className = 'text-muted';
@@ -3183,14 +3240,7 @@ function updateNyquistInfo() {
             return;
         }
 
-        if (N === null || N === undefined) {
-            // Compute analysis if not available
-            let Lcompiled = L.compile();
-            const nyq = getOrComputeNyquistAnalysisCached(L, Lcompiled, imagAxisPoles);
-            N = nyq ? nyq.N : 0;
-            window.lastNyquistP = P;
-            window.lastNyquistN = N;
-        }
+        const N = analysis.windingNumber;
 
         // Display P (number of unstable open-loop poles)
         openLoopDisplay.textContent = P.toString();
@@ -3198,7 +3248,7 @@ function updateNyquistInfo() {
 
         // Display N (winding number)
         windingDisplay.textContent = N.toString();
-        let Z = N + P;
+        const Z = N + P;
         windingDisplay.className = (Z === 0) ? 'text-success' : 'text-danger';
 
     } catch (e) {
@@ -4258,8 +4308,8 @@ function updateStepResponsePlot() {
     const stepTimeMax = getStepTimeMax();
 
     try {
-        let L = currentVars.L;
-        if (!L || !L.isNode) {
+        const analysis = currentVars.analysis;
+        if (!analysis) {
             // Clear canvas
             let ctx = canvas.getContext('2d');
             const width = wrapper.clientWidth;
@@ -4275,36 +4325,17 @@ function updateStepResponsePlot() {
             return;
         }
 
-        // Analyze L structure
-        let structure = analyzeLstructure(L);
-        if (structure.type === 'unknown') {
+        // Get step response data from analysis (lazy evaluation)
+        const stepData = analysis.stepResponseData;
+        if (!stepData) {
             console.log('Step response: Cannot simulate non-rational transfer function');
             return;
         }
 
-        // Get delay time
-        let delayL = structure.delayTime || 0;
-
-
-        // Get L coefficients
-        let Lrat = null;
-        try {
-            Lrat = util_rationalize(structure.rationalPart);
-        } catch (e) {
-            console.log('Step response: Cannot rationalize L');
-            return;
-        }
-
-        let LCoeffs = extractTFCoeffs(Lrat);
-        if (!LCoeffs) {
-            console.log('Step response: Cannot extract L coefficients');
-            return;
-        }
-
-        // Build state-space for the rational part R(s)
-        // - For structure.type === 'rational': L(s)=R(s)
-        // - For structure.type === 'rational_delay': L(s)=R(s)*exp(-delay*s)
-        let ssL = tf2ss(LCoeffs.num, LCoeffs.den);
+        const structure = analysis.lStructure;
+        const delayL = stepData.delayL;
+        const LCoeffs = stepData.LCoeffs;
+        const ssL = stepData.ssL;
 
         // Choose simulation resolution.
         // For loop delay, we need reasonably fine dt relative to delay to avoid artifacts.
