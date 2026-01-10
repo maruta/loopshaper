@@ -35,6 +35,16 @@ body {
     padding: 0 8px 0 4px;
 }
 
+.app-home-link {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+}
+
+.app-home-link:hover .app-title {
+    color: var(--sl-color-neutral-900);
+}
+
 .menu-items {
     display: flex;
     align-items: center;
