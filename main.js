@@ -53,6 +53,13 @@ let bodeOptions = {
     phaseMax: 90
 };
 
+// Pole-Zero Map display options
+let pzmapOptions = {
+    autoScale: true,            // Auto-scale based on poles/zeros
+    scaleMax: 10,               // Manual scale max value (used when autoScale is false)
+    autoScaleMultiplier: 1.5    // Multiplier for auto scale margin
+};
+
 // Cached Nyquist analysis (evaluate L(s) once, reuse for both plot and stability info)
 window.lastNyquistAnalysis = null;
 window.lastNyquistAnalysisKey = null;
@@ -695,6 +702,7 @@ function setupEventListeners() {
 
     setupBodeContextMenu();
     setupStepContextMenu();
+    setupPzmapContextMenu();
 }
 
 function setupBodeContextMenu() {
@@ -1033,6 +1041,123 @@ function setupStepContextMenu() {
                 handleStepAutoTimeToggle(item.checked, customTimePanel, timeMaxInput);
             }
             updateStepResponsePlot();
+            contextMenu.active = false;
+        });
+
+        menuInner.dataset.listenerAttached = 'true';
+    }
+}
+
+function handlePzmapAutoScaleToggle(checked, customScalePanel, scaleMaxInput) {
+    pzmapOptions.autoScale = checked;
+    if (customScalePanel) {
+        customScalePanel.style.display = checked ? 'none' : 'block';
+    }
+    if (!checked && scaleMaxInput) {
+        scaleMaxInput.value = pzmapOptions.scaleMax.toPrecision(3);
+    }
+}
+
+function setupPzmapContextMenu() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const poleWrapper = document.getElementById(prefix + 'pole-wrapper');
+    const contextMenu = document.getElementById('pzmap-context-menu');
+    const contextAnchor = document.getElementById('pzmap-context-menu-anchor');
+
+    if (!poleWrapper || !contextMenu || !contextAnchor) return;
+    if (poleWrapper.dataset.contextMenuAttached) return;
+    poleWrapper.dataset.contextMenuAttached = 'true';
+
+    const optAutoScale = document.getElementById('pzmap-opt-auto-scale');
+    const customScalePanel = document.getElementById('pzmap-custom-scale-panel');
+    const scaleMaxInput = document.getElementById('pzmap-scale-max-input');
+
+    // Initialize UI state
+    if (optAutoScale) optAutoScale.checked = pzmapOptions.autoScale;
+    if (customScalePanel) {
+        customScalePanel.style.display = pzmapOptions.autoScale ? 'none' : 'block';
+    }
+    if (scaleMaxInput) scaleMaxInput.value = pzmapOptions.scaleMax;
+
+    // Scale input change handler
+    if (scaleMaxInput && !scaleMaxInput.dataset.listenerAttached) {
+        scaleMaxInput.addEventListener('sl-change', () => {
+            pzmapOptions.scaleMax = parseFloat(scaleMaxInput.value) || 10;
+            if (!pzmapOptions.autoScale) updatePolePlot();
+        });
+        scaleMaxInput.addEventListener('click', (e) => e.stopPropagation());
+        scaleMaxInput.dataset.listenerAttached = 'true';
+    }
+
+    // Mouse wheel zoom
+    if (!poleWrapper.dataset.wheelListenerAttached) {
+        poleWrapper.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            const factor = 1.05;
+            const increase = e.deltaY < 0;
+
+            if (pzmapOptions.autoScale) {
+                pzmapOptions.autoScaleMultiplier *= increase ? factor : 1 / factor;
+                pzmapOptions.autoScaleMultiplier = Math.max(1.0, Math.min(10, pzmapOptions.autoScaleMultiplier));
+            } else {
+                pzmapOptions.scaleMax *= increase ? factor : 1 / factor;
+                pzmapOptions.scaleMax = Math.max(0.1, Math.min(1000, pzmapOptions.scaleMax));
+                if (scaleMaxInput) scaleMaxInput.value = pzmapOptions.scaleMax.toPrecision(3);
+            }
+            updatePolePlot();
+        }, { passive: false });
+        poleWrapper.dataset.wheelListenerAttached = 'true';
+    }
+
+    // Context menu display
+    poleWrapper.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        contextAnchor.style.left = e.clientX + 'px';
+        contextAnchor.style.top = e.clientY + 'px';
+        contextMenu.strategy = 'fixed';
+        contextMenu.active = true;
+        requestAnimationFrame(() => {
+            if (typeof contextMenu.reposition === 'function') {
+                contextMenu.reposition();
+            }
+        });
+    });
+
+    // Hide context menu on outside click
+    document.addEventListener('click', (e) => {
+        if (!contextMenu.active) return;
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
+        const clickedInside =
+            (popupPart ? path.includes(popupPart) : false) ||
+            path.includes(contextMenu) ||
+            contextMenu.contains(e.target);
+        if (!clickedInside) contextMenu.active = false;
+    }, { capture: true });
+
+    // Menu item selection
+    const menuInner = document.getElementById('pzmap-context-menu-inner');
+    if (menuInner && !menuInner.dataset.listenerAttached) {
+        menuInner.addEventListener('click', (e) => {
+            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+            const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
+            if (!item) return;
+            item.checked = !item.checked;
+            if (item.id === 'pzmap-opt-auto-scale') {
+                handlePzmapAutoScaleToggle(item.checked, customScalePanel, scaleMaxInput);
+            }
+            updatePolePlot();
+            contextMenu.active = false;
+        });
+
+        menuInner.addEventListener('sl-select', (e) => {
+            const item = e.detail.item;
+            if (!item) return;
+            item.checked = !item.checked;
+            if (item.id === 'pzmap-opt-auto-scale') {
+                handlePzmapAutoScaleToggle(item.checked, customScalePanel, scaleMaxInput);
+            }
+            updatePolePlot();
             contextMenu.active = false;
         });
 
@@ -2019,36 +2144,42 @@ function updatePolePlot() {
 
     if (allPoints.length === 0) return;
 
-    // Calculate scale based on all visible poles and zeros
-    let maxRe = 0, maxIm = 0;
-    allPoints.forEach(p => {
-        maxRe = Math.max(maxRe, Math.abs(p.re));
-        maxIm = Math.max(maxIm, Math.abs(p.im));
-    });
-    maxRe = Math.max(maxRe, 1) * 1.5;
-    maxIm = Math.max(maxIm, 1) * 1.5;
-    let maxScale = Math.max(maxRe, maxIm);
+    // Calculate display scale (auto or manual mode)
+    let maxScale;
+    if (pzmapOptions.autoScale) {
+        let maxRe = 0, maxIm = 0;
+        allPoints.forEach(p => {
+            maxRe = Math.max(maxRe, Math.abs(p.re));
+            maxIm = Math.max(maxIm, Math.abs(p.im));
+        });
+        maxRe = Math.max(maxRe, 1) * pzmapOptions.autoScaleMultiplier;
+        maxIm = Math.max(maxIm, 1) * pzmapOptions.autoScaleMultiplier;
+        maxScale = Math.max(maxRe, maxIm);
+    } else {
+        maxScale = pzmapOptions.scaleMax;
+    }
 
     const margin = 40;
     const plotWidth = width - 2 * margin;
     const plotHeight = height - 2 * margin;
     const scale = Math.min(plotWidth, plotHeight) / (2 * maxScale);
+    const centerX = width / 2;
+    const centerY = height / 2;
 
-    let centerX = width / 2;
-    let centerY = height / 2;
+    // Calculate grid step size based on panel size (ensure readable spacing)
+    const minPixelSpacing = 30;
+    const maxGridLines = Math.floor(Math.min(plotWidth, plotHeight) / 2 / minPixelSpacing);
+    const targetSteps = Math.max(2, Math.min(6, maxGridLines));
+    const rawStep = maxScale / targetSteps;
 
-    // Calculate nice circular grid radii
-    let maxRadius = Math.sqrt(maxRe * maxRe + maxIm * maxIm) / 1.5;
-    maxRadius = Math.max(maxRadius, 1);
-
-    // Find a nice step size (1, 2, 5, 10, 20, 50, ...)
-    let magnitude = Math.pow(10, Math.floor(Math.log10(maxRadius)));
-    let normalized = maxRadius / magnitude;
+    // Round to nice step values (1, 2, 5, 10, 20, 50, ...)
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const normalized = rawStep / magnitude;
     let niceStep;
-    if (normalized <= 1) niceStep = magnitude * 0.5;
-    else if (normalized <= 2) niceStep = magnitude;
-    else if (normalized <= 5) niceStep = magnitude * 2;
-    else niceStep = magnitude * 5;
+    if (normalized <= 1.5) niceStep = magnitude;
+    else if (normalized <= 3.5) niceStep = magnitude * 2;
+    else if (normalized <= 7.5) niceStep = magnitude * 5;
+    else niceStep = magnitude * 10;
 
     // Draw circular grid
     ctx.strokeStyle = '#c0c0c0';
@@ -2098,13 +2229,28 @@ function updatePolePlot() {
     ctx.fillText('Re', width - margin + 15, centerY + 4);
     ctx.fillText('Im', centerX, margin - 10);
 
-    // Draw tick labels on positive real axis (at circle intersections)
+    // Draw tick labels on positive real axis (skip labels if too dense)
+    const labelPixelSpacing = niceStep * scale;
+    const minLabelSpacing = 25;
+    const labelSkip = Math.max(1, Math.ceil(minLabelSpacing / labelPixelSpacing));
+
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
+    let labelIndex = 0;
     for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
-        let px = centerX + r * scale;
+        labelIndex++;
+        if (labelIndex % labelSkip !== 0) continue;
+
+        const px = centerX + r * scale;
         if (px < width - margin - 10) {
-            let label = (r >= 1 || r === 0) ? r.toFixed(0) : r.toPrecision(1);
+            let label;
+            if (r >= 1 && r === Math.floor(r)) {
+                label = r.toFixed(0);
+            } else if (r >= 0.1) {
+                label = r.toPrecision(2).replace(/\.?0+$/, '');
+            } else {
+                label = r.toPrecision(1);
+            }
             ctx.fillText(label, px, centerY + 5);
         }
     }
@@ -2280,15 +2426,22 @@ function updateNarrowPolePlot() {
 
     if (allPoints.length === 0) return;
 
-    // Calculate scale based on all visible poles and zeros
-    let maxRe = 0, maxIm = 0;
-    allPoints.forEach(p => {
-        maxRe = Math.max(maxRe, Math.abs(p.re));
-        maxIm = Math.max(maxIm, Math.abs(p.im));
-    });
-    maxRe = Math.max(maxRe, 1) * 1.5;
-    maxIm = Math.max(maxIm, 1) * 1.5;
-    let maxScale = Math.max(maxRe, maxIm);
+    // Calculate scale based on display mode (auto or manual)
+    let maxScale;
+    if (pzmapOptions.autoScale) {
+        // Auto mode: calculate from visible poles and zeros
+        let maxRe = 0, maxIm = 0;
+        allPoints.forEach(p => {
+            maxRe = Math.max(maxRe, Math.abs(p.re));
+            maxIm = Math.max(maxIm, Math.abs(p.im));
+        });
+        maxRe = Math.max(maxRe, 1) * pzmapOptions.autoScaleMultiplier;
+        maxIm = Math.max(maxIm, 1) * pzmapOptions.autoScaleMultiplier;
+        maxScale = Math.max(maxRe, maxIm);
+    } else {
+        // Manual mode: use fixed scale
+        maxScale = pzmapOptions.scaleMax;
+    }
 
     const margin = 40;
     const plotWidth = width - 2 * margin;
@@ -2299,7 +2452,14 @@ function updateNarrowPolePlot() {
     let centerY = height / 2;
 
     // Calculate nice circular grid radii
-    let maxRadius = Math.sqrt(maxRe * maxRe + maxIm * maxIm) / 1.5;
+    let maxRadius;
+    if (pzmapOptions.autoScale) {
+        // In auto mode, divide by multiplier to get the actual data range
+        maxRadius = maxScale / pzmapOptions.autoScaleMultiplier;
+    } else {
+        // In manual mode, use a fraction of the scale for grid spacing
+        maxRadius = maxScale / 1.5;
+    }
     maxRadius = Math.max(maxRadius, 1);
 
     let magnitude = Math.pow(10, Math.floor(Math.log10(maxRadius)));
@@ -2864,6 +3024,11 @@ const URL_KEY_MAP = {
     timeMax: 'tm',
     // nyquistOptions keys
     nyquistCompressionRadius: 'ncr',
+    // pzmapOptions keys
+    pzmapOptions: 'po',
+    autoScale: 'as',
+    scaleMax: 'sm',
+    autoScaleMultiplier: 'asm',
     // layout
     layout: 'ly'
 };
@@ -2898,6 +3063,12 @@ const URL_DEFAULTS = {
     },
     // nyquistOptions defaults
     nyquistCompressionRadius: 3,
+    // pzmapOptions defaults
+    pzmapOptions: {
+        autoScale: true,
+        scaleMax: 10,
+        autoScaleMultiplier: 1.5
+    },
     // slider defaults
     sliderDefaults: {
         logScale: false
@@ -3042,6 +3213,13 @@ function generateShareUrl(options = {}) {
 
     // Include Nyquist compression radius
     saveData.nyquistCompressionRadius = nyquistCompressionRadius;
+
+    // Include Pole-Zero Map options
+    saveData.pzmapOptions = {
+        autoScale: pzmapOptions.autoScale,
+        scaleMax: pzmapOptions.scaleMax,
+        autoScaleMultiplier: pzmapOptions.autoScaleMultiplier
+    };
 
     // Optionally include Dockview layout
     if (includeLayout && dockviewApi) {
@@ -3265,6 +3443,11 @@ function loadFromUrl() {
                 // Restore Nyquist compression radius if present
                 if (loaded.nyquistCompressionRadius !== undefined) {
                     nyquistCompressionRadius = loaded.nyquistCompressionRadius;
+                }
+
+                // Restore Pole-Zero Map options if present
+                if (loaded.pzmapOptions) {
+                    Object.assign(pzmapOptions, loaded.pzmapOptions);
                 }
             }
         } catch (e) {

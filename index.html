@@ -360,6 +360,22 @@
         </sl-menu>
     </sl-popup>
 
+    <!-- Pole-Zero Map Context Menu -->
+    <sl-popup id="pzmap-context-menu" placement="bottom-start" flip shift>
+        <!-- Invisible anchor that we move to the cursor position on right-click -->
+        <span id="pzmap-context-menu-anchor" slot="anchor" class="context-menu-anchor" aria-hidden="true"></span>
+
+        <sl-menu id="pzmap-context-menu-inner">
+            <sl-menu-item type="checkbox" id="pzmap-opt-auto-scale" value="auto-scale" checked>Auto scale</sl-menu-item>
+            <div id="pzmap-custom-scale-panel" class="bode-custom-range-panel" style="display: none;">
+                <div class="range-input-row">
+                    <span class="range-label">Scale max:</span>
+                    <sl-input id="pzmap-scale-max-input" type="number" size="small" value="10" min="0.1" step="any" class="range-input"></sl-input>
+                </div>
+            </div>
+        </sl-menu>
+    </sl-popup>
+
     <!-- QR Code Dialog -->
     <sl-dialog id="qr-dialog" label="Share">
         <div id="qr-container"></div>
