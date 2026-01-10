@@ -1230,7 +1230,14 @@ function setupBodeContextMenu() {
         bodeWrapper.dataset.wheelListenerAttached = 'true';
     }
 
-    bodeWrapper.addEventListener('contextmenu', (e) => showContextMenuAtCursor(contextMenu, contextAnchor, e));
+    bodeWrapper.addEventListener('contextmenu', (e) => {
+        // Sync checkbox and input states before showing context menu
+        if (optAutoFreq) optAutoFreq.checked = autoFreq;
+        if (customFreqPanel) customFreqPanel.style.display = autoFreq ? 'none' : 'block';
+        if (freqMinInput) freqMinInput.value = design.freqMin.toFixed(2);
+        if (freqMaxInput) freqMaxInput.value = design.freqMax.toFixed(2);
+        showContextMenuAtCursor(contextMenu, contextAnchor, e);
+    });
 
     function handleBodeMenuItem(item) {
         if (item.id === 'bode-opt-margin-lines') {
