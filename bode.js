@@ -170,6 +170,12 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         let pMargin = Math.max(10, pRange * 0.05);
         pmin = clip(pminAll - pMargin, -1080, 1080);
         pmax = clip(pmaxAll + pMargin, -1080, 1080);
+
+        // When crossover lines are shown, ensure -180° is visible
+        if (options.showCrossoverLines !== false) {
+            if (pmin > -180) pmin = -180;
+            if (pmax < -180) pmax = -180 + pMargin;
+        }
     } else {
         // Use custom scale values if provided, otherwise use defaults
         gmin = options.gainMin !== undefined ? options.gainMin : -60;

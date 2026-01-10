@@ -755,6 +755,41 @@ function initializeNarrowLayout() {
             }, { passive: false });
         }
 
+        // Mouse wheel: zoom (vertical, ±0.2 decades) and pan (horizontal, ±0.1 decades)
+        const narrowBodeWrapper = document.getElementById('narrow-bode-wrapper');
+        if (narrowBodeWrapper) {
+            narrowBodeWrapper.addEventListener('wheel', function(e) {
+                e.preventDefault();
+
+                if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+                    // Horizontal scroll: pan
+                    const panAmount = e.deltaX > 0 ? 0.1 : -0.1;
+                    design.freqMin += panAmount;
+                    design.freqMax += panAmount;
+                } else {
+                    // Vertical scroll: zoom centered at cursor position
+                    const leftMargin = 70;
+                    const wrapperWidth = narrowBodeWrapper.clientWidth;
+                    const plotWidth = wrapperWidth - leftMargin - 20;
+
+                    const rect = narrowBodeWrapper.getBoundingClientRect();
+                    let p = (e.clientX - rect.left - leftMargin) / plotWidth;
+                    p = Math.max(0, Math.min(1, p));
+
+                    const currentRange = design.freqMax - design.freqMin;
+                    const wCursor = design.freqMin + p * currentRange;
+                    const rangeChange = e.deltaY > 0 ? 0.2 : -0.2;
+                    const newRange = Math.max(0.5, Math.min(10, currentRange + rangeChange));
+
+                    design.freqMin = wCursor - p * newRange;
+                    design.freqMax = wCursor + (1 - p) * newRange;
+                }
+
+                if (autoFreq) autoFreq = false;
+                updateAll();
+            }, { passive: false });
+        }
+
         narrowLayoutInitialized = true;
     }
 
@@ -1004,6 +1039,49 @@ function setupBodeContextMenu() {
             input.dataset.listenerAttached = 'true';
         }
     });
+
+    // Mouse wheel: zoom (vertical, ±0.2 decades) and pan (horizontal, ±0.1 decades)
+    if (!bodeWrapper.dataset.wheelListenerAttached) {
+        bodeWrapper.addEventListener('wheel', function(e) {
+            e.preventDefault();
+
+            if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+                // Horizontal scroll: pan
+                const panAmount = e.deltaX > 0 ? 0.1 : -0.1;
+                design.freqMin += panAmount;
+                design.freqMax += panAmount;
+            } else {
+                // Vertical scroll: zoom centered at cursor position
+                const leftMargin = 70;
+                const wrapperWidth = bodeWrapper.clientWidth;
+                const plotWidth = wrapperWidth - leftMargin - 20;
+
+                const rect = bodeWrapper.getBoundingClientRect();
+                let p = (e.clientX - rect.left - leftMargin) / plotWidth;
+                p = Math.max(0, Math.min(1, p));
+
+                const currentRange = design.freqMax - design.freqMin;
+                const wCursor = design.freqMin + p * currentRange;
+                const rangeChange = e.deltaY > 0 ? 0.2 : -0.2;
+                const newRange = Math.max(0.5, Math.min(10, currentRange + rangeChange));
+
+                design.freqMin = wCursor - p * newRange;
+                design.freqMax = wCursor + (1 - p) * newRange;
+            }
+
+            // Disable auto frequency mode and update UI
+            if (autoFreq) {
+                autoFreq = false;
+                if (optAutoFreq) optAutoFreq.checked = false;
+                if (customFreqPanel) customFreqPanel.style.display = 'block';
+            }
+            if (freqMinInput) freqMinInput.value = design.freqMin.toFixed(2);
+            if (freqMaxInput) freqMaxInput.value = design.freqMax.toFixed(2);
+
+            updateAll();
+        }, { passive: false });
+        bodeWrapper.dataset.wheelListenerAttached = 'true';
+    }
 
     // Show context menu on right-click
     bodeWrapper.addEventListener('contextmenu', (e) => {
