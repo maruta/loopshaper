@@ -69,6 +69,9 @@ window.lastNyquistN = null;
 // Dockview API reference
 let dockviewApi = null;
 
+// Flag to prevent URL updates during initialization
+let isInitialized = false;
+
 // Panel definitions for the View menu
 const PANEL_DEFINITIONS = [
     { id: 'system-definition', component: 'system-definition', title: 'System Definition' },
@@ -179,18 +182,16 @@ function initializeDockview() {
         createDefaultLayout();
     }
 
-    // Listen for layout changes to redraw canvases
+    // Listen for layout changes to redraw canvases and sync URL
     dockviewApi.onDidLayoutChange(() => {
-        // Stop Nyquist animation during layout changes
         stopNyquistAnimation();
-
-        // Delay redraw to allow layout to settle
         setTimeout(() => {
             updateBodePlot();
             updatePolePlot();
             updateNyquistPlot();
             updateStepResponsePlot();
         }, 50);
+        updateBrowserUrl();
     });
 
     // Listen for panel activation to reinitialize UI elements and update plots
@@ -443,6 +444,9 @@ document.addEventListener('DOMContentLoaded', function() {
             ],
             throwOnError: false
         });
+
+        // Enable browser URL synchronization after initialization
+        isInitialized = true;
     });
 });
 
@@ -1165,6 +1169,27 @@ function setupPzmapContextMenu() {
     }
 }
 
+// Browser URL synchronization
+// Updates address bar with shareable URL containing current design and layout
+let urlUpdateTimeout = null;
+const URL_UPDATE_DELAY = 1000;
+
+function updateBrowserUrl() {
+    if (!isInitialized) return;
+
+    if (urlUpdateTimeout) {
+        clearTimeout(urlUpdateTimeout);
+    }
+    urlUpdateTimeout = setTimeout(function() {
+        try {
+            const url = generateShareUrl({ includeLayout: true });
+            history.replaceState(null, '', url);
+        } catch (e) {
+            console.log('Error updating browser URL:', e);
+        }
+    }, URL_UPDATE_DELAY);
+}
+
 function debounceUpdate() {
     if (updateTimeout) {
         clearTimeout(updateTimeout);
@@ -1563,6 +1588,8 @@ function updateAll() {
             eqTDisplay.innerHTML = '';
         }
     }
+
+    updateBrowserUrl();
 }
 
 function substituteVars(expr, vars) {
@@ -1795,6 +1822,8 @@ function updateBodePlot() {
     } catch (e) {
         console.log('Bode plot error:', e);
     }
+
+    updateBrowserUrl();
 }
 
 function buildNyquistCacheKey(Lnode, imagAxisPoles) {
@@ -2392,6 +2421,8 @@ function updatePolePlot() {
             }
         }
     }
+
+    updateBrowserUrl();
 }
 
 // Narrow layout pole-zero plot (separate function to handle narrow-specific element IDs)
@@ -2694,6 +2725,8 @@ function updateNarrowPolePlot() {
             else drawOutOfRangeIndicator(p, true, colorT);
         });
     }
+
+    updateBrowserUrl();
 }
 
 function updateNarrowNyquistPlot() {
@@ -2743,6 +2776,8 @@ function updateNarrowNyquistPlot() {
     } catch (e) {
         console.log('Narrow Nyquist plot error:', e);
     }
+
+    updateBrowserUrl();
 }
 
 function updateNarrowNyquistMappingFormula() {
@@ -2810,6 +2845,8 @@ function updateNyquistPlot() {
     } catch (e) {
         console.log('Nyquist plot error:', e);
     }
+
+    updateBrowserUrl();
 }
 
 function updateNyquistMappingFormula() {
@@ -4129,6 +4166,8 @@ function updateStepResponsePlot() {
     } catch (e) {
         console.log('Step response plot error:', e);
     }
+
+    updateBrowserUrl();
 }
 
 // Narrow layout step response plot
