@@ -2223,17 +2223,20 @@ function updatePolePlot() {
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // Axis labels
     ctx.fillStyle = '#333333';
-    ctx.font = '12px Consolas, monospace';
+    ctx.font = '14px Consolas, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Re', width - margin + 15, centerY + 4);
-    ctx.fillText('Im', centerX, margin - 10);
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Re', width - margin + 18, centerY);
+    ctx.fillText('Im', centerX, margin - 15);
 
     // Draw tick labels on positive real axis (skip labels if too dense)
     const labelPixelSpacing = niceStep * scale;
-    const minLabelSpacing = 25;
+    const minLabelSpacing = 30;
     const labelSkip = Math.max(1, Math.ceil(minLabelSpacing / labelPixelSpacing));
 
+    ctx.font = '12px Consolas, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     let labelIndex = 0;
@@ -2242,7 +2245,7 @@ function updatePolePlot() {
         if (labelIndex % labelSkip !== 0) continue;
 
         const px = centerX + r * scale;
-        if (px < width - margin - 10) {
+        if (px < width - margin - 15) {
             let label;
             if (r >= 1 && r === Math.floor(r)) {
                 label = r.toFixed(0);
@@ -2251,69 +2254,125 @@ function updatePolePlot() {
             } else {
                 label = r.toPrecision(1);
             }
-            ctx.fillText(label, px, centerY + 5);
+            ctx.fillText(label, px, centerY + 6);
         }
     }
 
     const colorL = '#0088aa';  // L(s) color (same as Bode plot)
     const colorT = '#dd6600';  // T(s) color (same as Bode plot)
 
-    // Helper function to draw a zero (circle)
+    // Check if point is within display range
+    function isInRange(p) {
+        return Math.abs(p.re) <= maxScale && Math.abs(p.im) <= maxScale;
+    }
+
     function drawZero(z, color) {
-        let px = centerX + z.re * scale;
-        let py = centerY - z.im * scale;
+        const px = centerX + z.re * scale;
+        const py = centerY - z.im * scale;
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(px, py, 6, 0, 2 * Math.PI);
+        ctx.arc(px, py, 5, 0, 2 * Math.PI);
         ctx.stroke();
     }
 
-    // Helper function to draw a pole (cross)
     function drawPole(p, color) {
-        let px = centerX + p.re * scale;
-        let py = centerY - p.im * scale;
+        const px = centerX + p.re * scale;
+        const py = centerY - p.im * scale;
         ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(px - 8, py - 8);
-        ctx.lineTo(px + 8, py + 8);
-        ctx.moveTo(px + 8, py - 8);
-        ctx.lineTo(px - 8, py + 8);
+        ctx.moveTo(px - 5, py - 5);
+        ctx.lineTo(px + 5, py + 5);
+        ctx.moveTo(px + 5, py - 5);
+        ctx.lineTo(px - 5, py + 5);
         ctx.stroke();
     }
 
-    // Draw L(s) poles and zeros (if visible)
-    if (showLpz) {
-        Lzeros.forEach(z => drawZero(z, colorL));
-        Lpoles.forEach(p => drawPole(p, colorL));
+    function drawOutOfRangeIndicator(p, isPole, color) {
+        const mag = Math.sqrt(p.re * p.re + p.im * p.im);
+        if (mag < 1e-10) return;
+
+        const angle = Math.atan2(-p.im, p.re);
+        const tipRadius = maxCircleRadius * scale;
+        const tipX = centerX + tipRadius * Math.cos(angle);
+        const tipY = centerY + tipRadius * Math.sin(angle);
+
+        // Draw triangle pointing outward (tip at grid edge)
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        const triDepth = 8, triWidth = 6;
+        const baseRadius = tipRadius - triDepth;
+        const baseX = centerX + baseRadius * Math.cos(angle);
+        const baseY = centerY + baseRadius * Math.sin(angle);
+        const perpAngle = angle + Math.PI / 2;
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(baseX + triWidth * Math.cos(perpAngle), baseY + triWidth * Math.sin(perpAngle));
+        ctx.lineTo(baseX - triWidth * Math.cos(perpAngle), baseY - triWidth * Math.sin(perpAngle));
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw symbol and magnitude label
+        const labelRadius = baseRadius - 10;
+        const labelX = centerX + labelRadius * Math.cos(angle);
+        const labelY = centerY + labelRadius * Math.sin(angle);
+
+        ctx.font = '12px Consolas, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        let magStr;
+        if (mag >= 100) magStr = mag.toFixed(0);
+        else if (mag >= 10) magStr = mag.toFixed(1);
+        else magStr = mag.toPrecision(2);
+
+        const symbol = isPole ? '×' : '○';
+        const label = symbol + magStr;
+        const textWidth = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fillRect(labelX - textWidth / 2 - 2, labelY - 7, textWidth + 4, 14);
+        ctx.fillStyle = color;
+        ctx.fillText(label, labelX, labelY);
     }
 
-    // Draw T(s) poles and zeros (if visible)
+    // Draw L(s) poles and zeros
+    if (showLpz) {
+        Lzeros.forEach(z => {
+            if (isInRange(z)) drawZero(z, colorL);
+            else drawOutOfRangeIndicator(z, false, colorL);
+        });
+        Lpoles.forEach(p => {
+            if (isInRange(p)) drawPole(p, colorL);
+            else drawOutOfRangeIndicator(p, true, colorL);
+        });
+    }
+
+    // Draw T(s) poles and zeros
     if (showTpz) {
-        Tzeros.forEach(z => drawZero(z, colorT));
-        Tpoles.forEach(p => drawPole(p, colorT));
+        Tzeros.forEach(z => {
+            if (isInRange(z)) drawZero(z, colorT);
+            else drawOutOfRangeIndicator(z, false, colorT);
+        });
+        Tpoles.forEach(p => {
+            if (isInRange(p)) drawPole(p, colorT);
+            else drawOutOfRangeIndicator(p, true, colorT);
+        });
     }
 
     // Draw current s point from Nyquist animation
-    if (showLpz && nyquistAnimationData && isPanelOpen('nyquist')) {
-        let currentS = getCurrentNyquistSValue();
+    if (showLpz && nyquistAnimationData && nyquistAnimationPlaying && isPanelVisible('nyquist')) {
+        const currentS = getCurrentNyquistSValue();
         if (currentS) {
             if (currentS.indentation) {
-                // Pole indentation: draw RHP semicircle around the pole with phase marker
                 const indent = currentS.indentation;
                 const polePx = centerX;
                 const polePy = centerY - indent.poleIm * scale;
                 const circleRadius = 12;
-
-                // RHP semicircle (theta: -π/2 to +π/2)
                 ctx.strokeStyle = '#0066ff';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.arc(polePx, polePy, circleRadius, Math.PI / 2, -Math.PI / 2, true);
                 ctx.stroke();
-
-                // Phase marker on the semicircle
                 const markerX = polePx + circleRadius * Math.cos(indent.theta);
                 const markerY = polePy - circleRadius * Math.sin(indent.theta);
                 ctx.fillStyle = '#0066ff';
@@ -2321,10 +2380,8 @@ function updatePolePlot() {
                 ctx.arc(markerX, markerY, 4, 0, 2 * Math.PI);
                 ctx.fill();
             } else {
-                // Normal point on imaginary axis
-                let px = centerX + currentS.re * scale;
-                let py = centerY - currentS.im * scale;
-
+                const px = centerX + currentS.re * scale;
+                const py = centerY - currentS.im * scale;
                 ctx.fillStyle = '#0066ff';
                 ctx.strokeStyle = '#ffffff';
                 ctx.lineWidth = 2;
@@ -2447,36 +2504,31 @@ function updateNarrowPolePlot() {
     const plotWidth = width - 2 * margin;
     const plotHeight = height - 2 * margin;
     const scale = Math.min(plotWidth, plotHeight) / (2 * maxScale);
+    const centerX = width / 2;
+    const centerY = height / 2;
 
-    let centerX = width / 2;
-    let centerY = height / 2;
+    // Calculate grid step size based on panel size (ensure readable spacing)
+    const minPixelSpacing = 30;
+    const maxGridLines = Math.floor(Math.min(plotWidth, plotHeight) / 2 / minPixelSpacing);
+    const targetSteps = Math.max(2, Math.min(6, maxGridLines));
+    const rawStep = maxScale / targetSteps;
 
-    // Calculate nice circular grid radii
-    let maxRadius;
-    if (pzmapOptions.autoScale) {
-        // In auto mode, divide by multiplier to get the actual data range
-        maxRadius = maxScale / pzmapOptions.autoScaleMultiplier;
-    } else {
-        // In manual mode, use a fraction of the scale for grid spacing
-        maxRadius = maxScale / 1.5;
-    }
-    maxRadius = Math.max(maxRadius, 1);
-
-    let magnitude = Math.pow(10, Math.floor(Math.log10(maxRadius)));
-    let normalized = maxRadius / magnitude;
+    // Round to nice step values (1, 2, 5, 10, 20, 50, ...)
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const normalized = rawStep / magnitude;
     let niceStep;
-    if (normalized <= 1) niceStep = magnitude * 0.5;
-    else if (normalized <= 2) niceStep = magnitude;
-    else if (normalized <= 5) niceStep = magnitude * 2;
-    else niceStep = magnitude * 5;
+    if (normalized <= 1.5) niceStep = magnitude;
+    else if (normalized <= 3.5) niceStep = magnitude * 2;
+    else if (normalized <= 7.5) niceStep = magnitude * 5;
+    else niceStep = magnitude * 10;
 
     // Draw circular grid
     ctx.strokeStyle = '#c0c0c0';
     ctx.lineWidth = 1;
 
-    let maxCircleRadius = Math.ceil(maxScale / niceStep) * niceStep;
+    const maxCircleRadius = Math.ceil(maxScale / niceStep) * niceStep;
     for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
-        let pixelRadius = r * scale;
+        const pixelRadius = r * scale;
         ctx.beginPath();
         ctx.arc(centerX, centerY, pixelRadius, 0, 2 * Math.PI);
         ctx.stroke();
@@ -2484,8 +2536,8 @@ function updateNarrowPolePlot() {
 
     // Draw radial lines (every 45 degrees)
     for (let angle = 0; angle < Math.PI; angle += Math.PI / 4) {
-        let dx = Math.cos(angle) * maxCircleRadius * scale;
-        let dy = Math.sin(angle) * maxCircleRadius * scale;
+        const dx = Math.cos(angle) * maxCircleRadius * scale;
+        const dy = Math.sin(angle) * maxCircleRadius * scale;
         ctx.beginPath();
         ctx.moveTo(centerX - dx, centerY + dy);
         ctx.lineTo(centerX + dx, centerY - dy);
@@ -2512,57 +2564,135 @@ function updateNarrowPolePlot() {
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // Axis labels
     ctx.fillStyle = '#333333';
+    ctx.font = '14px Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Re', width - margin + 18, centerY);
+    ctx.fillText('Im', centerX, margin - 15);
+
+    // Draw tick labels on positive real axis (skip labels if too dense)
+    const labelPixelSpacing = niceStep * scale;
+    const minLabelSpacing = 30;
+    const labelSkip = Math.max(1, Math.ceil(minLabelSpacing / labelPixelSpacing));
+
     ctx.font = '12px Consolas, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Re', width - margin + 15, centerY + 4);
-    ctx.fillText('Im', centerX, margin - 10);
-
-    // Draw tick labels on positive real axis
-    ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
+    let labelIndex = 0;
     for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
-        let px = centerX + r * scale;
-        if (px < width - margin - 10) {
-            let label = (r >= 1 || r === 0) ? r.toFixed(0) : r.toPrecision(1);
-            ctx.fillText(label, px, centerY + 5);
+        labelIndex++;
+        if (labelIndex % labelSkip !== 0) continue;
+
+        const px = centerX + r * scale;
+        if (px < width - margin - 15) {
+            let label;
+            if (r >= 1 && r === Math.floor(r)) {
+                label = r.toFixed(0);
+            } else if (r >= 0.1) {
+                label = r.toPrecision(2).replace(/\.?0+$/, '');
+            } else {
+                label = r.toPrecision(1);
+            }
+            ctx.fillText(label, px, centerY + 6);
         }
     }
 
     const colorL = '#0088aa';
     const colorT = '#dd6600';
 
+    function isInRange(p) {
+        return Math.abs(p.re) <= maxScale && Math.abs(p.im) <= maxScale;
+    }
+
     function drawZero(z, color) {
-        let px = centerX + z.re * scale;
-        let py = centerY - z.im * scale;
+        const px = centerX + z.re * scale;
+        const py = centerY - z.im * scale;
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(px, py, 6, 0, 2 * Math.PI);
+        ctx.arc(px, py, 5, 0, 2 * Math.PI);
         ctx.stroke();
     }
 
     function drawPole(p, color) {
-        let px = centerX + p.re * scale;
-        let py = centerY - p.im * scale;
+        const px = centerX + p.re * scale;
+        const py = centerY - p.im * scale;
         ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(px - 8, py - 8);
-        ctx.lineTo(px + 8, py + 8);
-        ctx.moveTo(px + 8, py - 8);
-        ctx.lineTo(px - 8, py + 8);
+        ctx.moveTo(px - 5, py - 5);
+        ctx.lineTo(px + 5, py + 5);
+        ctx.moveTo(px + 5, py - 5);
+        ctx.lineTo(px - 5, py + 5);
         ctx.stroke();
     }
 
+    function drawOutOfRangeIndicator(p, isPole, color) {
+        const mag = Math.sqrt(p.re * p.re + p.im * p.im);
+        if (mag < 1e-10) return;
+
+        const angle = Math.atan2(-p.im, p.re);
+        const tipRadius = maxCircleRadius * scale;
+        const tipX = centerX + tipRadius * Math.cos(angle);
+        const tipY = centerY + tipRadius * Math.sin(angle);
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        const triDepth = 8, triWidth = 6;
+        const baseRadius = tipRadius - triDepth;
+        const baseX = centerX + baseRadius * Math.cos(angle);
+        const baseY = centerY + baseRadius * Math.sin(angle);
+        const perpAngle = angle + Math.PI / 2;
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(baseX + triWidth * Math.cos(perpAngle), baseY + triWidth * Math.sin(perpAngle));
+        ctx.lineTo(baseX - triWidth * Math.cos(perpAngle), baseY - triWidth * Math.sin(perpAngle));
+        ctx.closePath();
+        ctx.fill();
+
+        const labelRadius = baseRadius - 10;
+        const labelX = centerX + labelRadius * Math.cos(angle);
+        const labelY = centerY + labelRadius * Math.sin(angle);
+
+        ctx.font = '12px Consolas, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        let magStr;
+        if (mag >= 100) magStr = mag.toFixed(0);
+        else if (mag >= 10) magStr = mag.toFixed(1);
+        else magStr = mag.toPrecision(2);
+
+        const symbol = isPole ? '×' : '○';
+        const label = symbol + magStr;
+        const textWidth = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fillRect(labelX - textWidth / 2 - 2, labelY - 7, textWidth + 4, 14);
+        ctx.fillStyle = color;
+        ctx.fillText(label, labelX, labelY);
+    }
+
     if (narrowShowLpz) {
-        Lzeros.forEach(z => drawZero(z, colorL));
-        Lpoles.forEach(p => drawPole(p, colorL));
+        Lzeros.forEach(z => {
+            if (isInRange(z)) drawZero(z, colorL);
+            else drawOutOfRangeIndicator(z, false, colorL);
+        });
+        Lpoles.forEach(p => {
+            if (isInRange(p)) drawPole(p, colorL);
+            else drawOutOfRangeIndicator(p, true, colorL);
+        });
     }
 
     if (narrowShowTpz) {
-        Tzeros.forEach(z => drawZero(z, colorT));
-        Tpoles.forEach(p => drawPole(p, colorT));
+        Tzeros.forEach(z => {
+            if (isInRange(z)) drawZero(z, colorT);
+            else drawOutOfRangeIndicator(z, false, colorT);
+        });
+        Tpoles.forEach(p => {
+            if (isInRange(p)) drawPole(p, colorT);
+            else drawOutOfRangeIndicator(p, true, colorT);
+        });
     }
 }
 
@@ -3732,7 +3862,7 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
     // Draw grid
     ctx.strokeStyle = '#c0c0c0';
     ctx.lineWidth = 1;
-    ctx.font = '12px Consolas, monospace';
+    ctx.font = '14px Consolas, monospace';
     ctx.fillStyle = '#333333';
 
     // Time axis grid
@@ -3745,7 +3875,7 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
         ctx.moveTo(x, topMargin);
         ctx.lineTo(x, topMargin + plotHeight);
         ctx.stroke();
-        ctx.fillText(formatAxisValue(t), x, topMargin + plotHeight + 5);
+        ctx.fillText(formatAxisValue(t), x, topMargin + plotHeight + 8);
     }
 
     // Y axis grid
@@ -3759,7 +3889,7 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
             ctx.moveTo(leftMargin, py);
             ctx.lineTo(leftMargin + plotWidth, py);
             ctx.stroke();
-            ctx.fillText(formatAxisValue(y), leftMargin - 5, py);
+            ctx.fillText(formatAxisValue(y), leftMargin - 8, py);
         }
     }
 
@@ -3787,12 +3917,15 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
 
     // Draw axis labels
     ctx.fillStyle = '#333333';
+    ctx.font = '14px Consolas, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Time [s]', leftMargin + plotWidth / 2, height - 10);
+    ctx.textBaseline = 'top';
+    ctx.fillText('Time [s]', leftMargin + plotWidth / 2, height - 18);
 
     ctx.save();
-    ctx.translate(15, topMargin + plotHeight / 2);
+    ctx.translate(18, topMargin + plotHeight / 2);
     ctx.rotate(-Math.PI / 2);
+    ctx.textBaseline = 'middle';
     ctx.fillText('Response', 0, 0);
     ctx.restore();
 

@@ -173,14 +173,7 @@ function drawNyquist(Lcompiled, imagAxisPoles, options) {
     drawCriticalPoint(ctx, criticalX, criticalY);
 
     // Draw Nyquist curve
-    drawNyquistCurve(ctx, nyquistData.points, toCanvasX, toCanvasY);
-
-    // Draw axis labels
-    ctx.fillStyle = '#333333';
-    ctx.font = '12px Consolas, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('Re', width - margin + 20, centerY + 4);
-    ctx.fillText('Im', centerX, margin - 15);
+    drawNyquistCurve(ctx, nyquistData.points, toCanvasX, toCanvasY, R);
 
     // Start animation if enabled
     if (animate) {
@@ -232,12 +225,14 @@ function calculateNyquistDataFromAnalysis(nyq, R) {
     }
 
     // Calculate cumulative arc length (in compressed space)
+    // Scale discontinuity threshold based on compression radius
+    const discontinuityThreshold = Math.max(0.5, 0.3 * R);
     let cumulativeLength = [0];
     for (let i = 1; i < allPoints.length; i++) {
         const dx = allPoints[i].cx - allPoints[i - 1].cx;
         const dy = allPoints[i].cy - allPoints[i - 1].cy;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const clampedDist = dist > 5 ? 0 : dist;
+        const clampedDist = dist > discontinuityThreshold ? 0 : dist;
         cumulativeLength.push(cumulativeLength[i - 1] + clampedDist);
     }
     const totalLength = cumulativeLength[cumulativeLength.length - 1];
@@ -274,14 +269,14 @@ function drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R) {
     }
 
     // Draw angle labels at 45 degree intervals (on the outer edge)
-    ctx.fillStyle = '#888888';
-    ctx.font = '10px Consolas, monospace';
-    const labelRadius = maxRadius * scale + 12;
+    ctx.fillStyle = '#333333';
+    ctx.font = '14px Consolas, monospace';
+    const labelRadius = maxRadius * scale + 16;
 
     const angleLabels = [
-        { deg: 0, label: '0°' },
+        { deg: 0, label: 'Re' },
         { deg: 45, label: '45°' },
-        { deg: 90, label: '90°' },
+        { deg: 90, label: 'Im' },
         { deg: 135, label: '135°' },
         { deg: 180, label: '180°' },
         { deg: -45, label: '-45°' },
@@ -311,45 +306,88 @@ function drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R) {
         ctx.fillText(item.label, lx, ly);
     }
 
-    // Draw concentric circles in compressed space
-    // We want to show circles at original radii: 0.5, 1, 2, 5, 10, etc.
-    const originalRadii = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100];
+    // Draw concentric circles: gain margin radii (0.5, 2) in green, others at 10x intervals
+    const gainMarginRadii = [0.5, 2];
+    const standardRadii = [];
+    let multiplier = 0.1;
+    while (multiplier <= 1e12) {
+        const compressedR = multiplier / (1 + multiplier / R);
+        if (compressedR > maxRadius) break;
+        standardRadii.push(multiplier);
+        multiplier *= 10;
+    }
 
-    for (let r of originalRadii) {
-        // Compress the radius
+    const allRadii = [...new Set([...gainMarginRadii, ...standardRadii])].sort((a, b) => a - b);
+    const minGridSpacing = 3;
+    const radiusPixelPositions = [];
+    let lastPixelRadius = 0;
+
+    for (const r of allRadii) {
         const compressedR = r / (1 + r / R);
         if (compressedR > maxRadius) continue;
-
         const pixelRadius = compressedR * scale;
+        const spacing = pixelRadius - lastPixelRadius;
+        if (radiusPixelPositions.length === 0 || spacing >= minGridSpacing) {
+            const labelText = r >= 1 ? r.toString() : r.toFixed(1);
+            const isGainMargin = gainMarginRadii.includes(r);
+            radiusPixelPositions.push({ r, pixelRadius, labelText, isGainMargin });
+            lastPixelRadius = pixelRadius;
+        }
+    }
 
+    for (const { r, pixelRadius, isGainMargin } of radiusPixelPositions) {
         if (Math.abs(r - 1) < 0.001) {
-            // Unit circle - black dashed
             ctx.strokeStyle = '#000000';
             ctx.lineWidth = 1.5;
             ctx.setLineDash([5, 5]);
+        } else if (isGainMargin) {
+            ctx.strokeStyle = '#90c090';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]);
         } else {
             ctx.strokeStyle = '#c0c0c0';
             ctx.lineWidth = 1;
             ctx.setLineDash([]);
         }
-
         ctx.beginPath();
         ctx.arc(centerX, centerY, pixelRadius, 0, 2 * Math.PI);
         ctx.stroke();
-
-        // Draw radius label on positive real axis
-        if (r >= 0.5 && r !== 1) {
-            ctx.fillStyle = '#999999';
-            ctx.font = '10px Consolas, monospace';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'bottom';
-            ctx.setLineDash([]);
-            let labelX = centerX + pixelRadius + 3;
-            let labelText = r >= 1 ? r.toString() : r.toFixed(1);
-            ctx.fillText(labelText, labelX, centerY - 2);
-        }
     }
     ctx.setLineDash([]);
+
+    // Draw radius labels (prioritize values closer to 1)
+    const minLabelSpacing = 25;
+    const labelCandidates = radiusPixelPositions
+        .filter(item => Math.abs(item.r - 1) >= 0.001)
+        .map(item => ({ ...item, distFrom1: Math.abs(Math.log10(item.r)) }))
+        .sort((a, b) => a.distFrom1 - b.distFrom1);
+
+    const occupiedRanges = [];
+    const labelsToShow = [];
+    for (const item of labelCandidates) {
+        const labelX = centerX + item.pixelRadius;
+        const halfWidth = minLabelSpacing / 2;
+        const conflicts = occupiedRanges.some(range =>
+            labelX + halfWidth > range.left && labelX - halfWidth < range.right
+        );
+        if (!conflicts) {
+            labelsToShow.push(item);
+            occupiedRanges.push({ left: labelX - halfWidth, right: labelX + halfWidth });
+        }
+    }
+
+    labelsToShow.sort((a, b) => a.pixelRadius - b.pixelRadius);
+    let labelAbove = true;
+    ctx.fillStyle = '#333333';
+    ctx.font = '14px Consolas, monospace';
+    ctx.textAlign = 'center';
+    for (const item of labelsToShow) {
+        const labelX = centerX + item.pixelRadius;
+        ctx.textBaseline = labelAbove ? 'top' : 'bottom';
+        const labelY = labelAbove ? centerY + 4 : centerY - 4;
+        ctx.fillText(item.labelText, labelX, labelY);
+        labelAbove = !labelAbove;
+    }
 
     // Draw axes
     ctx.strokeStyle = '#999999';
@@ -371,8 +409,8 @@ function drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R) {
 // Draw critical point at -1
 function drawCriticalPoint(ctx, x, y) {
     ctx.strokeStyle = '#dc3545';
-    ctx.lineWidth = 2.5;
-    const size = 8;
+    ctx.lineWidth = 2;
+    const size = 5;
 
     // Draw X mark
     ctx.beginPath();
@@ -382,17 +420,22 @@ function drawCriticalPoint(ctx, x, y) {
     ctx.lineTo(x - size, y + size);
     ctx.stroke();
 
-    // Label
+    // Label (left side of the x mark)
     ctx.fillStyle = '#dc3545';
-    ctx.font = '12px Consolas, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('-1', x, y + size + 3);
+    ctx.font = '14px Consolas, monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('-1', x - size - 4, y);
 }
 
 // Draw the Nyquist curve
-function drawNyquistCurve(ctx, points, toCanvasX, toCanvasY) {
+// R: compression radius, used to scale discontinuity threshold
+function drawNyquistCurve(ctx, points, toCanvasX, toCanvasY, R) {
     if (points.length < 2) return;
+
+    // Scale discontinuity threshold based on compression radius
+    // In compressed space, points on the large semicircle (pole indentation) have spacing ~πR/N
+    const discontinuityThreshold = Math.max(0.5, 0.3 * (R || 3));
 
     ctx.strokeStyle = '#0088aa';
     ctx.lineWidth = 2;
@@ -406,7 +449,7 @@ function drawNyquistCurve(ctx, points, toCanvasX, toCanvasY) {
         // Skip if points are too far apart (discontinuity)
         let dx = points[i].cx - points[i - 1].cx;
         let dy = points[i].cy - points[i - 1].cy;
-        if (Math.sqrt(dx * dx + dy * dy) > 5) {
+        if (Math.sqrt(dx * dx + dy * dy) > discontinuityThreshold) {
             ctx.stroke();
             ctx.beginPath();
             ctx.moveTo(toCanvasX(points[i].cx), toCanvasY(points[i].cy));
@@ -623,14 +666,7 @@ function renderNyquistFrame(canvas, ctx, points, cumulativeLength,
     drawCriticalPoint(ctx, criticalX, criticalY);
 
     // Redraw curve
-    drawNyquistCurve(ctx, points, toCanvasX, toCanvasY);
-
-    // Draw axis labels
-    ctx.fillStyle = '#333333';
-    ctx.font = '12px Consolas, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('Re', width - 30, centerY + 4);
-    ctx.fillText('Im', centerX, 35);
+    drawNyquistCurve(ctx, points, toCanvasX, toCanvasY, R);
 
     // Get interpolated point position at current arc length
     const p = getPointAtArcLength(points, cumulativeLength, currentArcLength);
