@@ -1,5 +1,24 @@
 // Bode plot drawing for loop shaping tool
 
+// Format frequency value with appropriate precision
+function formatFrequency(freq) {
+    if (freq >= 1000) {
+        return freq.toPrecision(3);
+    } else if (freq >= 100) {
+        return freq.toFixed(1);
+    } else if (freq >= 10) {
+        return freq.toFixed(2);
+    } else if (freq >= 1) {
+        return freq.toFixed(2);
+    } else if (freq >= 0.1) {
+        return freq.toFixed(3);
+    } else if (freq >= 0.01) {
+        return freq.toFixed(4);
+    } else {
+        return freq.toPrecision(2);
+    }
+}
+
 // Draw multiple transfer functions on the same Bode plot
 // transferFunctions: array of { compiled, gainColor, phaseColor, visible }
 function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
@@ -391,37 +410,73 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
             }
         });
 
-        // Draw stability margin lines on the Bode plot - if enabled
+        // Draw stability margin annotations if enabled and system is stable
         if (options.showMarginLines !== false) {
-            // Determine stability (all margins positive)
             let isStable = gainMargins.every(gm => gm.margin > 0) && phaseMargins.every(pm => pm.margin > 0);
 
-            // Only draw margin lines if the system is stable
             if (isStable) {
                 ctx.save();
                 ctx.lineWidth = 2;
-                ctx.strokeStyle = '#000000';  // Black for stable system
+                ctx.strokeStyle = '#000000';
+                ctx.fillStyle = '#000000';
+                ctx.font = '12px Consolas, monospace';
 
-                // Draw gain margin lines (vertical lines from 0dB to gain at phase crossover)
+                // Draw gain margins
                 gainMargins.forEach((gm) => {
                     let x = w2x(math.log10(gm.frequency));
                     let y0dB = g2y(0);
                     let yGain = g2y(gm.gainAtCrossover);
+                    let yPhaseRef = p2y(-180);
+
+                    // Vertical line on gain plot (0dB to gain value)
                     ctx.beginPath();
                     ctx.moveTo(x, y0dB);
                     ctx.lineTo(x, yGain);
                     ctx.stroke();
+
+                    // GM label at midpoint
+                    let gmValue = Math.round(gm.margin);
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('GM=' + (gmValue >= 0 ? '+' : '') + gmValue + 'dB', x + 4, (y0dB + yGain) / 2);
+
+                    // Crossover marker on phase plot (-180° line)
+                    ctx.beginPath();
+                    ctx.arc(x, yPhaseRef, 4, 0, 2 * Math.PI);
+                    ctx.fill();
+
+                    // Frequency label
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText('ω=' + formatFrequency(gm.frequency) + 'rad/s', x + 6, yPhaseRef - 6);
                 });
 
-                // Draw phase margin lines (vertical lines from phase at gain crossover to -180° reference)
+                // Draw phase margins
                 phaseMargins.forEach((pm) => {
                     let x = w2x(math.log10(pm.frequency));
                     let yPhase = p2y(pm.phaseAtCrossover);
                     let yRef = p2y(pm.referencePhase);
+                    let y0dB = g2y(0);
+
+                    // Vertical line on phase plot (phase value to -180° reference)
                     ctx.beginPath();
                     ctx.moveTo(x, yPhase);
                     ctx.lineTo(x, yRef);
                     ctx.stroke();
+
+                    // PM label at midpoint
+                    let pmValue = Math.round(pm.margin);
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('PM=' + pmValue + '°', x + 4, (yPhase + yRef) / 2);
+
+                    // Crossover marker on gain plot (0dB line)
+                    ctx.beginPath();
+                    ctx.arc(x, y0dB, 4, 0, 2 * Math.PI);
+                    ctx.fill();
+
+                    // Frequency label
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText('ω=' + formatFrequency(pm.frequency) + 'rad/s', x + 6, y0dB - 6);
                 });
 
                 ctx.restore();
