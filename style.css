@@ -796,3 +796,92 @@ sl-textarea.is-invalid::part(base) {
     background-color: var(--sl-color-primary-200);
 }
 
+/* Examples Dialog */
+#examples-dialog::part(panel) {
+    box-shadow: none;
+    border: 1px solid var(--sl-color-neutral-300);
+    max-width: 600px;
+}
+
+#examples-dialog::part(body) {
+    padding: 0;
+}
+
+.examples-content {
+    padding: 0;
+}
+
+.examples-section {
+    border-bottom: 1px solid var(--sl-color-neutral-200);
+}
+
+.examples-section:last-child {
+    border-bottom: none;
+}
+
+.examples-section-title {
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--sl-color-neutral-700);
+    background-color: var(--sl-color-neutral-100);
+    border-bottom: 1px solid var(--sl-color-neutral-200);
+}
+
+.examples-list {
+    padding: 8px 0;
+}
+
+.example-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+    gap: 12px;
+}
+
+.example-item:hover {
+    background-color: var(--sl-color-neutral-100);
+}
+
+.example-name {
+    min-width: 140px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--sl-color-neutral-800);
+}
+
+.example-formula {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    overflow: visible;
+}
+
+.example-formula .katex {
+    font-size: 1em;
+    white-space: nowrap;
+}
+
+.example-copy-icon {
+    color: var(--sl-color-neutral-500);
+    font-size: 16px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.example-item:hover .example-copy-icon {
+    opacity: 1;
+}
+
+.example-item-copied {
+    background-color: var(--sl-color-success-100) !important;
+}
+
+.example-item-copied .example-copy-icon {
+    color: var(--sl-color-success-600);
+    opacity: 1;
+}
+

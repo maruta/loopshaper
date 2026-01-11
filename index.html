@@ -43,6 +43,7 @@
             <span class="app-title">LoopShaper</span>
         </a>
         <div class="menu-items">
+            <sl-button id="examples-button" variant="text" size="small">Examples</sl-button>
             <sl-button id="share-button" variant="text" size="small">Share</sl-button>
             <sl-button id="export-button" variant="text" size="small">Export</sl-button>
             <sl-dropdown id="view-dropdown" hoist class="wide-only">
@@ -438,6 +439,20 @@
         </sl-button>
     </sl-dialog>
 
+    <!-- Examples Dialog -->
+    <sl-dialog id="examples-dialog" label="Examples">
+        <div class="examples-content">
+            <div class="examples-section">
+                <div class="examples-section-title">Controllers</div>
+                <div id="examples-controllers" class="examples-list"></div>
+            </div>
+            <div class="examples-section">
+                <div class="examples-section-title">Plants (Transfer Functions)</div>
+                <div id="examples-plants" class="examples-list"></div>
+            </div>
+        </div>
+    </sl-dialog>
+
     <!-- QR Code Library -->
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 
@@ -451,6 +466,7 @@
     <script src="sliders.js"></script>
     <script src="url-state.js"></script>
     <script src="export.js"></script>
+    <script src="examples.js"></script>
     <script src="pzmap.js"></script>
     <script src="step-response.js"></script>
     <script src="main.js"></script>
