@@ -357,6 +357,7 @@ sl-textarea.is-invalid::part(base) {
 .bode-label-L::part(label) {
     color: #0088aa;
     font-weight: 600;
+    font-size: 13px;
 }
 
 /* Checkbox label colors for T(s) - orange */
@@ -365,6 +366,16 @@ sl-textarea.is-invalid::part(base) {
 }
 .bode-label-T::part(label) {
     color: #dd6600;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+/* Checkbox label colors for S(s) - green */
+.bode-label-S {
+    --sl-color-primary-600: #22aa44;
+}
+.bode-label-S::part(label) {
+    color: #22aa44;
     font-weight: 600;
     font-size: 13px;
 }

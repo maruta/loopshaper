@@ -11,6 +11,7 @@ const CONSTANTS = {
     COLORS: {
         L: '#0088aa',      // Open-loop transfer function L(s)
         T: '#dd6600',      // Closed-loop transfer function T(s)
+        S: '#22aa44',      // Sensitivity function S(s) = 1/(1+L(s))
         GRID: '#c0c0c0',
         AXIS: '#999999',
         TEXT: '#333333',
@@ -43,6 +44,7 @@ const displayOptions = {
     // Bode plot visibility
     showL: true,
     showT: true,
+    showS: false,
 
     // Pole-Zero Map visibility
     showLpz: true,
@@ -69,6 +71,7 @@ L = K * P`,
     freqPoints: 300,
     showL: true,
     showT: true,
+    showS: false,
     autoFreq: true,
     showLpz: true,  // Pole-Zero Map: show L(s)
     showTpz: true,  // Pole-Zero Map: show T(s)

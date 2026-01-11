@@ -438,15 +438,18 @@ function updateAll() {
 // ============================================================================
 
 function calculateClosedLoopTF() {
-    // T calculation (for Bode plot and closed-loop poles)
+    // T and S calculation (for Bode plot and closed-loop poles)
     let L = currentVars.L;
     if (!L || !L.isNode) return;
 
-    // Always create T = L / (1 + L) symbolically (works for any L including exp, sin, etc.)
+    // Always create T = L / (1 + L) and S = 1 / (1 + L) symbolically
+    // Works for any L including exp, sin, etc.
     let one = new math.ConstantNode(1);
     let onePlusL = new math.OperatorNode('+', 'add', [one, L.clone()]);
     let T = new math.OperatorNode('/', 'divide', [L.clone(), onePlusL]);
+    let S = new math.OperatorNode('/', 'divide', [one.clone(), onePlusL.clone()]);
     currentVars.T = T;
+    currentVars.S = S;
 
     // Try to rationalize L for pole-zero calculation (may fail for non-rational L)
     try {
@@ -643,6 +646,7 @@ function updateBodePlot() {
     try {
         let L = currentVars.L;
         let T = currentVars.T;
+        let S = currentVars.S;
         if (!L || !L.isNode) return;
 
         // Generate frequency array
@@ -664,6 +668,15 @@ function updateBodePlot() {
                 gainColor: CONSTANTS.COLORS.T,
                 phaseColor: CONSTANTS.COLORS.T,
                 visible: displayOptions.showT
+            });
+        }
+
+        if (S && S.isNode) {
+            transferFunctions.push({
+                compiled: S.compile(),
+                gainColor: CONSTANTS.COLORS.S,
+                phaseColor: CONSTANTS.COLORS.S,
+                visible: displayOptions.showS
             });
         }
 
@@ -1284,11 +1297,14 @@ function initializeUI() {
     // Apply Bode plot visibility settings
     displayOptions.showL = design.showL !== undefined ? design.showL : true;
     displayOptions.showT = design.showT !== undefined ? design.showT : true;
+    displayOptions.showS = design.showS !== undefined ? design.showS : false;
     const chkL = document.getElementById(prefix + 'chk-show-L');
     const chkT = document.getElementById(prefix + 'chk-show-T');
+    const chkS = document.getElementById(prefix + 'chk-show-S');
     // Shoelace sl-checkbox uses 'checked' property
     if (chkL) chkL.checked = displayOptions.showL;
     if (chkT) chkT.checked = displayOptions.showT;
+    if (chkS) chkS.checked = displayOptions.showS;
 }
 
 // ============================================================================
@@ -1335,6 +1351,7 @@ function setupEventListeners() {
             displayOptions.showL = this.checked;
             design.showL = displayOptions.showL;
             updateBodePlot();
+            updateBrowserUrl();
         }
     );
     attachListenerOnce(
@@ -1344,6 +1361,17 @@ function setupEventListeners() {
             displayOptions.showT = this.checked;
             design.showT = displayOptions.showT;
             updateBodePlot();
+            updateBrowserUrl();
+        }
+    );
+    attachListenerOnce(
+        document.getElementById(prefix + 'chk-show-S'),
+        'sl-change',
+        function() {
+            displayOptions.showS = this.checked;
+            design.showS = displayOptions.showS;
+            updateBodePlot();
+            updateBrowserUrl();
         }
     );
 
