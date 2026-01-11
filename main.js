@@ -1464,15 +1464,6 @@ document.addEventListener('DOMContentLoaded', function() {
         setupEventListeners();
         updateAll();
 
-        // Render KaTeX math in labels
-        renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });
-
         // Enable and trigger browser URL synchronization
         isInitialized = true;
         updateBrowserUrl();
