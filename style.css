@@ -721,3 +721,67 @@ sl-textarea.is-invalid::part(base) {
     margin-left: 2px;
 }
 
+/* Export Code Dialog */
+#export-dialog::part(panel) {
+    box-shadow: none;
+    border: 1px solid var(--sl-color-neutral-300);
+    max-width: 600px;
+}
+
+#export-dialog::part(body) {
+    padding: 0;
+}
+
+.export-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--sl-color-neutral-200);
+}
+
+.export-tab-btn {
+    padding: 10px 20px;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--sl-color-neutral-600);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+
+.export-tab-btn.active {
+    color: var(--sl-color-primary-600);
+    border-bottom-color: var(--sl-color-primary-600);
+    background-color: var(--sl-color-neutral-50);
+}
+
+.export-tab-btn:not(.active):hover {
+    background-color: var(--sl-color-neutral-100);
+    color: var(--sl-color-neutral-900);
+}
+
+.export-content {
+    padding: 0;
+    max-height: 400px;
+    overflow: auto;
+}
+
+.export-code {
+    margin: 0;
+    padding: 16px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    background-color: var(--sl-color-neutral-50);
+    color: var(--sl-color-neutral-900);
+    white-space: pre;
+    overflow-x: auto;
+    min-height: 200px;
+    user-select: text;
+}
+
+.export-code::selection {
+    background-color: var(--sl-color-primary-200);
+}
+

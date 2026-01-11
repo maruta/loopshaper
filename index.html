@@ -44,6 +44,7 @@
         </a>
         <div class="menu-items">
             <sl-button id="share-button" variant="text" size="small">Share</sl-button>
+            <sl-button id="export-button" variant="text" size="small">Export</sl-button>
             <sl-dropdown id="view-dropdown" hoist class="wide-only">
                 <sl-button slot="trigger" variant="text" size="small" caret>View</sl-button>
                 <sl-menu id="view-menu">
@@ -405,6 +406,23 @@
             <div id="qr-url-size"></div>
         </div>
         <sl-button slot="footer" variant="primary" id="qr-copy-url">Copy URL</sl-button>
+    </sl-dialog>
+
+    <!-- Export Code Dialog -->
+    <sl-dialog id="export-dialog" label="Export Code">
+        <div class="export-tabs">
+            <button class="export-tab-btn active" data-lang="matlab">MATLAB</button>
+            <button class="export-tab-btn" data-lang="python">Python</button>
+            <button class="export-tab-btn" data-lang="julia">Julia</button>
+            <button class="export-tab-btn" data-lang="scilab">Scilab</button>
+        </div>
+        <div class="export-content">
+            <pre id="export-code" class="export-code"></pre>
+        </div>
+        <sl-button slot="footer" variant="primary" id="export-copy-btn">
+            <sl-icon slot="prefix" name="clipboard"></sl-icon>
+            Copy
+        </sl-button>
     </sl-dialog>
 
     <!-- QR Code Library -->
