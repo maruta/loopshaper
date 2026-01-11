@@ -335,9 +335,8 @@ function setupMenuItemHandlers(menuInnerId, onItemSelect, contextMenu) {
 
     function handleItem(item) {
         if (!item) return;
-        if (item.getAttribute('type') === 'checkbox') {
-            item.checked = !item.checked;
-        }
+        // Note: Shoelace automatically toggles checkbox state on click,
+        // so we don't need to toggle it manually here.
         onItemSelect(item);
         contextMenu.active = false;
     }
