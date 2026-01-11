@@ -546,29 +546,11 @@ function setupPlotResizeObserver() {
                 if (id.includes('bode')) {
                     updateBodePlot();
                 } else if (id.includes('pole')) {
-                    if (isNarrowLayout) {
-                        if (document.getElementById('narrow-tab-pole-zero').style.display !== 'none') {
-                            updateNarrowPolePlot();
-                        }
-                    } else {
-                        updatePolePlot();
-                    }
+                    updatePolePlot();
                 } else if (id.includes('nyquist')) {
-                    if (isNarrowLayout) {
-                        if (document.getElementById('narrow-tab-nyquist').style.display !== 'none') {
-                            updateNarrowNyquistPlot();
-                        }
-                    } else {
-                        updateNyquistPlot();
-                    }
+                    updateNyquistPlot();
                 } else if (id.includes('step')) {
-                    if (isNarrowLayout) {
-                        if (document.getElementById('narrow-tab-step').style.display !== 'none') {
-                            updateNarrowStepResponsePlot();
-                        }
-                    } else {
-                        updateStepResponsePlot();
-                    }
+                    updateStepResponsePlot();
                 }
             }
         }, 100);
@@ -771,9 +753,9 @@ function initializeNarrowLayout() {
         document.getElementById('narrow-tab-step').style.display = tabName === 'step-response' ? 'flex' : 'none';
 
         if (tabName === 'bode') updateBodePlot();
-        else if (tabName === 'pole-zero') updateNarrowPolePlot();
-        else if (tabName === 'nyquist') updateNarrowNyquistPlot();
-        else if (tabName === 'step-response') updateNarrowStepResponsePlot();
+        else if (tabName === 'pole-zero') updatePolePlot();
+        else if (tabName === 'nyquist') updateNyquistPlot();
+        else if (tabName === 'step-response') updateStepResponsePlot();
     }
 
     // Set up event listeners only once to prevent duplicates
@@ -788,14 +770,14 @@ function initializeNarrowLayout() {
         // Pole-Zero visibility checkboxes
         const chkLpz = document.getElementById('narrow-chk-show-L-pz');
         const chkTpz = document.getElementById('narrow-chk-show-T-pz');
-        if (chkLpz) chkLpz.addEventListener('sl-change', () => updateNarrowPolePlot());
-        if (chkTpz) chkTpz.addEventListener('sl-change', () => updateNarrowPolePlot());
+        if (chkLpz) chkLpz.addEventListener('sl-change', () => updatePolePlot());
+        if (chkTpz) chkTpz.addEventListener('sl-change', () => updatePolePlot());
 
         // Step Response visibility checkboxes
         const chkLstep = document.getElementById('narrow-chk-show-L-step');
         const chkTstep = document.getElementById('narrow-chk-show-T-step');
-        if (chkLstep) chkLstep.addEventListener('sl-change', () => updateNarrowStepResponsePlot());
-        if (chkTstep) chkTstep.addEventListener('sl-change', () => updateNarrowStepResponsePlot());
+        if (chkLstep) chkLstep.addEventListener('sl-change', () => updateStepResponsePlot());
+        if (chkTstep) chkTstep.addEventListener('sl-change', () => updateStepResponsePlot());
 
         // Step Response auto time checkbox
         const chkAutoTime = document.getElementById('narrow-step-auto-time');
@@ -810,7 +792,7 @@ function initializeNarrowLayout() {
                 } else {
                     if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax.toPrecision(3);
                 }
-                updateNarrowStepResponsePlot();
+                updateStepResponsePlot();
             });
         }
 
@@ -819,7 +801,7 @@ function initializeNarrowLayout() {
             stepTimeInput.addEventListener('sl-change', function() {
                 stepOptions.timeMax = parseFloat(this.value) || 20;
                 if (!stepOptions.autoTime) {
-                    updateNarrowStepResponsePlot();
+                    updateStepResponsePlot();
                 }
             });
         }
@@ -840,7 +822,7 @@ function initializeNarrowLayout() {
                     const input = document.getElementById('narrow-step-time-max');
                     if (input) input.value = stepOptions.timeMax.toPrecision(3);
                 }
-                updateNarrowStepResponsePlot();
+                updateStepResponsePlot();
             }, { passive: false });
         }
 
@@ -1486,11 +1468,7 @@ function setupNyquistContextMenu() {
             if (item.id === 'nyquist-opt-stability-margin') {
                 nyquistOptions.showStabilityMargin = item.checked;
             }
-            if (isNarrowLayout) {
-                updateNarrowNyquistPlot();
-            } else {
-                updateNyquistPlot();
-            }
+            updateNyquistPlot();
         }
     });
 }
@@ -1500,7 +1478,6 @@ function setupNyquistContextMenu() {
 // Called from: updateAll(), onDidLayoutChange, and initialization.
 // Uses debouncing to avoid excessive URL updates during rapid changes.
 let urlUpdateTimeout = null;
-const URL_UPDATE_DELAY = 1000;
 
 function updateBrowserUrl() {
     if (!isInitialized) return;
@@ -1515,7 +1492,7 @@ function updateBrowserUrl() {
         } catch (e) {
             console.error('Error updating browser URL:', e);
         }
-    }, URL_UPDATE_DELAY);
+    }, CONSTANTS.URL_UPDATE_DELAY);
 }
 
 function debounceUpdate() {
@@ -1726,10 +1703,46 @@ function addSlider() {
     rebuildSliders();
 }
 
+// Parse a single line of code, extracting variable name and expression
+function parseCodeLine(line) {
+    line = line.trim();
+    if (line === '' || line.startsWith('#')) return null;
+
+    const eqIndex = line.indexOf('=');
+    if (eqIndex <= 0) return null;
+
+    const varName = line.substring(0, eqIndex).trim();
+    let exprStr = line.substring(eqIndex + 1).trim();
+
+    const commentIndex = exprStr.indexOf('#');
+    if (commentIndex >= 0) {
+        exprStr = exprStr.substring(0, commentIndex).trim();
+    }
+
+    if (!varName || !exprStr) return null;
+    return { varName, exprStr };
+}
+
+// Process code lines and build variables object
+function processCodeLines(code, vars, onError) {
+    code.split('\n').forEach((line, lineNum) => {
+        const parsed = parseCodeLine(line);
+        if (!parsed) return;
+
+        try {
+            const expr = math.parse(parsed.exprStr);
+            const substituted = substituteVars(expr, vars);
+            vars[parsed.varName] = substituted;
+        } catch (e) {
+            if (onError) onError({ line: lineNum + 1, message: e.message });
+        }
+    });
+}
+
 function updateAll() {
     // Check if code has changed (need to recalculate symbolic expressions)
-    let codeChanged = (cachedSymbolic.codeHash !== design.code);
-    let parseErrors = [];  // Track errors
+    const codeChanged = (cachedSymbolic.codeHash !== design.code);
+    const parseErrors = [];
 
     // Parse code and extract variables
     try {
@@ -1744,39 +1757,14 @@ function updateAll() {
 
         // Only recalculate symbolic expressions if code changed
         if (codeChanged) {
-            let symbolicVars = { s: math.parse('s') };
+            const symbolicVars = { s: math.parse('s') };
             design.sliders.forEach(slider => {
                 if (slider.name) {
                     symbolicVars[slider.name] = math.parse(slider.name);
                 }
             });
 
-            let lines = design.code.split('\n');
-            lines.forEach((line, lineNum) => {
-                line = line.trim();
-                if (line === '' || line.startsWith('#')) return;
-
-                try {
-                    let eqIndex = line.indexOf('=');
-                    if (eqIndex > 0) {
-                        let varName = line.substring(0, eqIndex).trim();
-                        let exprStr = line.substring(eqIndex + 1).trim();
-
-                        let commentIndex = exprStr.indexOf('#');
-                        if (commentIndex >= 0) {
-                            exprStr = exprStr.substring(0, commentIndex).trim();
-                        }
-
-                        if (varName && exprStr) {
-                            let expr = math.parse(exprStr);
-                            let symSubstituted = substituteVars(expr, symbolicVars);
-                            symbolicVars[varName] = symSubstituted;
-                        }
-                    }
-                } catch (e) {
-                    parseErrors.push({ line: lineNum + 1, message: e.message });
-                }
-            });
+            processCodeLines(design.code, symbolicVars, (err) => parseErrors.push(err));
 
             // Cache symbolic expressions
             cachedSymbolic.codeHash = design.code;
@@ -1786,9 +1774,8 @@ function updateAll() {
             if (cachedSymbolic.Lsym && cachedSymbolic.Lsym.isNode) {
                 try {
                     cachedSymbolic.LsymRat = util_rationalize(cachedSymbolic.Lsym);
-                    // Simplify numerator and denominator separately
-                    let Tnum = math.simplify(cachedSymbolic.LsymRat.numerator);
-                    let Tden = math.simplify(
+                    const Tnum = math.simplify(cachedSymbolic.LsymRat.numerator);
+                    const Tden = math.simplify(
                         new math.OperatorNode('+', 'add', [
                             cachedSymbolic.LsymRat.numerator.clone(),
                             cachedSymbolic.LsymRat.denominator.clone()
@@ -1803,34 +1790,9 @@ function updateAll() {
         }
 
         // Numerical calculation (always needed when sliders change)
-        let lines = design.code.split('\n');
-        lines.forEach((line, lineNum) => {
-            line = line.trim();
-            if (line === '' || line.startsWith('#')) return;
-
-            try {
-                let eqIndex = line.indexOf('=');
-                if (eqIndex > 0) {
-                    let varName = line.substring(0, eqIndex).trim();
-                    let exprStr = line.substring(eqIndex + 1).trim();
-
-                    let commentIndex = exprStr.indexOf('#');
-                    if (commentIndex >= 0) {
-                        exprStr = exprStr.substring(0, commentIndex).trim();
-                    }
-
-                    if (varName && exprStr) {
-                        let expr = math.parse(exprStr);
-                        let substituted = substituteVars(expr, currentVars);
-                        currentVars[varName] = substituted;
-                    }
-                }
-            } catch (e) {
-                // Only add if not already recorded (codeChanged handles symbolic errors)
-                if (!codeChanged) {
-                    parseErrors.push({ line: lineNum + 1, message: e.message });
-                }
-            }
+        processCodeLines(design.code, currentVars, (err) => {
+            // Only add if not already recorded (codeChanged handles symbolic errors)
+            if (!codeChanged) parseErrors.push(err);
         });
 
         // Copy cached symbolic expressions to currentVars
@@ -1889,18 +1851,9 @@ function updateAll() {
         updateNyquistInfo();
 
         // Only skip plot rendering for hidden panels (drawing is expensive)
-        if (!isNarrowLayout) {
-            if (isPanelVisible('pole-zero')) updatePolePlot();
-            if (isPanelVisible('nyquist')) updateNyquistPlot();
-            if (isPanelVisible('step-response')) updateStepResponsePlot();
-        } else {
-            const narrowPoleTab = document.getElementById('narrow-tab-pole-zero');
-            if (narrowPoleTab && narrowPoleTab.style.display !== 'none') updateNarrowPolePlot();
-            const narrowNyquistTab = document.getElementById('narrow-tab-nyquist');
-            if (narrowNyquistTab && narrowNyquistTab.style.display !== 'none') updateNarrowNyquistPlot();
-            const narrowStepTab = document.getElementById('narrow-tab-step');
-            if (narrowStepTab && narrowStepTab.style.display !== 'none') updateNarrowStepResponsePlot();
-        }
+        if (isPlotVisible('pole-zero')) updatePolePlot();
+        if (isPlotVisible('nyquist')) updateNyquistPlot();
+        if (isPlotVisible('step-response')) updateStepResponsePlot();
     } else if (hasErrors) {
         // Show error state
         if (codeField) {
@@ -2788,10 +2741,6 @@ function updatePolePlot() {
     });
 }
 
-// Narrow layout pole-zero plot (convenience wrapper)
-function updateNarrowPolePlot() {
-    updatePolePlot();
-}
 
 // Unified Nyquist mapping formula update function
 function updateNyquistMappingFormula(elementId) {
@@ -2878,10 +2827,6 @@ function updateNyquistPlot() {
     );
 }
 
-// Narrow layout Nyquist plot (convenience wrapper)
-function updateNarrowNyquistPlot() {
-    updateNyquistPlot();
-}
 
 // Update stability margin display in Stability panel
 function updateMargins() {
@@ -4067,6 +4012,23 @@ function isPanelVisible(panelId) {
     }
 }
 
+// Check if a plot is visible in either wide (Dockview) or narrow (tab) layout
+function isPlotVisible(plotId) {
+    if (!isNarrowLayout) {
+        return isPanelVisible(plotId);
+    }
+    // Narrow layout: check if the corresponding tab is visible
+    const tabIdMap = {
+        'pole-zero': 'narrow-tab-pole-zero',
+        'nyquist': 'narrow-tab-nyquist',
+        'step-response': 'narrow-tab-step'
+    };
+    const tabId = tabIdMap[plotId];
+    if (!tabId) return false;
+    const tab = document.getElementById(tabId);
+    return tab && tab.style.display !== 'none';
+}
+
 function openPanel(panelId) {
     if (!dockviewApi || isPanelOpen(panelId)) return;
 
@@ -4509,7 +4471,3 @@ function updateStepResponsePlot() {
     });
 }
 
-// Narrow layout step response plot (convenience wrapper)
-function updateNarrowStepResponsePlot() {
-    updateStepResponsePlot();
-}
