@@ -4,6 +4,21 @@
 // SVG Export Functions
 // ============================================================================
 
+// Helper function to download SVG string as a file
+function downloadSvg(svgString, filename) {
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('SVG exported successfully!');
+}
+
+// Export Bode plot as SVG
 function exportBodePlotAsSVG() {
     const prefix = isNarrowLayout ? 'narrow-' : '';
     const wrapper = document.getElementById(prefix + 'bode-wrapper');
@@ -70,21 +85,196 @@ function exportBodePlotAsSVG() {
         phaseMax: bodeOptions.phaseMax
     });
 
-    // Get SVG string
-    const svgString = svgCtx.getSerializedSvg(true);
+    downloadSvg(svgCtx.getSerializedSvg(true), 'bode-plot.svg');
+}
 
-    // Create download link
-    const blob = new Blob([svgString], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'bode-plot.svg';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+// Export Step Response as SVG
+function exportStepResponseAsSVG() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const wrapper = document.getElementById(prefix + 'step-wrapper');
+    if (!wrapper) return;
 
-    showToast('SVG exported successfully!');
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+    if (!width || !height) return;
+
+    // Get simulation data from currentVars.analysis
+    const analysis = currentVars.analysis;
+    if (!analysis) {
+        showToast('No transfer function defined', 'warning');
+        return;
+    }
+
+    const stepData = analysis.stepResponseData;
+    if (!stepData) {
+        showToast('Cannot export: non-rational transfer function', 'warning');
+        return;
+    }
+
+    // Get current time range (auto or manual)
+    const stepTimeMax = getStepTimeMax();
+
+    const structure = analysis.lStructure;
+    const delayL = stepData.delayL;
+    const LCoeffs = stepData.LCoeffs;
+    const ssL = stepData.ssL;
+
+    // Choose simulation resolution
+    let nPoints = 500;
+    if (structure.type === 'rational_delay' && delayL > 0) {
+        const dtTarget = delayL / 25;
+        if (dtTarget > 0) {
+            nPoints = Math.max(nPoints, Math.ceil(stepTimeMax / dtTarget) + 1);
+        }
+        nPoints = Math.min(nPoints, 20000);
+    }
+
+    let simData = null;
+
+    try {
+        if (structure.type === 'rational_delay') {
+            const simL = simulateStepResponse(ssL, null, stepTimeMax, nPoints, delayL, 0);
+            const simT = simulateClosedLoopStepResponseLoopDelay(ssL, delayL, stepTimeMax, nPoints);
+            simData = { time: simL.time, yL: simL.yL, yT: simT.y };
+        } else {
+            // Build state-space for T = L/(1+L)
+            let ssT = null;
+            try {
+                const Tnum = LCoeffs.num.slice();
+                let Tden = [];
+                const maxLen = Math.max(LCoeffs.num.length, LCoeffs.den.length);
+                const numPadded = LCoeffs.num.slice();
+                const denPadded = LCoeffs.den.slice();
+                while (numPadded.length < maxLen) numPadded.push(0);
+                while (denPadded.length < maxLen) denPadded.push(0);
+                for (let i = 0; i < maxLen; i++) {
+                    Tden.push(numPadded[i] + denPadded[i]);
+                }
+                while (Tden.length > 1 && Math.abs(Tden[Tden.length - 1]) < 1e-15) {
+                    Tden.pop();
+                }
+                ssT = tf2ss(Tnum, Tden);
+            } catch (e) {
+                console.log('Step SVG export: Cannot build T state-space:', e);
+            }
+            simData = simulateStepResponse(ssL, ssT, stepTimeMax, nPoints, 0, 0);
+        }
+    } catch (e) {
+        showToast('Step response simulation failed', 'warning');
+        console.log('Step SVG export error:', e);
+        return;
+    }
+
+    if (!simData || !simData.time || simData.time.length === 0) {
+        showToast('No simulation data available', 'warning');
+        return;
+    }
+
+    // Get display options
+    const showL = isNarrowLayout
+        ? (document.getElementById('narrow-chk-show-L-step')?.checked ?? true)
+        : displayOptions.showLstep;
+    const showT = isNarrowLayout
+        ? (document.getElementById('narrow-chk-show-T-step')?.checked ?? true)
+        : displayOptions.showTstep;
+
+    // Create SVG context using canvas2svg
+    const svgCtx = new C2S(width, height);
+
+    drawStepResponse(simData, null, null, {
+        ctx: svgCtx,
+        width: width,
+        height: height,
+        showL: showL,
+        showT: showT
+    });
+
+    downloadSvg(svgCtx.getSerializedSvg(true), 'step-response.svg');
+}
+
+// Export Nyquist plot as SVG (without animation elements)
+function exportNyquistPlotAsSVG() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const wrapper = document.getElementById(prefix + 'nyquist-wrapper');
+    if (!wrapper) return;
+
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+    if (!width || !height) return;
+
+    // Get L from currentVars
+    const L = currentVars.L;
+    if (!L || !L.isNode) {
+        showToast('No transfer function defined', 'warning');
+        return;
+    }
+
+    const analysis = currentVars.analysis;
+    if (!analysis) {
+        showToast('No analysis data available', 'warning');
+        return;
+    }
+
+    // Get stability margins for display (only if enabled and closed-loop is stable)
+    let phaseMargins = null;
+    let gainMargins = null;
+    if (nyquistOptions.showStabilityMargin && analysis.isClosedLoopStable) {
+        const margins = analysis.stabilityMargins;
+        if (margins) {
+            phaseMargins = margins.phaseMargins;
+            gainMargins = margins.gainMargins;
+        }
+    }
+
+    // Create SVG context using canvas2svg
+    const svgCtx = new C2S(width, height);
+
+    drawNyquist(analysis.lCompiled, analysis.imagAxisPoles, {
+        ctx: svgCtx,
+        width: width,
+        height: height,
+        animate: false,
+        analysis: analysis.nyquistAnalysis,
+        phaseMargins: phaseMargins,
+        showPhaseMarginArc: nyquistOptions.showStabilityMargin,
+        gainMargins: gainMargins,
+        showGainMarginLine: nyquistOptions.showStabilityMargin
+    });
+
+    downloadSvg(svgCtx.getSerializedSvg(true), 'nyquist-plot.svg');
+}
+
+// Export Pole-Zero Map as SVG (without Nyquist animation marker)
+function exportPoleZeroMapAsSVG() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const wrapper = document.getElementById(prefix + 'pole-wrapper');
+    if (!wrapper) return;
+
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+    if (!width || !height) return;
+
+    // Get display options
+    const showLpz = isNarrowLayout
+        ? (document.getElementById('narrow-chk-show-L-pz')?.checked ?? true)
+        : displayOptions.showLpz;
+    const showTpz = isNarrowLayout
+        ? (document.getElementById('narrow-chk-show-T-pz')?.checked ?? true)
+        : displayOptions.showTpz;
+
+    // Create SVG context using canvas2svg
+    const svgCtx = new C2S(width, height);
+
+    drawPoleZeroMap({
+        ctx: svgCtx,
+        width: width,
+        height: height,
+        showLpz: showLpz,
+        showTpz: showTpz,
+        showNyquistAnimation: false
+    });
+
+    downloadSvg(svgCtx.getSerializedSvg(true), 'pole-zero-map.svg');
 }
 
 // ============================================================================
@@ -455,8 +645,13 @@ function setupStepContextMenu() {
                 } else if (timeMaxInput) {
                     timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
                 }
+                updateStepResponsePlot();
+            } else if (item.id === 'step-export-svg') {
+                exportStepResponseAsSVG();
+                return; // Don't call updateStepResponsePlot for export
+            } else {
+                updateStepResponsePlot();
             }
-            updateStepResponsePlot();
         }
     });
 }
@@ -519,8 +714,13 @@ function setupPzmapContextMenu() {
                 if (!item.checked && scaleMaxInput) {
                     scaleMaxInput.value = pzmapOptions.scaleMax.toPrecision(3);
                 }
+                updatePolePlot();
+            } else if (item.id === 'pzmap-export-svg') {
+                exportPoleZeroMapAsSVG();
+                return; // Don't call updatePolePlot for export
+            } else {
+                updatePolePlot();
             }
-            updatePolePlot();
         }
     });
 }
@@ -544,8 +744,13 @@ function setupNyquistContextMenu() {
         onItemSelect: function(item) {
             if (item.id === 'nyquist-opt-stability-margin') {
                 nyquistOptions.showStabilityMargin = item.checked;
+                updateNyquistPlot();
+            } else if (item.id === 'nyquist-export-svg') {
+                exportNyquistPlotAsSVG();
+                return; // Don't call updateNyquistPlot for export
+            } else {
+                updateNyquistPlot();
             }
-            updateNyquistPlot();
         }
     });
 }

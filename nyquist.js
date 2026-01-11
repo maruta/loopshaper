@@ -104,38 +104,49 @@ const nyquistSpeedOptions = [0.25, 0.5, 1, 2, 4];  // Available speed options
 // Compression radius (adjustable via mouse wheel)
 let nyquistCompressionRadius = 3;
 
-// Draw Nyquist plot with z/(1+|z|/R) mapping
-// Lcompiled: compiled transfer function L(s)
-// imagAxisPoles: poles on imaginary axis (for indentation)
-// options: { wrapperId, canvasId, animate, phaseMargins, showPhaseMarginArc, gainMargins, showGainMarginLine }
+// Draw Nyquist plot with z/(1+|z|/R) compression mapping
+// When options.ctx/width/height are provided, draws to external context (for SVG export)
+// Otherwise, draws to the canvas element specified by wrapperId/canvasId
+// Animation is disabled when using external context
 function drawNyquist(Lcompiled, imagAxisPoles, options) {
     options = options || {};
     const wrapperId = options.wrapperId || 'nyquist-wrapper';
     const canvasId = options.canvasId || 'nyquist-canvas';
-    const R = nyquistCompressionRadius;  // Use global compression radius
+    const R = nyquistCompressionRadius;
     const animate = options.animate !== false;
     const phaseMargins = options.phaseMargins || null;
     const showPhaseMarginArc = options.showPhaseMarginArc !== false;
     const gainMargins = options.gainMargins || null;
     const showGainMarginLine = options.showGainMarginLine !== false;
 
-    let wrapper = document.getElementById(wrapperId);
-    let canvas = document.getElementById(canvasId);
-    if (!wrapper || !canvas) return null;
+    let ctx, width, height, canvas;
 
-    let ctx = canvas.getContext('2d');
+    if (options.ctx && options.width && options.height) {
+        // External context (SVG export)
+        ctx = options.ctx;
+        width = options.width;
+        height = options.height;
+        canvas = null;
+    } else {
+        // Canvas context
+        let wrapper = document.getElementById(wrapperId);
+        canvas = document.getElementById(canvasId);
+        if (!wrapper || !canvas) return null;
 
-    const width = wrapper.clientWidth;
-    const height = wrapper.clientHeight;
+        ctx = canvas.getContext('2d');
 
-    if (width === 0 || height === 0) return null;
+        width = wrapper.clientWidth;
+        height = wrapper.clientHeight;
 
-    canvas.width = width * devicePixelRatio;
-    canvas.height = height * devicePixelRatio;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
+        if (width === 0 || height === 0) return null;
 
-    ctx.scale(devicePixelRatio, devicePixelRatio);
+        canvas.width = width * devicePixelRatio;
+        canvas.height = height * devicePixelRatio;
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+    }
 
     // Clear canvas
     ctx.fillStyle = '#ffffff';
@@ -189,8 +200,8 @@ function drawNyquist(Lcompiled, imagAxisPoles, options) {
     // Draw Nyquist curve
     drawNyquistCurve(ctx, nyquistData.points, toCanvasX, toCanvasY, R);
 
-    // Start animation if enabled
-    if (animate) {
+    // Start animation if enabled (only when using canvas, not external context like SVG)
+    if (animate && canvas) {
         startNyquistAnimation(canvas, ctx, nyquistData, toCanvasX, toCanvasY, centerX, centerY, scale, maxRadius, R, wrapperId, phaseMargins, showPhaseMarginArc, gainMargins, showGainMarginLine);
     }
 

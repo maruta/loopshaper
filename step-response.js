@@ -91,26 +91,39 @@ function formatAxisValue(value) {
 // ============================================================================
 
 // Draw step response plot
+// When options.ctx/width/height are provided, draws to external context (for SVG export)
+// Otherwise, draws to the canvas element specified by wrapperId/canvasId
 function drawStepResponse(simData, wrapperId, canvasId, options) {
     options = options || {};
-    let wrapper = document.getElementById(wrapperId);
-    let canvas = document.getElementById(canvasId);
 
-    if (!wrapper || !canvas) return;
+    let ctx, width, height;
 
-    let ctx = canvas.getContext('2d');
+    if (options.ctx && options.width && options.height) {
+        // External context (SVG export)
+        ctx = options.ctx;
+        width = options.width;
+        height = options.height;
+    } else {
+        // Canvas context
+        let wrapper = document.getElementById(wrapperId);
+        let canvas = document.getElementById(canvasId);
 
-    const height = wrapper.clientHeight;
-    const width = wrapper.clientWidth;
+        if (!wrapper || !canvas) return;
 
-    if (width === 0 || height === 0) return;
+        ctx = canvas.getContext('2d');
 
-    canvas.height = height * devicePixelRatio;
-    canvas.width = width * devicePixelRatio;
-    canvas.style.height = height + 'px';
-    canvas.style.width = width + 'px';
+        height = wrapper.clientHeight;
+        width = wrapper.clientWidth;
 
-    ctx.scale(devicePixelRatio, devicePixelRatio);
+        if (width === 0 || height === 0) return;
+
+        canvas.height = height * devicePixelRatio;
+        canvas.width = width * devicePixelRatio;
+        canvas.style.height = height + 'px';
+        canvas.style.width = width + 'px';
+
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+    }
 
     // Clear canvas
     ctx.fillStyle = options.backgroundColor || '#ffffff';

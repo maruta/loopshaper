@@ -4,26 +4,39 @@
 // Pole-Zero Map Drawing
 // ============================================================================
 
-// Unified pole-zero map drawing function
-// options: { wrapperId, canvasId, showLpz, showTpz, showNyquistAnimation }
+// Draw pole-zero map in the s-plane
+// When options.ctx/width/height are provided, draws to external context (for SVG export)
+// Otherwise, draws to the canvas element specified by wrapperId/canvasId
+// Nyquist animation marker is disabled when using external context
 function drawPoleZeroMap(options) {
-    const canvas = document.getElementById(options.canvasId);
-    const wrapper = document.getElementById(options.wrapperId);
+    let ctx, width, height;
 
-    if (!canvas || !wrapper) return;
+    if (options.ctx && options.width && options.height) {
+        // External context (SVG export)
+        ctx = options.ctx;
+        width = options.width;
+        height = options.height;
+    } else {
+        // Canvas context
+        const canvas = document.getElementById(options.canvasId);
+        const wrapper = document.getElementById(options.wrapperId);
 
-    const ctx = canvas.getContext('2d');
-    const width = wrapper.clientWidth;
-    const height = wrapper.clientHeight;
+        if (!canvas || !wrapper) return;
 
-    if (width === 0 || height === 0) return;
+        ctx = canvas.getContext('2d');
+        width = wrapper.clientWidth;
+        height = wrapper.clientHeight;
 
-    canvas.width = width * devicePixelRatio;
-    canvas.height = height * devicePixelRatio;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
+        if (width === 0 || height === 0) return;
 
-    ctx.scale(devicePixelRatio, devicePixelRatio);
+        canvas.width = width * devicePixelRatio;
+        canvas.height = height * devicePixelRatio;
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+    }
+
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
