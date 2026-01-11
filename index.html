@@ -311,6 +311,9 @@
     <!-- Pako (zlib) for URL compression -->
     <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 
+    <!-- Canvas2SVG for SVG export -->
+    <script src="lib/canvas2svg.js"></script>
+
     <!-- Bode Plot Context Menu -->
     <sl-popup id="bode-context-menu" placement="bottom-start" flip shift>
         <!-- Invisible anchor that we move to the cursor position on right-click -->
@@ -346,6 +349,8 @@
                     <span class="range-unit">(10^x)</span>
                 </div>
             </div>
+            <sl-divider></sl-divider>
+            <sl-menu-item id="bode-export-svg" value="export-svg">Export as SVG</sl-menu-item>
         </sl-menu>
     </sl-popup>
 

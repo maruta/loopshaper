@@ -21,30 +21,41 @@ function formatFrequency(freq) {
 
 // Draw multiple transfer functions on the same Bode plot
 // transferFunctions: array of { compiled, gainColor, phaseColor, visible }
+// options.ctx, options.width, options.height can be provided for external context (e.g., SVG export)
 function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     options = options || {};
-    const wrapper = document.getElementById(wrapperId);
-    const canvas = document.getElementById(canvasId);
 
-    // During Dockview drag/layout transitions, panels can be temporarily detached.
-    // Guard against null elements to avoid exceptions that can freeze the tab.
-    if (!wrapper || !canvas) return null;
+    let ctx, width, height;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
+    // Check if external context is provided (for SVG export)
+    if (options.ctx && options.width && options.height) {
+        ctx = options.ctx;
+        width = options.width;
+        height = options.height;
+    } else {
+        const wrapper = document.getElementById(wrapperId);
+        const canvas = document.getElementById(canvasId);
 
-    const height = wrapper.clientHeight;
-    const width = wrapper.clientWidth;
+        // During Dockview drag/layout transitions, panels can be temporarily detached.
+        // Guard against null elements to avoid exceptions that can freeze the tab.
+        if (!wrapper || !canvas) return null;
 
-    // If the panel is hidden/collapsed, avoid resizing/drawing.
-    if (!width || !height) return null;
+        ctx = canvas.getContext("2d");
+        if (!ctx) return null;
 
-    canvas.height = height * devicePixelRatio;
-    canvas.width = width * devicePixelRatio;
-    canvas.style.height = height + 'px';
-    canvas.style.width = width + 'px';
+        height = wrapper.clientHeight;
+        width = wrapper.clientWidth;
 
-    ctx.scale(devicePixelRatio, devicePixelRatio);
+        // If the panel is hidden/collapsed, avoid resizing/drawing.
+        if (!width || !height) return null;
+
+        canvas.height = height * devicePixelRatio;
+        canvas.width = width * devicePixelRatio;
+        canvas.style.height = height + 'px';
+        canvas.style.width = width + 'px';
+
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+    }
 
     // Clear canvas
     ctx.fillStyle = options.backgroundColor || '#ffffff';

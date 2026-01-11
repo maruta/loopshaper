@@ -1,6 +1,93 @@
 // Context menu functionality for all plot panels
 
 // ============================================================================
+// SVG Export Functions
+// ============================================================================
+
+function exportBodePlotAsSVG() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const wrapper = document.getElementById(prefix + 'bode-wrapper');
+    if (!wrapper) return;
+
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+    if (!width || !height) return;
+
+    // Get transfer functions from currentVars (same as updateBodePlot in main.js)
+    const L = currentVars.L;
+    const T = currentVars.T;
+    const S = currentVars.S;
+    if (!L || !L.isNode) {
+        showToast('No transfer function defined', 'warning');
+        return;
+    }
+
+    // Create SVG context using canvas2svg
+    const svgCtx = new C2S(width, height);
+
+    // Get current frequency range
+    const w = logspace(design.freqMin, design.freqMax, design.freqPoints);
+
+    // Build transfer functions array
+    const transferFunctions = [
+        {
+            compiled: L.compile(),
+            gainColor: CONSTANTS.COLORS.L,
+            phaseColor: CONSTANTS.COLORS.L,
+            visible: displayOptions.showL
+        }
+    ];
+
+    if (T && T.isNode) {
+        transferFunctions.push({
+            compiled: T.compile(),
+            gainColor: CONSTANTS.COLORS.T,
+            phaseColor: CONSTANTS.COLORS.T,
+            visible: displayOptions.showT
+        });
+    }
+
+    if (S && S.isNode) {
+        transferFunctions.push({
+            compiled: S.compile(),
+            gainColor: CONSTANTS.COLORS.S,
+            phaseColor: CONSTANTS.COLORS.S,
+            visible: displayOptions.showS
+        });
+    }
+
+    // Draw to SVG context
+    drawBodeMulti(transferFunctions, w, null, null, {
+        ctx: svgCtx,
+        width: width,
+        height: height,
+        showMarginLines: bodeOptions.showMarginLines,
+        showCrossoverLines: bodeOptions.showCrossoverLines,
+        autoScaleVertical: bodeOptions.autoScaleVertical,
+        gainMin: bodeOptions.gainMin,
+        gainMax: bodeOptions.gainMax,
+        phaseMin: bodeOptions.phaseMin,
+        phaseMax: bodeOptions.phaseMax
+    });
+
+    // Get SVG string
+    const svgString = svgCtx.getSerializedSvg(true);
+
+    // Create download link
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'bode-plot.svg';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('SVG exported successfully!');
+}
+
+// ============================================================================
 // Context Menu State
 // ============================================================================
 
@@ -51,23 +138,19 @@ function showContextMenuAtCursor(contextMenu, contextAnchor, e) {
     });
 }
 
-// Setup menu item selection handlers (both click and sl-select)
+// Setup menu item selection handler
 function setupMenuItemHandlers(menuInnerId, onItemSelect, contextMenu) {
     const menuInner = document.getElementById(menuInnerId);
     if (!menuInner || menuInner.dataset.listenerAttached) return;
 
     function handleItem(item) {
         if (!item) return;
-        item.checked = !item.checked;
+        if (item.getAttribute('type') === 'checkbox') {
+            item.checked = !item.checked;
+        }
         onItemSelect(item);
         contextMenu.active = false;
     }
-
-    menuInner.addEventListener('click', (e) => {
-        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-        const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
-        handleItem(item);
-    });
 
     menuInner.addEventListener('sl-select', (e) => {
         handleItem(e.detail.item);
@@ -302,6 +385,9 @@ function setupBodeContextMenu() {
                     if (freqMaxInput) freqMaxInput.value = design.freqMax;
                 }
                 break;
+            case 'bode-export-svg':
+                exportBodePlotAsSVG();
+                return; // Don't call updateBodePlot for export
         }
         updateBodePlot();
     }

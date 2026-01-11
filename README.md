@@ -13,6 +13,7 @@ A web-based loop shaping control design tool for analyzing and designing feedbac
   - Auto-scaling or custom vertical axis range
   - Auto or manual frequency range adjustment
   - Right-click context menu for display options
+  - Export as SVG via context menu
 
 - **Nyquist Plot**: Animated Nyquist diagram with advanced features
   - Compressed display mapping (`z → z/(1+|z|/R)`) for infinite curves
@@ -105,7 +106,10 @@ loopshaper/
 ├── sliders.js        # Parameter slider management
 ├── url-state.js      # URL encoding, sharing, QR code generation
 ├── export.js         # Code export (MATLAB, Python, Julia, Scilab)
-└── main.js           # Core analysis, UI initialization, event handling
+├── main.js           # Core analysis, UI initialization, event handling
+│
+└── lib/
+    └── canvas2svg.js # Canvas to SVG conversion (MIT License)
 ```
 
 ## Technologies
@@ -116,6 +120,7 @@ loopshaper/
 - [math.js](https://mathjs.org/) - Mathematical expression parsing and complex number operations
 - [pako](https://github.com/nodeca/pako) - zlib compression for URL encoding
 - [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) - QR code generation
+- [canvas2svg](https://github.com/pnewell/canvas2svg) - Canvas to SVG conversion for plot export
 
 ## License
 
