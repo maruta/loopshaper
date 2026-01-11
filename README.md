@@ -48,6 +48,7 @@ A web-based loop shaping control design tool for analyzing and designing feedbac
 - **Flexible Layout**: Dockview-based resizable and rearrangeable panels for desktop
 - **Responsive Design**: Optimized layout for mobile devices with tabbed plot view
 - **Share via URL/QR Code**: Share designs using the **Share** button with QR code display. Optionally include panel layout (for PC) or select default plot (for mobile).
+- **Export Code**: Export your design to MATLAB, Python, Julia, or Scilab code via the **Export** button
 
 ## Usage
 
@@ -89,12 +90,22 @@ Add sliders to control parameters in your transfer function:
 
 ```
 loopshaper/
-├── index.html      # Main HTML with panel templates and context menus
-├── main.js         # Application logic, Dockview setup, state management
-├── bode.js         # Bode plot rendering and crossover detection
-├── nyquist.js      # Nyquist plot rendering and animation
-├── utils.js        # Utility functions and Nyquist contour generation
-└── style.css       # Styles for panels and plots
+├── index.html        # Main HTML with panel templates and context menus
+├── style.css         # Styles for panels and plots
+│
+├── constants.js      # Constants, display options, global state
+├── utils.js          # Math utilities, polynomial roots, state-space simulation
+├── bode.js           # Bode plot rendering and crossover detection
+├── nyquist.js        # Nyquist plot rendering and animation
+├── pzmap.js          # Pole-Zero Map drawing
+├── step-response.js  # Step response plotting
+│
+├── layout.js         # Dockview panel management, resize observers
+├── context-menu.js   # Context menu handling for all plots
+├── sliders.js        # Parameter slider management
+├── url-state.js      # URL encoding, sharing, QR code generation
+├── export.js         # Code export (MATLAB, Python, Julia, Scilab)
+└── main.js           # Core analysis, UI initialization, event handling
 ```
 
 ## Technologies

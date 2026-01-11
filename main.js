@@ -1,117 +1,17 @@
 // Main logic for loop shaping control design tool
+// Core functions only - other functionality is in separate modules:
+// - constants.js: Constants, display options, global state
+// - layout.js: Dockview, panel management, resize observers
+// - context-menu.js: All context menu functionality
+// - sliders.js: Slider management
+// - url-state.js: URL encoding, sharing, QR code
+// - export.js: Code export (MATLAB/Python/Julia/Scilab)
+// - pzmap.js: Pole-Zero Map drawing
+// - step-response.js: Step response plotting
 
 // ============================================================================
-// Constants
+// System Analysis
 // ============================================================================
-const CONSTANTS = {
-    // Layout breakpoints
-    NARROW_BREAKPOINT: 768,
-
-    // Plot colors
-    COLORS: {
-        L: '#0088aa',      // Open-loop transfer function L(s)
-        T: '#dd6600',      // Closed-loop transfer function T(s)
-        GRID: '#c0c0c0',
-        AXIS: '#999999',
-        TEXT: '#333333',
-        BACKGROUND: '#ffffff',
-        NYQUIST_MARKER: '#0066ff'
-    },
-
-    // Plot margins
-    MARGINS: {
-        LEFT: 70,
-        RIGHT: 20,
-        TOP: 20,
-        BOTTOM: 50
-    },
-
-    // Timing
-    DEBOUNCE_DELAY: 300,
-    URL_UPDATE_DELAY: 1000,
-    LAYOUT_SETTLE_DELAY: 50,
-    RESIZE_DEBOUNCE: 100,
-
-    // Slider range (0-1000 maps to min-max)
-    SLIDER_RESOLUTION: 1000
-};
-
-// ============================================================================
-// Display Options (consolidated global state)
-// ============================================================================
-const displayOptions = {
-    // Bode plot visibility
-    showL: true,
-    showT: true,
-
-    // Pole-Zero Map visibility
-    showLpz: true,
-    showTpz: true,
-
-    // Step Response visibility
-    showLstep: false,
-    showTstep: true
-};
-
-// ============================================================================
-// Event Listener Utilities
-// ============================================================================
-
-/**
- * Attach an event listener only once per element/event/key combination.
- * Uses data attributes to track attached listeners and prevent duplicates.
- * @param {HTMLElement} element - The element to attach the listener to
- * @param {string} event - The event name (e.g., 'click', 'sl-change')
- * @param {Function} handler - The event handler function
- * @param {string} [key] - Optional key to distinguish multiple listeners on same event
- * @param {Object} [options] - Optional event listener options (e.g., { passive: false })
- * @returns {boolean} - True if listener was attached, false if already attached
- */
-function attachListenerOnce(element, event, handler, key = '', options = undefined) {
-    if (!element) return false;
-
-    // Convert event name to valid dataset property (replace hyphens with camelCase)
-    const safeEvent = event.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-    const attrName = `listenerAttached${safeEvent}${key ? '_' + key : ''}`;
-    if (element.dataset[attrName]) return false;
-
-    element.addEventListener(event, handler, options);
-    element.dataset[attrName] = 'true';
-    return true;
-}
-
-/**
- * Get an element by ID with optional layout prefix
- * @param {string} id - The base element ID
- * @param {boolean} [useNarrowPrefix] - If true, prepend 'narrow-' to the ID
- * @returns {HTMLElement|null}
- */
-function getElement(id, useNarrowPrefix = isNarrowLayout) {
-    const prefix = useNarrowPrefix ? 'narrow-' : '';
-    return document.getElementById(prefix + id);
-}
-
-// Default design
-let design = {
-    code: `K = Kp*(1 + Td*s)
-P = 1/(s^2*(s + 1))
-L = K * P`,
-    sliders: [
-        { name: 'Kp', min: 0.01, max: 10, logScale: true, currentValue: 0.1 },
-        { name: 'Td', min: 0.1, max: 100, logScale: true, currentValue: 10 }
-    ],
-    freqMin: -2,
-    freqMax: 3,
-    freqPoints: 300,
-    showL: true,
-    showT: true,
-    autoFreq: true,
-    showLpz: true,  // Pole-Zero Map: show L(s)
-    showTpz: true,  // Pole-Zero Map: show T(s)
-};
-
-let currentVars = {};
-let updateTimeout = null;
 
 // System analysis with lazy evaluation
 // Only computes values when first accessed, then caches them
@@ -319,1389 +219,10 @@ function createSystemAnalysis(L, Lrat) {
 
     return analysis;
 }
-// Note: showL, showT, showLpz, showTpz, showLstep, showTstep are now in displayOptions
-let autoFreq = true;
 
-// Step response display options
-let stepOptions = {
-    autoTime: true,        // Auto-calculate time range from dominant pole
-    timeMax: 20,           // Manual time range (seconds, used when autoTime is false)
-    autoTimeMultiplier: 10 // Multiplier for auto time: T = multiplier / |Re(dominant pole)|
-};
-
-// Get current step response time range (auto or manual)
-function getStepTimeMax() {
-    return stepOptions.autoTime ? calculateAutoStepTime() : stepOptions.timeMax;
-}
-
-// Bode plot display options
-let bodeOptions = {
-    showMarginLines: true,      // Show GM/PM lines
-    showCrossoverLines: true,   // Show gain/phase crossover lines
-    autoScaleVertical: true,    // Auto-scale vertical axis
-    // Custom range values (used when autoScaleVertical is false)
-    gainMin: -60,
-    gainMax: 60,
-    phaseMin: -270,
-    phaseMax: 90
-};
-
-// Pole-Zero Map display options
-let pzmapOptions = {
-    autoScale: true,            // Auto-scale based on poles/zeros
-    scaleMax: 10,               // Manual scale max value (used when autoScale is false)
-    autoScaleMultiplier: 1.5    // Multiplier for auto scale margin
-};
-
-// Nyquist plot display options
-let nyquistOptions = {
-    showStabilityMargin: true   // Show stability margin (PM arc and GM line) on Nyquist plot
-};
-
-// Cached Nyquist analysis (evaluate L(s) once, reuse for both plot and stability info)
-window.lastNyquistAnalysis = null;
-window.lastNyquistAnalysisKey = null;
-window.lastNyquistP = null;
-window.lastNyquistN = null;
-
-// Dockview API reference
-let dockviewApi = null;
-
-// Flag to prevent URL updates during initialization
-let isInitialized = false;
-
-// Panel definitions for the View menu
-const PANEL_DEFINITIONS = [
-    { id: 'system-definition', component: 'system-definition', title: 'System Definition' },
-    { id: 'parameters', component: 'parameters', title: 'Parameters' },
-    { id: 'bode', component: 'bode', title: 'Bode Plot' },
-    { id: 'stability', component: 'stability', title: 'Stability' },
-    { id: 'pole-zero', component: 'pole-zero', title: 'Pole-Zero Map' },
-    { id: 'nyquist', component: 'nyquist', title: 'Nyquist Plot' },
-    { id: 'step-response', component: 'step-response', title: 'Step Response' }
-];
-
-// Get dockview-core from global scope (UMD build uses window["dockview-core"])
-const dockview = window["dockview-core"];
-
-// Dockview theme selection
-const DOCKVIEW_THEME_CLASS = 'dockview-theme-light';
-
-// Layout state
-let isNarrowLayout = false;
-let resizeListenerAttached = false;
-let dockviewThemeObserver = null;
-let plotResizeObserver = null;
-
-function applyDockviewTheme(el, themeClass) {
-    if (!el) return;
-
-    // remove any other theme classes to avoid CSS variable overrides
-    for (const c of Array.from(el.classList)) {
-        if (c.startsWith('dockview-theme-') && c !== themeClass) {
-            el.classList.remove(c);
-        }
-    }
-
-    if (!el.classList.contains(themeClass)) {
-        el.classList.add(themeClass);
-    }
-}
-
-function lockDockviewTheme(el, themeClass) {
-    applyDockviewTheme(el, themeClass);
-    const observer = new MutationObserver(() => applyDockviewTheme(el, themeClass));
-    observer.observe(el, { attributes: true, attributeFilter: ['class'] });
-    return observer;
-}
-
-// Cached symbolic expressions (only recalculated when code changes)
-let cachedSymbolic = {
-    Lsym: null,
-    LsymRat: null,  // Rationalized Lsym for T display
-    TsymSimplified: null,
-    codeHash: null
-};
-
-// Panel Renderer class for Dockview
-class PanelRenderer {
-    constructor(templateId) {
-        this._element = document.createElement('div');
-        this._element.className = 'panel-container';
-        this._templateId = templateId;
-    }
-
-    get element() {
-        return this._element;
-    }
-
-    init(params) {
-        const template = document.getElementById('template-' + this._templateId);
-        if (template) {
-            const content = template.content.cloneNode(true);
-            this._element.appendChild(content);
-        }
-    }
-}
-
-// Initialize Dockview
-function initializeDockview() {
-    const container = document.getElementById('dockview-container');
-
-    dockviewApi = dockview.createDockview(container, {
-        className: DOCKVIEW_THEME_CLASS,
-        createComponent: (options) => {
-            return new PanelRenderer(options.name);
-        }
-    });
-
-    // Fix: ensure only the requested theme class is present.
-    // Dockview may leave an extra theme class (e.g. dockview-theme-abyss) which overrides variables.
-    applyDockviewTheme(container, DOCKVIEW_THEME_CLASS);
-    applyDockviewTheme(container?.firstElementChild, DOCKVIEW_THEME_CLASS);
-
-    if (dockviewThemeObserver) {
-        dockviewThemeObserver.disconnect();
-        dockviewThemeObserver = null;
-    }
-    if (container?.firstElementChild) {
-        dockviewThemeObserver = lockDockviewTheme(container.firstElementChild, DOCKVIEW_THEME_CLASS);
-    }
-
-    // Restore layout from URL if available, otherwise use default
-    if (design.layout) {
-        try {
-            dockviewApi.fromJSON(design.layout);
-        } catch (e) {
-            console.log('Failed to restore layout from URL:', e);
-            createDefaultLayout();
-        }
-    } else {
-        createDefaultLayout();
-    }
-
-    // Listen for layout changes to redraw canvases and sync URL
-    dockviewApi.onDidLayoutChange(() => {
-        stopNyquistAnimation();
-        setTimeout(() => {
-            updateBodePlot();
-            updatePolePlot();
-            updateNyquistPlot();
-            updateStepResponsePlot();
-        }, 50);
-        updateBrowserUrl();
-    });
-
-    // Listen for panel activation to update plots that were skipped
-    dockviewApi.onDidActivePanelChange((event) => {
-        stopNyquistAnimation();
-
-        setTimeout(() => {
-            initializeUI();
-            setupEventListeners();
-
-            // Render plots that were skipped during updateAll (only plot panels need this)
-            if (event && event.panel) {
-                const panelId = event.panel.id;
-                if (panelId === 'pole-zero') {
-                    updatePolePlot();
-                } else if (panelId === 'nyquist') {
-                    updateNyquistPlot();
-                } else if (panelId === 'step-response') {
-                    updateStepResponsePlot();
-                }
-                // Note: stability panel doesn't need special handling since all
-                // calculations are always done in updateAll()
-            }
-        }, 50);
-    });
-
-    setupPlotResizeObserver();
-}
-
-// Setup ResizeObserver for plot wrappers to handle window maximize/restore
-function setupPlotResizeObserver() {
-    if (plotResizeObserver) {
-        plotResizeObserver.disconnect();
-    }
-
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const wrapperIds = [
-        prefix + 'bode-wrapper',
-        prefix + 'pole-wrapper',
-        prefix + 'nyquist-wrapper',
-        prefix + 'step-wrapper'
-    ];
-
-    let resizeTimeout = null;
-
-    plotResizeObserver = new ResizeObserver((entries) => {
-        if (resizeTimeout) clearTimeout(resizeTimeout);
-
-        resizeTimeout = setTimeout(() => {
-            for (const entry of entries) {
-                const id = entry.target.id;
-                if (entry.contentRect.width <= 0 || entry.contentRect.height <= 0) continue;
-
-                if (id.includes('bode')) {
-                    updateBodePlot();
-                } else if (id.includes('pole')) {
-                    updatePolePlot();
-                } else if (id.includes('nyquist')) {
-                    updateNyquistPlot();
-                } else if (id.includes('step')) {
-                    updateStepResponsePlot();
-                }
-            }
-        }, 100);
-    });
-
-    wrapperIds.forEach(id => {
-        const wrapper = document.getElementById(id);
-        if (wrapper) plotResizeObserver.observe(wrapper);
-    });
-}
-
-// Create default panel layout for wide screens
-// Layout structure (3 columns):
-//   Left:   System Definition / Parameters / Stability (vertical stack)
-//   Center: Nyquist Plot / Pole-Zero Map (vertical stack, square aspect ratio)
-//   Right:  Bode Plot + Step Response (side-by-side if wide, stacked if tall)
-function createDefaultLayout() {
-    // Left column: System Definition (top)
-    dockviewApi.addPanel({
-        id: 'system-definition',
-        component: 'system-definition',
-        title: 'System Definition',
-    });
-
-    // Center column: Nyquist Plot (top)
-    dockviewApi.addPanel({
-        id: 'nyquist',
-        component: 'nyquist',
-        title: 'Nyquist Plot',
-        position: { referencePanel: 'system-definition', direction: 'right' },
-    });
-
-    // Right column: Bode Plot (top)
-    dockviewApi.addPanel({
-        id: 'bode',
-        component: 'bode',
-        title: 'Bode Plot',
-        position: { referencePanel: 'nyquist', direction: 'right' },
-    });
-
-    // Left column: Parameters (middle)
-    dockviewApi.addPanel({
-        id: 'parameters',
-        component: 'parameters',
-        title: 'Parameters',
-        position: { referencePanel: 'system-definition', direction: 'below' },
-    });
-
-    // Left column: Stability (bottom)
-    dockviewApi.addPanel({
-        id: 'stability',
-        component: 'stability',
-        title: 'Stability',
-        position: { referencePanel: 'parameters', direction: 'below' },
-    });
-
-    // Center column: Pole-Zero Map (bottom)
-    dockviewApi.addPanel({
-        id: 'pole-zero',
-        component: 'pole-zero',
-        title: 'Pole-Zero Map',
-        position: { referencePanel: 'nyquist', direction: 'below' },
-    });
-
-    // Right column: Step Response (initially below Bode, may be repositioned)
-    dockviewApi.addPanel({
-        id: 'step-response',
-        component: 'step-response',
-        title: 'Step Response',
-        position: { referencePanel: 'bode', direction: 'below' },
-    });
-
-    // Activate Bode Plot
-    const bodePanel = dockviewApi.getPanel('bode');
-    if (bodePanel) {
-        bodePanel.api.setActive();
-    }
-
-    // Adjust panel sizes and layout after initial rendering
-    setTimeout(() => {
-        try {
-            const sysDefPanel = dockviewApi.getPanel('system-definition');
-            if (sysDefPanel && sysDefPanel.api) {
-                sysDefPanel.api.setSize({ height: 240, width: 360 });
-            }
-
-            const stabilityPanel = dockviewApi.getPanel('stability');
-            if (stabilityPanel && stabilityPanel.api) {
-                stabilityPanel.api.setSize({ height: 220 });
-            }
-
-            // Constrain Nyquist/Pole-Zero to square aspect ratio
-            adjustPanelsToSquare(['nyquist', 'pole-zero']);
-
-            // Arrange Bode/Step Response based on available space
-            adjustBodeStepResponseLayout();
-        } catch (e) {
-            // Panel size adjustment may fail during layout changes
-        }
-    }, 100);
-}
-
-// Constrain specified panels to square aspect ratio
-// Shrinks width to match height, capped at Bode panel width to ensure right column stays visible
-function adjustPanelsToSquare(panelIds) {
-    const bodePanel = dockviewApi.getPanel('bode');
-    const maxWidth = bodePanel ? bodePanel.api.width : 0;
-
-    panelIds.forEach(id => {
-        const panel = dockviewApi.getPanel(id);
-        if (panel && panel.api) {
-            const { width, height } = panel.api;
-            if (width > height && height > 0) {
-                // Use smaller of height (for square) or Bode width (to preserve right column)
-                const targetWidth = Math.min(height, maxWidth);
-                panel.api.setSize({ width: targetWidth });
-            }
-        }
-    });
-}
-
-// Arrange Bode Plot and Step Response based on aspect ratio:
-// - Wide area (width > 1.5 * height): side-by-side layout
-// - Otherwise: stacked vertically (default)
-function adjustBodeStepResponseLayout() {
-    const bodePanel = dockviewApi.getPanel('bode');
-    const stepPanel = dockviewApi.getPanel('step-response');
-    if (!bodePanel || !stepPanel) return;
-
-    const bodeWidth = bodePanel.api.width;
-    const bodeHeight = bodePanel.api.height;
-
-    if (bodeWidth > 1.5*bodeHeight) {
-        // Reposition Step Response to the right of Bode Plot
-        dockviewApi.removePanel(stepPanel);
-        dockviewApi.addPanel({
-            id: 'step-response',
-            component: 'step-response',
-            title: 'Step Response',
-            position: { referencePanel: 'bode', direction: 'right' },
-        });
-    }
-}
-
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', function() {
-    loadFromUrl();
-
-    isNarrowLayout = window.innerWidth < CONSTANTS.NARROW_BREAKPOINT;
-
-    // Initialize Share menu (available on all layouts)
-    initializeShareMenu();
-
-    // Initialize Export dialog (available on all layouts)
-    initializeExportDialog();
-
-    if (isNarrowLayout) {
-        // Narrow layout: use static HTML layout (no Dockview)
-        initializeNarrowLayout();
-    } else {
-        // Wide layout: use Dockview
-        initializeDockview();
-        initializeViewMenu();
-    }
-
-    // Wait for panels to be rendered and Shoelace components to be ready
-    Promise.all([
-        customElements.whenDefined('sl-checkbox'),
-        new Promise(resolve => setTimeout(resolve, 100))
-    ]).then(() => {
-        initializeUI();
-        setupEventListeners();
-        updateAll();
-
-        // Render KaTeX math in labels
-        renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });
-
-        // Enable and trigger browser URL synchronization
-        isInitialized = true;
-        updateBrowserUrl();
-    });
-});
-
-let narrowLayoutInitialized = false;
-
-// Initialize narrow layout (static HTML, no Dockview)
-function initializeNarrowLayout() {
-    const tabBtns = document.querySelectorAll('.narrow-tab-btn');
-    function switchToTab(tabName) {
-        tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
-        document.getElementById('narrow-tab-bode').style.display = tabName === 'bode' ? 'flex' : 'none';
-        document.getElementById('narrow-tab-pole-zero').style.display = tabName === 'pole-zero' ? 'flex' : 'none';
-        document.getElementById('narrow-tab-nyquist').style.display = tabName === 'nyquist' ? 'flex' : 'none';
-        document.getElementById('narrow-tab-step').style.display = tabName === 'step-response' ? 'flex' : 'none';
-
-        if (tabName === 'bode') updateBodePlot();
-        else if (tabName === 'pole-zero') updatePolePlot();
-        else if (tabName === 'nyquist') updateNyquistPlot();
-        else if (tabName === 'step-response') updateStepResponsePlot();
-    }
-
-    // Set up event listeners only once to prevent duplicates
-    if (!narrowLayoutInitialized) {
-        // Tab buttons
-        tabBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                switchToTab(this.dataset.tab);
-            });
-        });
-
-        // Pole-Zero visibility checkboxes
-        const chkLpz = document.getElementById('narrow-chk-show-L-pz');
-        const chkTpz = document.getElementById('narrow-chk-show-T-pz');
-        if (chkLpz) chkLpz.addEventListener('sl-change', () => updatePolePlot());
-        if (chkTpz) chkTpz.addEventListener('sl-change', () => updatePolePlot());
-
-        // Step Response visibility checkboxes
-        const chkLstep = document.getElementById('narrow-chk-show-L-step');
-        const chkTstep = document.getElementById('narrow-chk-show-T-step');
-        if (chkLstep) chkLstep.addEventListener('sl-change', () => updateStepResponsePlot());
-        if (chkTstep) chkTstep.addEventListener('sl-change', () => updateStepResponsePlot());
-
-        // Step Response auto time checkbox
-        const chkAutoTime = document.getElementById('narrow-step-auto-time');
-        const stepTimeControl = document.getElementById('narrow-step-time-control');
-        const stepTimeInput = document.getElementById('narrow-step-time-max');
-        if (chkAutoTime) {
-            chkAutoTime.addEventListener('sl-change', function() {
-                stepOptions.autoTime = this.checked;
-                if (stepTimeControl) stepTimeControl.style.display = this.checked ? 'none' : 'flex';
-                if (stepOptions.autoTime) {
-                    stepOptions.autoTimeMultiplier = 10;
-                } else {
-                    if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax.toPrecision(3);
-                }
-                updateStepResponsePlot();
-            });
-        }
-
-        // Step Response time input
-        if (stepTimeInput) {
-            stepTimeInput.addEventListener('sl-change', function() {
-                stepOptions.timeMax = parseFloat(this.value) || 20;
-                if (!stepOptions.autoTime) {
-                    updateStepResponsePlot();
-                }
-            });
-        }
-
-        // Mouse wheel for step response time range
-        const narrowStepWrapper = document.getElementById('narrow-step-wrapper');
-        if (narrowStepWrapper) {
-            narrowStepWrapper.addEventListener('wheel', function(e) {
-                e.preventDefault();
-                const factor = 1.05;
-                const increase = e.deltaY < 0;
-                if (stepOptions.autoTime) {
-                    stepOptions.autoTimeMultiplier *= increase ? factor : 1 / factor;
-                    stepOptions.autoTimeMultiplier = Math.max(0.1, Math.min(100, stepOptions.autoTimeMultiplier));
-                } else {
-                    stepOptions.timeMax *= increase ? factor : 1 / factor;
-                    stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
-                    const input = document.getElementById('narrow-step-time-max');
-                    if (input) input.value = stepOptions.timeMax.toPrecision(3);
-                }
-                updateStepResponsePlot();
-            }, { passive: false });
-        }
-
-        // Mouse wheel: zoom (vertical, ±0.2 decades) and pan (horizontal, ±0.1 decades)
-        const narrowBodeWrapper = document.getElementById('narrow-bode-wrapper');
-        if (narrowBodeWrapper) {
-            narrowBodeWrapper.addEventListener('wheel', function(e) {
-                e.preventDefault();
-
-                if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-                    // Horizontal scroll: pan
-                    const panAmount = e.deltaX > 0 ? 0.1 : -0.1;
-                    design.freqMin += panAmount;
-                    design.freqMax += panAmount;
-                } else {
-                    // Vertical scroll: zoom centered at cursor position
-                    const leftMargin = 70;
-                    const wrapperWidth = narrowBodeWrapper.clientWidth;
-                    const plotWidth = wrapperWidth - leftMargin - 20;
-
-                    const rect = narrowBodeWrapper.getBoundingClientRect();
-                    let p = (e.clientX - rect.left - leftMargin) / plotWidth;
-                    p = Math.max(0, Math.min(1, p));
-
-                    const currentRange = design.freqMax - design.freqMin;
-                    const wCursor = design.freqMin + p * currentRange;
-                    const rangeChange = e.deltaY > 0 ? 0.2 : -0.2;
-                    const newRange = Math.max(0.5, Math.min(10, currentRange + rangeChange));
-
-                    design.freqMin = wCursor - p * newRange;
-                    design.freqMax = wCursor + (1 - p) * newRange;
-                }
-
-                if (autoFreq) autoFreq = false;
-                updateAll();
-            }, { passive: false });
-        }
-
-        narrowLayoutInitialized = true;
-    }
-
-    // Initialize UI state (always runs to sync state after layout switch)
-    const chkAutoTime = document.getElementById('narrow-step-auto-time');
-    const stepTimeControl = document.getElementById('narrow-step-time-control');
-    const stepTimeInput = document.getElementById('narrow-step-time-max');
-    if (chkAutoTime) chkAutoTime.checked = stepOptions.autoTime;
-    if (stepTimeControl) stepTimeControl.style.display = stepOptions.autoTime ? 'none' : 'flex';
-    if (stepTimeInput) stepTimeInput.value = stepOptions.timeMax;
-
-    // Switch to initial tab
-    switchToTab(design.preferredPlot || 'bode');
-
-    setupPlotResizeObserver();
-}
-
-function initializeUI() {
-    // Get element IDs based on layout mode
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-
-    const codeField = document.getElementById(prefix + 'field-code');
-    if (codeField) {
-        // Shoelace sl-textarea uses 'value' property
-        codeField.value = design.code;
-    }
-
-    // Apply auto frequency range setting
-    autoFreq = design.autoFreq !== undefined ? design.autoFreq : true;
-
-    // Wide layout only settings
-    if (!isNarrowLayout) {
-        // Apply Pole-Zero Map visibility settings
-        displayOptions.showLpz = design.showLpz !== undefined ? design.showLpz : true;
-        displayOptions.showTpz = design.showTpz !== undefined ? design.showTpz : true;
-        const chkLpz = document.getElementById('chk-show-L-pz');
-        const chkTpz = document.getElementById('chk-show-T-pz');
-        if (chkLpz) chkLpz.checked = displayOptions.showLpz;
-        if (chkTpz) chkTpz.checked = displayOptions.showTpz;
-    }
-
-    rebuildSliders();
-
-    // Apply Bode plot visibility settings
-    displayOptions.showL = design.showL !== undefined ? design.showL : true;
-    displayOptions.showT = design.showT !== undefined ? design.showT : true;
-    const chkL = document.getElementById(prefix + 'chk-show-L');
-    const chkT = document.getElementById(prefix + 'chk-show-T');
-    // Shoelace sl-checkbox uses 'checked' property
-    if (chkL) chkL.checked = displayOptions.showL;
-    if (chkT) chkT.checked = displayOptions.showT;
-}
-
-function setupEventListeners() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-
-    // Code field and add slider button
-    attachListenerOnce(
-        document.getElementById(prefix + 'field-code'),
-        'sl-input',
-        debounceUpdate
-    );
-    attachListenerOnce(
-        document.getElementById(prefix + 'btn-add-slider'),
-        'click',
-        addSlider
-    );
-
-    // Bode plot visibility checkboxes
-    attachListenerOnce(
-        document.getElementById(prefix + 'chk-show-L'),
-        'sl-change',
-        function() {
-            displayOptions.showL = this.checked;
-            design.showL = displayOptions.showL;
-            updateBodePlot();
-        }
-    );
-    attachListenerOnce(
-        document.getElementById(prefix + 'chk-show-T'),
-        'sl-change',
-        function() {
-            displayOptions.showT = this.checked;
-            design.showT = displayOptions.showT;
-            updateBodePlot();
-        }
-    );
-
-    // Wide layout only elements
-    if (!isNarrowLayout) {
-        // Pole-Zero Map visibility checkboxes
-        attachListenerOnce(
-            document.getElementById('chk-show-L-pz'),
-            'sl-change',
-            function() {
-                displayOptions.showLpz = this.checked;
-                design.showLpz = displayOptions.showLpz;
-                updatePolePlot();
-            }
-        );
-        attachListenerOnce(
-            document.getElementById('chk-show-T-pz'),
-            'sl-change',
-            function() {
-                displayOptions.showTpz = this.checked;
-                design.showTpz = displayOptions.showTpz;
-                updatePolePlot();
-            }
-        );
-
-        // Nyquist plot mouse wheel for compression radius
-        attachListenerOnce(
-            document.getElementById('nyquist-wrapper'),
-            'wheel',
-            function(e) {
-                e.preventDefault();
-                const delta = e.deltaY > 0 ? -0.5 : 0.5;
-                nyquistCompressionRadius = Math.max(0.5, Math.min(100, nyquistCompressionRadius + delta));
-                updateNyquistPlot();
-            },
-            '',
-            { passive: false }
-        );
-
-        // Step Response visibility checkboxes
-        attachListenerOnce(
-            document.getElementById('chk-show-L-step'),
-            'sl-change',
-            function() {
-                displayOptions.showLstep = this.checked;
-                updateStepResponsePlot();
-            }
-        );
-        attachListenerOnce(
-            document.getElementById('chk-show-T-step'),
-            'sl-change',
-            function() {
-                displayOptions.showTstep = this.checked;
-                updateStepResponsePlot();
-            }
-        );
-    }
-
-    // Handle layout mode switching on window resize
-    if (!resizeListenerAttached) {
-        window.addEventListener('resize', function() {
-            const newIsNarrow = window.innerWidth < CONSTANTS.NARROW_BREAKPOINT;
-            if (newIsNarrow === isNarrowLayout) return;
-            isNarrowLayout = newIsNarrow;
-
-            if (isNarrowLayout) {
-                initializeNarrowLayout();
-            } else if (!dockviewApi) {
-                initializeDockview();
-                initializeViewMenu();
-            }
-
-            setupPlotResizeObserver();
-            initializeUI();
-            setupEventListeners();
-            updateAll();
-        });
-        resizeListenerAttached = true;
-    }
-
-    setupBodeContextMenu();
-    setupStepContextMenu();
-    setupPzmapContextMenu();
-    setupNyquistContextMenu();
-}
-
-// Context menu helper functions
-// Tracks all registered context menus for the global click-outside handler
-const registeredContextMenus = [];
-
-// Global click-outside handler (registered once, handles all context menus)
-let contextMenuClickHandlerAttached = false;
-
-function setupGlobalContextMenuClickHandler() {
-    if (contextMenuClickHandlerAttached) return;
-    contextMenuClickHandlerAttached = true;
-
-    document.addEventListener('click', (e) => {
-        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-
-        for (const contextMenu of registeredContextMenus) {
-            if (!contextMenu.active) continue;
-
-            const popupPart = contextMenu.shadowRoot?.querySelector('[part~="popup"]') || null;
-            const clickedInside =
-                (popupPart ? path.includes(popupPart) : false) ||
-                path.includes(contextMenu) ||
-                contextMenu.contains(e.target);
-
-            if (!clickedInside) {
-                contextMenu.active = false;
-            }
-        }
-    }, { capture: true });
-}
-
-// Show a context menu at the cursor position
-function showContextMenuAtCursor(contextMenu, contextAnchor, e) {
-    e.preventDefault();
-    contextAnchor.style.left = e.clientX + 'px';
-    contextAnchor.style.top = e.clientY + 'px';
-    contextMenu.strategy = 'fixed';
-    contextMenu.active = true;
-    requestAnimationFrame(() => {
-        if (typeof contextMenu.reposition === 'function') {
-            contextMenu.reposition();
-        }
-    });
-}
-
-// Setup menu item selection handlers (both click and sl-select)
-function setupMenuItemHandlers(menuInnerId, onItemSelect, contextMenu) {
-    const menuInner = document.getElementById(menuInnerId);
-    if (!menuInner || menuInner.dataset.listenerAttached) return;
-
-    function handleItem(item) {
-        if (!item) return;
-        item.checked = !item.checked;
-        onItemSelect(item);
-        contextMenu.active = false;
-    }
-
-    menuInner.addEventListener('click', (e) => {
-        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-        const item = path.find(n => n && n.tagName === 'SL-MENU-ITEM') || null;
-        handleItem(item);
-    });
-
-    menuInner.addEventListener('sl-select', (e) => {
-        handleItem(e.detail.item);
-    });
-
-    menuInner.dataset.listenerAttached = 'true';
-}
-
-/**
- * Generic context menu setup for plot wrappers.
- * Consolidates common patterns across Bode, Step, PZ Map, and Nyquist context menus.
- * @param {Object} config - Configuration object
- * @param {string} config.wrapperId - Base ID of the wrapper element (prefix will be added)
- * @param {string} config.menuId - ID of the context menu element
- * @param {string} config.anchorId - ID of the context menu anchor element
- * @param {string} config.menuInnerId - ID of the inner menu for item handlers
- * @param {Function} config.onWheel - Wheel event handler (optional)
- * @param {Function} config.onContextMenu - Called before showing context menu (optional, for syncing state)
- * @param {Function} config.onItemSelect - Menu item selection handler
- * @param {Function} config.initializeState - Initialize menu checkbox/input states (optional)
- * @param {Array<Object>} config.inputs - Array of input configurations for sl-change handlers (optional)
- *   Each input config: { id, onChange }
- */
-function setupPlotContextMenu(config) {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const wrapper = document.getElementById(prefix + config.wrapperId);
-    const contextMenu = document.getElementById(config.menuId);
-    const contextAnchor = document.getElementById(config.anchorId);
-
-    if (!wrapper || !contextMenu || !contextAnchor) return;
-    if (wrapper.dataset.contextMenuAttached) return;
-    wrapper.dataset.contextMenuAttached = 'true';
-
-    // Register for global click-outside handling
-    if (!registeredContextMenus.includes(contextMenu)) {
-        registeredContextMenus.push(contextMenu);
-    }
-    setupGlobalContextMenuClickHandler();
-
-    // Initialize state if provided
-    if (config.initializeState) {
-        config.initializeState();
-    }
-
-    // Setup input event listeners
-    if (config.inputs) {
-        config.inputs.forEach(({ id, onChange }) => {
-            const input = document.getElementById(id);
-            if (input && !input.dataset.listenerAttached) {
-                input.addEventListener('sl-change', onChange);
-                input.addEventListener('click', (e) => e.stopPropagation());
-                input.dataset.listenerAttached = 'true';
-            }
-        });
-    }
-
-    // Mouse wheel handler
-    if (config.onWheel && !wrapper.dataset.wheelListenerAttached) {
-        wrapper.addEventListener('wheel', config.onWheel, { passive: false });
-        wrapper.dataset.wheelListenerAttached = 'true';
-    }
-
-    // Context menu trigger
-    wrapper.addEventListener('contextmenu', (e) => {
-        if (config.onContextMenu) {
-            config.onContextMenu();
-        }
-        showContextMenuAtCursor(contextMenu, contextAnchor, e);
-    });
-
-    // Menu item handlers
-    setupMenuItemHandlers(config.menuInnerId, config.onItemSelect, contextMenu);
-}
-
-function setupBodeContextMenu() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const bodeWrapper = document.getElementById(prefix + 'bode-wrapper');
-    const contextMenu = document.getElementById('bode-context-menu');
-    const contextAnchor = document.getElementById('bode-context-menu-anchor');
-
-    if (!bodeWrapper || !contextMenu || !contextAnchor) return;
-    if (bodeWrapper.dataset.contextMenuAttached) return;
-    bodeWrapper.dataset.contextMenuAttached = 'true';
-
-    // Register for global click-outside handling
-    if (!registeredContextMenus.includes(contextMenu)) {
-        registeredContextMenus.push(contextMenu);
-    }
-    setupGlobalContextMenuClickHandler();
-
-    // Context menu items
-    const optMarginLines = document.getElementById('bode-opt-margin-lines');
-    const optCrossoverLines = document.getElementById('bode-opt-crossover-lines');
-    const optAutoScale = document.getElementById('bode-opt-auto-scale');
-    const optAutoFreq = document.getElementById('bode-opt-auto-freq');
-    const customRangePanel = document.getElementById('bode-custom-range-panel');
-    const gainMinInput = document.getElementById('bode-gain-min');
-    const gainMaxInput = document.getElementById('bode-gain-max');
-    const phaseMinInput = document.getElementById('bode-phase-min');
-    const phaseMaxInput = document.getElementById('bode-phase-max');
-    const customFreqPanel = document.getElementById('bode-custom-freq-panel');
-    const freqMinInput = document.getElementById('bode-freq-min');
-    const freqMaxInput = document.getElementById('bode-freq-max');
-
-    // Initialize checkbox states
-    if (optMarginLines) optMarginLines.checked = bodeOptions.showMarginLines;
-    if (optCrossoverLines) optCrossoverLines.checked = bodeOptions.showCrossoverLines;
-    if (optAutoScale) optAutoScale.checked = bodeOptions.autoScaleVertical;
-    if (optAutoFreq) optAutoFreq.checked = autoFreq;
-
-    // Initialize custom range inputs and panel visibility
-    if (customRangePanel) {
-        customRangePanel.style.display = bodeOptions.autoScaleVertical ? 'none' : 'block';
-    }
-    if (gainMinInput) gainMinInput.value = bodeOptions.gainMin;
-    if (gainMaxInput) gainMaxInput.value = bodeOptions.gainMax;
-    if (phaseMinInput) phaseMinInput.value = bodeOptions.phaseMin;
-    if (phaseMaxInput) phaseMaxInput.value = bodeOptions.phaseMax;
-
-    // Initialize custom frequency range inputs and panel visibility
-    if (customFreqPanel) {
-        customFreqPanel.style.display = autoFreq ? 'none' : 'block';
-    }
-    if (freqMinInput) freqMinInput.value = design.freqMin;
-    if (freqMaxInput) freqMaxInput.value = design.freqMax;
-
-    // Setup gain/phase range input event listeners
-    [gainMinInput, gainMaxInput, phaseMinInput, phaseMaxInput].forEach(input => {
-        if (input && !input.dataset.listenerAttached) {
-            input.addEventListener('sl-change', () => {
-                bodeOptions.gainMin = parseFloat(gainMinInput.value) || -60;
-                bodeOptions.gainMax = parseFloat(gainMaxInput.value) || 60;
-                bodeOptions.phaseMin = parseFloat(phaseMinInput.value) || -270;
-                bodeOptions.phaseMax = parseFloat(phaseMaxInput.value) || 90;
-                updateBodePlot();
-            });
-            input.addEventListener('click', (e) => e.stopPropagation());
-            input.dataset.listenerAttached = 'true';
-        }
-    });
-
-    // Setup frequency range input event listeners
-    [freqMinInput, freqMaxInput].forEach(input => {
-        if (input && !input.dataset.listenerAttached) {
-            input.addEventListener('sl-change', () => {
-                design.freqMin = parseFloat(freqMinInput.value) || -2;
-                design.freqMax = parseFloat(freqMaxInput.value) || 3;
-                updateAll();
-            });
-            input.addEventListener('click', (e) => e.stopPropagation());
-            input.dataset.listenerAttached = 'true';
-        }
-    });
-
-    // Mouse wheel: zoom (vertical) and pan (horizontal)
-    if (!bodeWrapper.dataset.wheelListenerAttached) {
-        bodeWrapper.addEventListener('wheel', function(e) {
-            e.preventDefault();
-
-            if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-                const panAmount = e.deltaX > 0 ? 0.1 : -0.1;
-                design.freqMin += panAmount;
-                design.freqMax += panAmount;
-            } else {
-                const leftMargin = 70;
-                const wrapperWidth = bodeWrapper.clientWidth;
-                const plotWidth = wrapperWidth - leftMargin - 20;
-
-                const rect = bodeWrapper.getBoundingClientRect();
-                let p = (e.clientX - rect.left - leftMargin) / plotWidth;
-                p = Math.max(0, Math.min(1, p));
-
-                const currentRange = design.freqMax - design.freqMin;
-                const wCursor = design.freqMin + p * currentRange;
-                const rangeChange = e.deltaY > 0 ? 0.2 : -0.2;
-                const newRange = Math.max(0.5, Math.min(10, currentRange + rangeChange));
-
-                design.freqMin = wCursor - p * newRange;
-                design.freqMax = wCursor + (1 - p) * newRange;
-            }
-
-            if (autoFreq) {
-                autoFreq = false;
-                if (optAutoFreq) optAutoFreq.checked = false;
-                if (customFreqPanel) customFreqPanel.style.display = 'block';
-            }
-            if (freqMinInput) freqMinInput.value = design.freqMin.toFixed(2);
-            if (freqMaxInput) freqMaxInput.value = design.freqMax.toFixed(2);
-
-            updateAll();
-        }, { passive: false });
-        bodeWrapper.dataset.wheelListenerAttached = 'true';
-    }
-
-    bodeWrapper.addEventListener('contextmenu', (e) => {
-        // Sync checkbox and input states before showing context menu
-        if (optAutoFreq) optAutoFreq.checked = autoFreq;
-        if (customFreqPanel) customFreqPanel.style.display = autoFreq ? 'none' : 'block';
-        if (freqMinInput) freqMinInput.value = design.freqMin.toFixed(2);
-        if (freqMaxInput) freqMaxInput.value = design.freqMax.toFixed(2);
-        showContextMenuAtCursor(contextMenu, contextAnchor, e);
-    });
-
-    function handleBodeMenuItem(item) {
-        switch (item.id) {
-            case 'bode-opt-margin-lines':
-                bodeOptions.showMarginLines = item.checked;
-                break;
-            case 'bode-opt-crossover-lines':
-                bodeOptions.showCrossoverLines = item.checked;
-                break;
-            case 'bode-opt-auto-scale':
-                bodeOptions.autoScaleVertical = item.checked;
-                if (customRangePanel) {
-                    customRangePanel.style.display = item.checked ? 'none' : 'block';
-                }
-                break;
-            case 'bode-opt-auto-freq':
-                autoFreq = item.checked;
-                design.autoFreq = autoFreq;
-                if (customFreqPanel) {
-                    customFreqPanel.style.display = item.checked ? 'none' : 'block';
-                }
-                if (autoFreq) {
-                    autoAdjustFrequencyRange();
-                } else {
-                    if (freqMinInput) freqMinInput.value = design.freqMin;
-                    if (freqMaxInput) freqMaxInput.value = design.freqMax;
-                }
-                break;
-        }
-        updateBodePlot();
-    }
-
-    setupMenuItemHandlers('bode-context-menu-inner', handleBodeMenuItem, contextMenu);
-}
-
-function setupStepContextMenu() {
-    const customTimePanel = document.getElementById('step-custom-time-panel');
-    const timeMaxInput = document.getElementById('step-time-max-input');
-
-    setupPlotContextMenu({
-        wrapperId: 'step-wrapper',
-        menuId: 'step-context-menu',
-        anchorId: 'step-context-menu-anchor',
-        menuInnerId: 'step-context-menu-inner',
-
-        initializeState: function() {
-            const optAutoTime = document.getElementById('step-opt-auto-time');
-            if (optAutoTime) optAutoTime.checked = stepOptions.autoTime;
-            if (customTimePanel) {
-                customTimePanel.style.display = stepOptions.autoTime ? 'none' : 'block';
-            }
-            if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax;
-        },
-
-        inputs: [
-            {
-                id: 'step-time-max-input',
-                onChange: function() {
-                    stepOptions.timeMax = parseFloat(timeMaxInput.value) || 20;
-                    if (!stepOptions.autoTime) updateStepResponsePlot();
-                }
-            }
-        ],
-
-        onWheel: function(e) {
-            e.preventDefault();
-            const factor = 1.05;
-            const increase = e.deltaY < 0;
-
-            if (stepOptions.autoTime) {
-                stepOptions.autoTimeMultiplier *= increase ? factor : 1 / factor;
-                stepOptions.autoTimeMultiplier = Math.max(0.1, Math.min(100, stepOptions.autoTimeMultiplier));
-            } else {
-                stepOptions.timeMax *= increase ? factor : 1 / factor;
-                stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax));
-                if (timeMaxInput) timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
-            }
-            updateStepResponsePlot();
-        },
-
-        onItemSelect: function(item) {
-            if (item.id === 'step-opt-auto-time') {
-                stepOptions.autoTime = item.checked;
-                if (customTimePanel) {
-                    customTimePanel.style.display = item.checked ? 'none' : 'block';
-                }
-                if (item.checked) {
-                    stepOptions.autoTimeMultiplier = 10;
-                } else if (timeMaxInput) {
-                    timeMaxInput.value = stepOptions.timeMax.toPrecision(3);
-                }
-            }
-            updateStepResponsePlot();
-        }
-    });
-}
-
-function setupPzmapContextMenu() {
-    const customScalePanel = document.getElementById('pzmap-custom-scale-panel');
-    const scaleMaxInput = document.getElementById('pzmap-scale-max-input');
-
-    setupPlotContextMenu({
-        wrapperId: 'pole-wrapper',
-        menuId: 'pzmap-context-menu',
-        anchorId: 'pzmap-context-menu-anchor',
-        menuInnerId: 'pzmap-context-menu-inner',
-
-        initializeState: function() {
-            const optAutoScale = document.getElementById('pzmap-opt-auto-scale');
-            if (optAutoScale) optAutoScale.checked = pzmapOptions.autoScale;
-            if (customScalePanel) {
-                customScalePanel.style.display = pzmapOptions.autoScale ? 'none' : 'block';
-            }
-            if (scaleMaxInput) scaleMaxInput.value = pzmapOptions.scaleMax;
-        },
-
-        inputs: [
-            {
-                id: 'pzmap-scale-max-input',
-                onChange: function() {
-                    pzmapOptions.scaleMax = parseFloat(scaleMaxInput.value) || 10;
-                    if (!pzmapOptions.autoScale) updatePolePlot();
-                }
-            }
-        ],
-
-        onWheel: function(e) {
-            e.preventDefault();
-            const factor = 1.05;
-            const increase = e.deltaY < 0;
-
-            if (pzmapOptions.autoScale) {
-                pzmapOptions.autoScaleMultiplier *= increase ? factor : 1 / factor;
-                pzmapOptions.autoScaleMultiplier = Math.max(1.0, Math.min(10, pzmapOptions.autoScaleMultiplier));
-            } else {
-                pzmapOptions.scaleMax *= increase ? factor : 1 / factor;
-                pzmapOptions.scaleMax = Math.max(0.1, Math.min(1000, pzmapOptions.scaleMax));
-                if (scaleMaxInput) scaleMaxInput.value = pzmapOptions.scaleMax.toPrecision(3);
-            }
-            updatePolePlot();
-        },
-
-        onItemSelect: function(item) {
-            if (item.id === 'pzmap-opt-auto-scale') {
-                pzmapOptions.autoScale = item.checked;
-                if (customScalePanel) {
-                    customScalePanel.style.display = item.checked ? 'none' : 'block';
-                }
-                if (!item.checked && scaleMaxInput) {
-                    scaleMaxInput.value = pzmapOptions.scaleMax.toPrecision(3);
-                }
-            }
-            updatePolePlot();
-        }
-    });
-}
-
-function setupNyquistContextMenu() {
-    setupPlotContextMenu({
-        wrapperId: 'nyquist-wrapper',
-        menuId: 'nyquist-context-menu',
-        anchorId: 'nyquist-context-menu-anchor',
-        menuInnerId: 'nyquist-context-menu-inner',
-
-        initializeState: function() {
-            const optStabilityMargin = document.getElementById('nyquist-opt-stability-margin');
-            if (optStabilityMargin) optStabilityMargin.checked = nyquistOptions.showStabilityMargin;
-        },
-
-        onItemSelect: function(item) {
-            if (item.id === 'nyquist-opt-stability-margin') {
-                nyquistOptions.showStabilityMargin = item.checked;
-            }
-            updateNyquistPlot();
-        }
-    });
-}
-
-// Browser URL synchronization
-// Updates address bar with shareable URL containing current design and layout.
-// Called from: updateAll(), onDidLayoutChange, and initialization.
-// Uses debouncing to avoid excessive URL updates during rapid changes.
-let urlUpdateTimeout = null;
-
-function updateBrowserUrl() {
-    if (!isInitialized) return;
-
-    if (urlUpdateTimeout) {
-        clearTimeout(urlUpdateTimeout);
-    }
-    urlUpdateTimeout = setTimeout(function() {
-        try {
-            const url = generateShareUrl({ includeLayout: true });
-            history.replaceState(null, '', url);
-        } catch (e) {
-            console.error('Error updating browser URL:', e);
-        }
-    }, CONSTANTS.URL_UPDATE_DELAY);
-}
-
-function debounceUpdate() {
-    if (updateTimeout) {
-        clearTimeout(updateTimeout);
-    }
-    updateTimeout = setTimeout(function() {
-        saveDesign();
-        updateAll();
-    }, CONSTANTS.DEBOUNCE_DELAY);
-}
-
-function saveDesign() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const codeField = document.getElementById(prefix + 'field-code');
-
-    if (codeField) design.code = codeField.value;
-}
-
-function rebuildSliders() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const container = document.getElementById(prefix + 'sliders-container');
-    if (!container) return;
-
-    container.innerHTML = '';
-
-    design.sliders.forEach((slider, index) => {
-        const div = createSliderElement(slider, index);
-        container.appendChild(div);
-        // Setup listeners after element is in the DOM
-        if (div.setupListeners) {
-            div.setupListeners();
-        }
-    });
-}
-
-function createSliderElement(slider, index) {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    let div = document.createElement('div');
-    div.className = 'slider-row';
-    div.id = prefix + 'slider-row-' + index;
-
-    let initialValue = slider.currentValue !== undefined ? slider.currentValue : slider.min;
-    let initialPos = valueToSliderPos(initialValue, slider.min, slider.max, slider.logScale);
-
-    div.innerHTML = `
-        <div class="slider-config">
-            <sl-input type="text" class="slider-name" placeholder="Name" value="${slider.name || ''}" data-index="${index}" size="small"></sl-input>
-            <sl-input type="number" class="slider-min" placeholder="Min" value="${slider.min || 0.1}" step="any" data-index="${index}" size="small"></sl-input>
-            <sl-input type="number" class="slider-max" placeholder="Max" value="${slider.max || 100}" step="any" data-index="${index}" size="small"></sl-input>
-            <sl-checkbox class="slider-log" id="${prefix}log-${index}" ${slider.logScale ? 'checked' : ''} data-index="${index}" size="medium"></sl-checkbox>
-            <sl-icon-button class="remove-slider" name="x-lg" data-index="${index}" label="Remove"></sl-icon-button>
-        </div>
-        <div class="slider-control">
-            <sl-range class="slider-range" id="${prefix}range-${index}" min="0" max="1000" value="${initialPos}" data-index="${index}"></sl-range>
-            <span class="slider-value" id="${prefix}value-${index}">${formatValue(initialValue)}</span>
-        </div>
-    `;
-
-    // Setup function to attach event listeners after element is in DOM
-    div.setupListeners = function() {
-        const nameInput = div.querySelector('.slider-name');
-        const minInput = div.querySelector('.slider-min');
-        const maxInput = div.querySelector('.slider-max');
-        const logCheck = div.querySelector('.slider-log');
-        const rangeInput = div.querySelector('.slider-range');
-        const removeBtn = div.querySelector('.remove-slider');
-
-        // Set tooltip formatter to show actual parameter value
-        if (rangeInput) {
-            rangeInput.tooltipFormatter = (pos) => {
-                const s = design.sliders[index];
-                if (!s) return pos;
-                const value = sliderPosToValue(pos, s.min, s.max, s.logScale);
-                return formatValue(value);
-            };
-        }
-
-        // Shoelace sl-input uses 'sl-input' event
-        if (nameInput) {
-            nameInput.addEventListener('sl-input', function() {
-                design.sliders[index].name = this.value;
-                updateCodeFromSliders();
-                debounceUpdate();
-            });
-        }
-
-        if (minInput) {
-            minInput.addEventListener('sl-input', function() {
-                design.sliders[index].min = parseFloat(this.value) || 0.1;
-                updateSliderValue(index);
-            });
-        }
-
-        if (maxInput) {
-            maxInput.addEventListener('sl-input', function() {
-                design.sliders[index].max = parseFloat(this.value) || 100;
-                updateSliderValue(index);
-            });
-        }
-
-        // Shoelace sl-checkbox uses 'sl-change' event
-        if (logCheck) {
-            logCheck.addEventListener('sl-change', function() {
-                design.sliders[index].logScale = this.checked;
-                updateSliderValue(index);
-            });
-        }
-
-        // Shoelace sl-range uses 'sl-input' event
-        if (rangeInput) {
-            rangeInput.addEventListener('sl-input', function() {
-                updateSliderValue(index);
-            });
-        }
-
-        if (removeBtn) {
-            removeBtn.addEventListener('click', function() {
-                design.sliders.splice(index, 1);
-                rebuildSliders();
-                debounceUpdate();
-            });
-        }
-    };
-
-    return div;
-}
-
-function updateSliderValue(index) {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    let slider = design.sliders[index];
-    let rangeInput = document.getElementById(prefix + 'range-' + index);
-    let valueSpan = document.getElementById(prefix + 'value-' + index);
-
-    if (!rangeInput || !valueSpan) return;
-
-    let pos = parseInt(rangeInput.value);
-    let value = sliderPosToValue(pos, slider.min, slider.max, slider.logScale);
-
-    slider.currentValue = value;
-    valueSpan.textContent = formatValue(value);
-
-    // Update immediately for real-time feedback
-    updateAll();
-}
-
-function updateCodeFromSliders() {
-    // Update parameter values in code based on slider values
-    let lines = design.code.split('\n');
-    let newLines = lines.map(line => {
-        let trimmed = line.trim();
-        if (trimmed.startsWith('#') || trimmed === '') return line;
-
-        // Check if this line defines a slider parameter
-        for (let slider of design.sliders) {
-            if (!slider.name) continue;
-            let regex = new RegExp(`^(\\s*${slider.name}\\s*=\\s*)([\\d.eE+-]+)(\\s*(?:#.*)?)$`);
-            let match = line.match(regex);
-            if (match && slider.currentValue !== undefined) {
-                return match[1] + formatValue(slider.currentValue) + (match[3] || '');
-            }
-        }
-        return line;
-    });
-
-    design.code = newLines.join('\n');
-    const codeField = document.getElementById('field-code');
-    if (codeField) codeField.value = design.code;
-}
-
-function sliderPosToValue(pos, min, max, logScale) {
-    let ratio = pos / 1000;
-    if (logScale) {
-        let logMin = Math.log10(Math.max(min, 1e-10));
-        let logMax = Math.log10(Math.max(max, 1e-10));
-        return Math.pow(10, logMin + ratio * (logMax - logMin));
-    } else {
-        return min + ratio * (max - min);
-    }
-}
-
-function valueToSliderPos(value, min, max, logScale) {
-    if (logScale) {
-        let logMin = Math.log10(Math.max(min, 1e-10));
-        let logMax = Math.log10(Math.max(max, 1e-10));
-        let logValue = Math.log10(Math.max(value, 1e-10));
-        return Math.round(((logValue - logMin) / (logMax - logMin)) * 1000);
-    } else {
-        return Math.round(((value - min) / (max - min)) * 1000);
-    }
-}
-
-function formatValue(value) {
-    if (Math.abs(value) >= 1000 || (Math.abs(value) < 0.01 && value !== 0)) {
-        return value.toExponential(3);
-    }
-    return parseFloat(value.toPrecision(4)).toString();
-}
-
-function addSlider() {
-    design.sliders.push({
-        name: '',
-        min: 0.1,
-        max: 100,
-        logScale: true,
-        currentValue: 1
-    });
-    rebuildSliders();
-}
+// ============================================================================
+// Code Parsing
+// ============================================================================
 
 // Parse a single line of code, extracting variable name and expression
 function parseCodeLine(line) {
@@ -1738,6 +259,28 @@ function processCodeLines(code, vars, onError) {
         }
     });
 }
+
+function substituteVars(expr, vars) {
+    return expr.transform(function(node, path, parent) {
+        if (node.isSymbolNode && node.name !== 's' && vars[node.name] !== undefined) {
+            let val = vars[node.name];
+            // If it's a number, create a constant node
+            if (typeof val === 'number') {
+                return new math.ConstantNode(val);
+            }
+            // If it's already a node, return it
+            if (val.isNode) {
+                return val.clone();
+            }
+            return node;
+        }
+        return node;
+    });
+}
+
+// ============================================================================
+// Main Update Function
+// ============================================================================
 
 function updateAll() {
     // Check if code has changed (need to recalculate symbolic expressions)
@@ -1890,41 +433,9 @@ function updateAll() {
     updateBrowserUrl();
 }
 
-function substituteVars(expr, vars) {
-    return expr.transform(function(node, path, parent) {
-        if (node.isSymbolNode && node.name !== 's' && vars[node.name] !== undefined) {
-            let val = vars[node.name];
-            // If it's a number, create a constant node
-            if (typeof val === 'number') {
-                return new math.ConstantNode(val);
-            }
-            // If it's already a node, return it
-            if (val.isNode) {
-                return val.clone();
-            }
-            return node;
-        }
-        return node;
-    });
-}
-
-function syncSlidersFromVars() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    design.sliders.forEach((slider, index) => {
-        if (!slider.name) return;
-        let val = currentVars[slider.name];
-        if (typeof val === 'number') {
-            slider.currentValue = val;
-            let rangeInput = document.getElementById(prefix + 'range-' + index);
-            let valueSpan = document.getElementById(prefix + 'value-' + index);
-            if (rangeInput && valueSpan) {
-                let pos = valueToSliderPos(val, slider.min, slider.max, slider.logScale);
-                rangeInput.value = pos;
-                valueSpan.textContent = formatValue(val);
-            }
-        }
-    });
-}
+// ============================================================================
+// Transfer Function Calculation and Display
+// ============================================================================
 
 function calculateClosedLoopTF() {
     // T calculation (for Bode plot and closed-loop poles)
@@ -1985,6 +496,10 @@ function displayTransferFunctions() {
         console.log('T display error:', e);
     }
 }
+
+// ============================================================================
+// Stability Margins
+// ============================================================================
 
 // Calculate stability margins (gain margin and phase margin) independently of Bode plot.
 // This allows the Stability panel to display correct values even when the Bode panel is hidden.
@@ -2120,6 +635,10 @@ function calculateStabilityMargins() {
     return { gainMargins, phaseMargins, gainCrossoverFrequencies: wgc, phaseCrossoverFrequencies: wpc };
 }
 
+// ============================================================================
+// Bode Plot
+// ============================================================================
+
 function updateBodePlot() {
     try {
         let L = currentVars.L;
@@ -2169,6 +688,10 @@ function updateBodePlot() {
     }
 }
 
+// ============================================================================
+// Nyquist Analysis Cache
+// ============================================================================
+
 function buildNyquistCacheKey(Lnode, imagAxisPoles) {
     const Lstr = (Lnode && typeof Lnode.toString === 'function') ? Lnode.toString() : '';
     const polesStr = (imagAxisPoles || [])
@@ -2198,6 +721,10 @@ function getOrComputeNyquistAnalysisCached(Lnode, Lcompiled, imagAxisPoles) {
 
     return analysis;
 }
+
+// ============================================================================
+// Closed-Loop Poles
+// ============================================================================
 
 function updateClosedLoopPoles() {
     const prefix = isNarrowLayout ? 'narrow-' : '';
@@ -2403,344 +930,9 @@ function displayClosedLoopPoles(poles, isStableByNyquist) {
     updateStabilityIndicator(isStableByNyquist);
 }
 
-// Unified pole-zero map drawing function
-// options: { wrapperId, canvasId, showLpz, showTpz, showNyquistAnimation }
-function drawPoleZeroMap(options) {
-    const canvas = document.getElementById(options.canvasId);
-    const wrapper = document.getElementById(options.wrapperId);
-
-    if (!canvas || !wrapper) return;
-
-    const ctx = canvas.getContext('2d');
-    const width = wrapper.clientWidth;
-    const height = wrapper.clientHeight;
-
-    if (width === 0 || height === 0) return;
-
-    canvas.width = width * devicePixelRatio;
-    canvas.height = height * devicePixelRatio;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
-
-    ctx.scale(devicePixelRatio, devicePixelRatio);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
-
-    // T(s) closed-loop poles and zeros (from stability calculation)
-    const Tpoles = window.lastPoles || [];
-    const Tzeros = window.lastZeros || [];
-
-    // L(s) open-loop poles and zeros (from analysis)
-    let Lpoles = [];
-    let Lzeros = [];
-
-    const analysis = currentVars.analysis;
-    if (analysis) {
-        const olPZ = analysis.openLoopPolesZeros;
-        Lpoles = olPZ.poles;
-        Lzeros = olPZ.zeros;
-    }
-
-    // Collect all points to display based on visibility settings
-    const allPoints = [];
-    if (options.showLpz) {
-        Lpoles.forEach(p => allPoints.push(p));
-        Lzeros.forEach(z => allPoints.push(z));
-    }
-    if (options.showTpz) {
-        Tpoles.forEach(p => allPoints.push(p));
-        Tzeros.forEach(z => allPoints.push(z));
-    }
-
-    if (allPoints.length === 0) return;
-
-    // Calculate display scale (auto or manual mode)
-    let maxScale;
-    if (pzmapOptions.autoScale) {
-        let maxRe = 0, maxIm = 0;
-        allPoints.forEach(p => {
-            maxRe = Math.max(maxRe, Math.abs(p.re));
-            maxIm = Math.max(maxIm, Math.abs(p.im));
-        });
-        maxRe = Math.max(maxRe, 1) * pzmapOptions.autoScaleMultiplier;
-        maxIm = Math.max(maxIm, 1) * pzmapOptions.autoScaleMultiplier;
-        maxScale = Math.max(maxRe, maxIm);
-    } else {
-        maxScale = pzmapOptions.scaleMax;
-    }
-
-    const margin = 40;
-    const plotWidth = width - 2 * margin;
-    const plotHeight = height - 2 * margin;
-    const scale = Math.min(plotWidth, plotHeight) / (2 * maxScale);
-    const centerX = width / 2;
-    const centerY = height / 2;
-
-    // Calculate grid step size based on panel size (ensure readable spacing)
-    const minPixelSpacing = 30;
-    const maxGridLines = Math.floor(Math.min(plotWidth, plotHeight) / 2 / minPixelSpacing);
-    const targetSteps = Math.max(2, Math.min(6, maxGridLines));
-    const rawStep = maxScale / targetSteps;
-
-    // Round to nice step values (1, 2, 5, 10, 20, 50, ...)
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
-    const normalized = rawStep / magnitude;
-    let niceStep;
-    if (normalized <= 1.5) {
-        niceStep = magnitude;
-    } else if (normalized <= 3.5) {
-        niceStep = magnitude * 2;
-    } else if (normalized <= 7.5) {
-        niceStep = magnitude * 5;
-    } else {
-        niceStep = magnitude * 10;
-    }
-
-    // Draw circular grid
-    ctx.strokeStyle = '#c0c0c0';
-    ctx.lineWidth = 1;
-
-    const maxCircleRadius = Math.ceil(maxScale / niceStep) * niceStep;
-    for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
-        const pixelRadius = r * scale;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, pixelRadius, 0, 2 * Math.PI);
-        ctx.stroke();
-    }
-
-    // Draw radial lines (every 45 degrees)
-    for (let angle = 0; angle < Math.PI; angle += Math.PI / 4) {
-        const dx = Math.cos(angle) * maxCircleRadius * scale;
-        const dy = Math.sin(angle) * maxCircleRadius * scale;
-        ctx.beginPath();
-        ctx.moveTo(centerX - dx, centerY + dy);
-        ctx.lineTo(centerX + dx, centerY - dy);
-        ctx.stroke();
-    }
-
-    ctx.strokeStyle = '#999999';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(margin, centerY);
-    ctx.lineTo(width - margin, centerY);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(centerX, margin);
-    ctx.lineTo(centerX, height - margin);
-    ctx.stroke();
-
-    ctx.strokeStyle = '#333333';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.beginPath();
-    ctx.moveTo(centerX, margin);
-    ctx.lineTo(centerX, height - margin);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Axis labels
-    ctx.fillStyle = '#333333';
-    ctx.font = '14px Consolas, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Re', width - margin + 18, centerY);
-    ctx.fillText('Im', centerX, margin - 15);
-
-    // Draw tick labels on positive real axis (skip labels if too dense)
-    const labelPixelSpacing = niceStep * scale;
-    const minLabelSpacing = 30;
-    const labelSkip = Math.max(1, Math.ceil(minLabelSpacing / labelPixelSpacing));
-
-    ctx.font = '12px Consolas, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    let labelIndex = 0;
-    for (let r = niceStep; r <= maxCircleRadius; r += niceStep) {
-        labelIndex++;
-        if (labelIndex % labelSkip !== 0) continue;
-
-        const px = centerX + r * scale;
-        if (px < width - margin - 15) {
-            let label;
-            if (r >= 1 && r === Math.floor(r)) {
-                label = r.toFixed(0);
-            } else if (r >= 0.1) {
-                label = r.toPrecision(2).replace(/\.?0+$/, '');
-            } else {
-                label = r.toPrecision(1);
-            }
-            ctx.fillText(label, px, centerY + 6);
-        }
-    }
-
-    const colorL = CONSTANTS.COLORS.L;  // L(s) color (same as Bode plot)
-    const colorT = CONSTANTS.COLORS.T;  // T(s) color (same as Bode plot)
-
-    function isInRange(p) {
-        return Math.abs(p.re) <= maxScale && Math.abs(p.im) <= maxScale;
-    }
-
-    function drawZero(z, color) {
-        const px = centerX + z.re * scale;
-        const py = centerY - z.im * scale;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(px, py, 5, 0, 2 * Math.PI);
-        ctx.stroke();
-    }
-
-    function drawPole(p, color) {
-        const px = centerX + p.re * scale;
-        const py = centerY - p.im * scale;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(px - 5, py - 5);
-        ctx.lineTo(px + 5, py + 5);
-        ctx.moveTo(px + 5, py - 5);
-        ctx.lineTo(px - 5, py + 5);
-        ctx.stroke();
-    }
-
-    function drawOutOfRangeIndicator(p, isPole, color) {
-        const mag = Math.sqrt(p.re * p.re + p.im * p.im);
-        if (mag < 1e-10) return;
-
-        const angle = Math.atan2(-p.im, p.re);
-        const tipRadius = maxCircleRadius * scale;
-        const tipX = centerX + tipRadius * Math.cos(angle);
-        const tipY = centerY + tipRadius * Math.sin(angle);
-
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        const triDepth = 8, triWidth = 6;
-        const baseRadius = tipRadius - triDepth;
-        const baseX = centerX + baseRadius * Math.cos(angle);
-        const baseY = centerY + baseRadius * Math.sin(angle);
-        const perpAngle = angle + Math.PI / 2;
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(baseX + triWidth * Math.cos(perpAngle), baseY + triWidth * Math.sin(perpAngle));
-        ctx.lineTo(baseX - triWidth * Math.cos(perpAngle), baseY - triWidth * Math.sin(perpAngle));
-        ctx.closePath();
-        ctx.fill();
-
-        const labelRadius = baseRadius - 10;
-        const labelX = centerX + labelRadius * Math.cos(angle);
-        const labelY = centerY + labelRadius * Math.sin(angle);
-
-        ctx.font = '12px Consolas, monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        let magStr;
-        if (mag >= 100) {
-            magStr = mag.toFixed(0);
-        } else if (mag >= 10) {
-            magStr = mag.toFixed(1);
-        } else {
-            magStr = mag.toPrecision(2);
-        }
-
-        const symbol = isPole ? '\u00d7' : '\u25cb';
-        const label = symbol + magStr;
-        const textWidth = ctx.measureText(label).width;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-        ctx.fillRect(labelX - textWidth / 2 - 2, labelY - 7, textWidth + 4, 14);
-        ctx.fillStyle = color;
-        ctx.fillText(label, labelX, labelY);
-    }
-
-    // Draw L(s) poles and zeros
-    if (options.showLpz) {
-        Lzeros.forEach(z => {
-            if (isInRange(z)) {
-                drawZero(z, colorL);
-            } else {
-                drawOutOfRangeIndicator(z, false, colorL);
-            }
-        });
-        Lpoles.forEach(p => {
-            if (isInRange(p)) {
-                drawPole(p, colorL);
-            } else {
-                drawOutOfRangeIndicator(p, true, colorL);
-            }
-        });
-    }
-
-    // Draw T(s) poles and zeros
-    if (options.showTpz) {
-        Tzeros.forEach(z => {
-            if (isInRange(z)) {
-                drawZero(z, colorT);
-            } else {
-                drawOutOfRangeIndicator(z, false, colorT);
-            }
-        });
-        Tpoles.forEach(p => {
-            if (isInRange(p)) {
-                drawPole(p, colorT);
-            } else {
-                drawOutOfRangeIndicator(p, true, colorT);
-            }
-        });
-    }
-
-    // Draw current s point from Nyquist animation (only for wide layout)
-    if (options.showNyquistAnimation && options.showLpz && nyquistAnimationData && nyquistAnimationPlaying && isPanelVisible('nyquist')) {
-        const currentS = getCurrentNyquistSValue();
-        if (currentS) {
-            if (currentS.indentation) {
-                const indent = currentS.indentation;
-                const polePx = centerX;
-                const polePy = centerY - indent.poleIm * scale;
-                const circleRadius = 12;
-                ctx.strokeStyle = CONSTANTS.COLORS.NYQUIST_MARKER;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(polePx, polePy, circleRadius, Math.PI / 2, -Math.PI / 2, true);
-                ctx.stroke();
-                const markerX = polePx + circleRadius * Math.cos(indent.theta);
-                const markerY = polePy - circleRadius * Math.sin(indent.theta);
-                ctx.fillStyle = CONSTANTS.COLORS.NYQUIST_MARKER;
-                ctx.beginPath();
-                ctx.arc(markerX, markerY, 4, 0, 2 * Math.PI);
-                ctx.fill();
-            } else {
-                const px = centerX + currentS.re * scale;
-                const py = centerY - currentS.im * scale;
-                ctx.fillStyle = CONSTANTS.COLORS.NYQUIST_MARKER;
-                ctx.strokeStyle = CONSTANTS.COLORS.BACKGROUND;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(px, py, 7, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.stroke();
-            }
-        }
-    }
-}
-
-// Wide layout pole-zero plot
-function updatePolePlot() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const showLpz = isNarrowLayout
-        ? (document.getElementById('narrow-chk-show-L-pz')?.checked ?? true)
-        : displayOptions.showLpz;
-    const showTpz = isNarrowLayout
-        ? (document.getElementById('narrow-chk-show-T-pz')?.checked ?? true)
-        : displayOptions.showTpz;
-
-    drawPoleZeroMap({
-        wrapperId: prefix + 'pole-wrapper',
-        canvasId: prefix + 'pole-canvas',
-        showLpz: showLpz,
-        showTpz: showTpz,
-        showNyquistAnimation: !isNarrowLayout
-    });
-}
-
+// ============================================================================
+// Nyquist Plot
+// ============================================================================
 
 // Unified Nyquist mapping formula update function
 function updateNyquistMappingFormula(elementId) {
@@ -2827,6 +1019,9 @@ function updateNyquistPlot() {
     );
 }
 
+// ============================================================================
+// Margins Display
+// ============================================================================
 
 // Update stability margin display in Stability panel
 function updateMargins() {
@@ -2962,6 +1157,10 @@ function updateNyquistInfo() {
     }
 }
 
+// ============================================================================
+// Auto Frequency Range
+// ============================================================================
+
 function autoAdjustFrequencyRange() {
     if (!autoFreq) return;
 
@@ -3052,1422 +1251,230 @@ function autoAdjustFrequencyRange() {
     }
 }
 
-// Calculate step response time range based on dominant closed-loop pole.
-// Returns: multiplier / |Re(dominant pole)| if stable, otherwise 20 seconds.
-function calculateAutoStepTime() {
-    const DEFAULT_TIME = 20;
+// ============================================================================
+// UI Initialization
+// ============================================================================
 
-    try {
-        // Check if we have closed-loop poles from stability calculation
-        let clPoles = window.lastPoles || [];
-        if (clPoles.length === 0) {
-            return DEFAULT_TIME;
-        }
+function initializeUI() {
+    // Get element IDs based on layout mode
+    const prefix = isNarrowLayout ? 'narrow-' : '';
 
-        // Check if system is stable (all poles in LHP)
-        let isStable = clPoles.every(p => p.re < 1e-10);
-        if (!isStable) {
-            return DEFAULT_TIME;
-        }
-
-        // Find the dominant pole (smallest |Re(p)| among stable poles)
-        // Dominant pole determines settling time
-        let dominantRe = null;
-        for (let p of clPoles) {
-            // Only consider poles with negative real part (stable)
-            if (p.re < -1e-10) {
-                let absRe = Math.abs(p.re);
-                if (dominantRe === null || absRe < dominantRe) {
-                    dominantRe = absRe;
-                }
-            }
-        }
-
-        if (dominantRe === null || dominantRe < 1e-10) {
-            return DEFAULT_TIME;
-        }
-
-        // Time range = multiplier / |Re(dominant)| (adjustable via mouse wheel)
-        let autoTime = stepOptions.autoTimeMultiplier / dominantRe;
-
-        // Clamp to reasonable range
-        autoTime = Math.max(0.1, Math.min(1000, autoTime));
-
-        return autoTime;
-
-    } catch (e) {
-        console.log('Auto step time calculation error:', e);
-        return DEFAULT_TIME;
-    }
-}
-
-// Key mapping for URL shortening (full key -> short key)
-const URL_KEY_MAP = {
-    // design keys
-    code: 'c',
-    sliders: 's',
-    freqMin: 'fm',
-    freqMax: 'fx',
-    freqPoints: 'fp',
-    showL: 'sl',
-    showT: 'st',
-    autoFreq: 'af',
-    showLpz: 'slp',
-    showTpz: 'stp',
-    preferredPlot: 'pp',
-    // slider keys
-    name: 'n',
-    min: 'i',
-    max: 'x',
-    logScale: 'l',
-    currentValue: 'v',
-    // bodeOptions keys
-    bodeOptions: 'bo',
-    showMarginLines: 'ml',
-    showCrossoverLines: 'cl',
-    autoScaleVertical: 'av',
-    gainMin: 'gi',
-    gainMax: 'gx',
-    phaseMin: 'pi',
-    phaseMax: 'px',
-    // stepOptions keys
-    stepOptions: 'so',
-    autoTime: 'at',
-    timeMax: 'tm',
-    // nyquistOptions keys
-    nyquistOptions: 'no',
-    showStabilityMargin: 'ssm',
-    nyquistCompressionRadius: 'ncr',
-    // pzmapOptions keys
-    pzmapOptions: 'po',
-    autoScale: 'as',
-    scaleMax: 'sm',
-    autoScaleMultiplier: 'asm',
-    // layout
-    layout: 'ly'
-};
-
-// Reverse mapping (short key -> full key)
-const URL_KEY_MAP_REV = Object.fromEntries(
-    Object.entries(URL_KEY_MAP).map(([k, v]) => [v, k])
-);
-
-// Default values - values matching these will be omitted from URL
-const URL_DEFAULTS = {
-    freqPoints: 300,
-    showL: true,
-    showT: true,
-    autoFreq: true,
-    showLpz: true,
-    showTpz: true,
-    // bodeOptions defaults
-    bodeOptions: {
-        showMarginLines: true,
-        showCrossoverLines: true,
-        autoScaleVertical: true,
-        gainMin: -60,
-        gainMax: 60,
-        phaseMin: -270,
-        phaseMax: 90
-    },
-    // stepOptions defaults
-    stepOptions: {
-        autoTime: true,
-        timeMax: 20
-    },
-    // nyquistOptions defaults
-    nyquistOptions: {
-        showStabilityMargin: true
-    },
-    nyquistCompressionRadius: 3,
-    // pzmapOptions defaults
-    pzmapOptions: {
-        autoScale: true,
-        scaleMax: 10,
-        autoScaleMultiplier: 1.5
-    },
-    // slider defaults
-    sliderDefaults: {
-        logScale: false
-    }
-};
-
-// Shorten keys recursively for URL serialization
-function shortenForUrl(obj) {
-    if (Array.isArray(obj)) {
-        return obj.map(item => shortenForUrl(item));
-    }
-    if (obj && typeof obj === 'object') {
-        const result = {};
-        for (const [key, value] of Object.entries(obj)) {
-            const shortKey = URL_KEY_MAP[key] || key;
-            result[shortKey] = shortenForUrl(value);
-        }
-        return result;
-    }
-    return obj;
-}
-
-// Expand short keys back to full keys for URL deserialization
-function expandFromUrl(obj) {
-    if (Array.isArray(obj)) {
-        return obj.map(item => expandFromUrl(item));
-    }
-    if (obj && typeof obj === 'object') {
-        const result = {};
-        for (const [key, value] of Object.entries(obj)) {
-            const fullKey = URL_KEY_MAP_REV[key] || key;
-            result[fullKey] = expandFromUrl(value);
-        }
-        return result;
-    }
-    return obj;
-}
-
-// Remove default values from object to minimize URL size
-function removeDefaults(obj, defaults = URL_DEFAULTS) {
-    const result = { ...obj };
-
-    for (const [key, defaultValue] of Object.entries(defaults)) {
-        if (key === 'sliderDefaults') continue; // Handle separately
-
-        if (key in result) {
-            if (typeof defaultValue === 'object' && defaultValue !== null && !Array.isArray(defaultValue)) {
-                // Nested object (bodeOptions, stepOptions)
-                if (typeof result[key] === 'object' && result[key] !== null) {
-                    result[key] = removeDefaults(result[key], defaultValue);
-                    // Remove if all values were defaults (empty object)
-                    if (Object.keys(result[key]).length === 0) {
-                        delete result[key];
-                    }
-                }
-            } else if (result[key] === defaultValue) {
-                delete result[key];
-            }
-        }
+    const codeField = document.getElementById(prefix + 'field-code');
+    if (codeField) {
+        // Shoelace sl-textarea uses 'value' property
+        codeField.value = design.code;
     }
 
-    // Handle slider defaults
-    if (result.sliders && Array.isArray(result.sliders)) {
-        result.sliders = result.sliders.map(slider => {
-            const s = { ...slider };
-            if (s.logScale === URL_DEFAULTS.sliderDefaults.logScale) {
-                delete s.logScale;
-            }
-            return s;
-        });
-    }
+    // Apply auto frequency range setting
+    autoFreq = design.autoFreq !== undefined ? design.autoFreq : true;
 
-    return result;
-}
-
-// Apply defaults to restored object
-function applyDefaults(obj, defaults = URL_DEFAULTS) {
-    const result = { ...obj };
-
-    for (const [key, defaultValue] of Object.entries(defaults)) {
-        if (key === 'sliderDefaults') continue;
-
-        if (!(key in result)) {
-            if (typeof defaultValue === 'object' && defaultValue !== null && !Array.isArray(defaultValue)) {
-                // Don't add missing nested objects, they'll use their own defaults
-            } else {
-                result[key] = defaultValue;
-            }
-        } else if (typeof defaultValue === 'object' && defaultValue !== null && !Array.isArray(defaultValue)) {
-            // Merge nested objects with defaults
-            result[key] = { ...defaultValue, ...result[key] };
-        }
-    }
-
-    // Handle slider defaults
-    if (result.sliders && Array.isArray(result.sliders)) {
-        result.sliders = result.sliders.map(slider => ({
-            logScale: URL_DEFAULTS.sliderDefaults.logScale,
-            ...slider
-        }));
-    }
-
-    return result;
-}
-
-// Generate shareable URL with design data
-function generateShareUrl(options = {}) {
-    const { includeLayout = false, preferredPlot = null } = options;
-
-    saveDesign();
-
-    // Create a copy of design for saving
-    let saveData = { ...design };
-
-    // Don't save freqMin/freqMax if autoFreq is enabled
-    if (saveData.autoFreq) {
-        delete saveData.freqMin;
-        delete saveData.freqMax;
-    }
-
-    // Add preferred plot for narrow layout if specified
-    if (preferredPlot) {
-        saveData.preferredPlot = preferredPlot;
-    }
-
-    // Include Bode plot options
-    saveData.bodeOptions = {
-        showMarginLines: bodeOptions.showMarginLines,
-        showCrossoverLines: bodeOptions.showCrossoverLines,
-        autoScaleVertical: bodeOptions.autoScaleVertical,
-        gainMin: bodeOptions.gainMin,
-        gainMax: bodeOptions.gainMax,
-        phaseMin: bodeOptions.phaseMin,
-        phaseMax: bodeOptions.phaseMax
-    };
-
-    // Include Step response options
-    saveData.stepOptions = {
-        autoTime: stepOptions.autoTime,
-        timeMax: stepOptions.timeMax
-    };
-
-    // Include Nyquist compression radius
-    saveData.nyquistCompressionRadius = nyquistCompressionRadius;
-
-    // Include Nyquist plot options
-    saveData.nyquistOptions = {
-        showStabilityMargin: nyquistOptions.showStabilityMargin
-    };
-
-    // Include Pole-Zero Map options
-    saveData.pzmapOptions = {
-        autoScale: pzmapOptions.autoScale,
-        scaleMax: pzmapOptions.scaleMax,
-        autoScaleMultiplier: pzmapOptions.autoScaleMultiplier
-    };
-
-    // Optionally include Dockview layout
-    if (includeLayout && dockviewApi) {
-        saveData.layout = dockviewApi.toJSON();
-    } else {
-        // Ensure layout is not included when checkbox is unchecked
-        delete saveData.layout;
-    }
-
-    // Remove default values and shorten keys for compact URL
-    const compactData = shortenForUrl(removeDefaults(saveData));
-
-    let json = JSON.stringify(compactData);
-    // Use pako (zlib) compression for shorter URLs
-    let compressed = pako.deflate(json);
-    // Convert to base64url encoding
-    let base64 = btoa(String.fromCharCode.apply(null, compressed));
-    let urlSafe = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    return location.origin + location.pathname + '#' + urlSafe;
-}
-
-// Show toast notification
-async function showToast(message, variant = 'success') {
-    // Create a new toast element each time (Shoelace removes toast from DOM after hiding)
-    const toast = document.createElement('sl-alert');
-    toast.variant = variant;
-    toast.closable = true;
-    toast.duration = 3000;
-    toast.innerHTML = `
-        <sl-icon slot="icon" name="${variant === 'success' ? 'check2-circle' : 'exclamation-triangle'}"></sl-icon>
-        ${message}
-    `;
-    toast.style.cssText = 'position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10000;';
-    document.body.appendChild(toast);
-
-    // Wait for autoloader to load and upgrade the element
-    await customElements.whenDefined('sl-alert');
-    // Wait for component to finish updating
-    if (toast.updateComplete) {
-        await toast.updateComplete;
-    }
-    toast.toast();
-}
-
-// Show QR code dialog
-let currentQrUrl = '';
-
-function generateQrSvg(url) {
-    // Generate QR code
-    // Use error correction level L for shorter URLs, M for longer
-    const errorCorrectionLevel = url.length > 500 ? 'M' : 'L';
-    const typeNumber = 0; // Auto-detect
-    const qr = qrcode(typeNumber, errorCorrectionLevel);
-    qr.addData(url);
-    qr.make();
-
-    // Render as SVG for crisp display
-    const cellSize = 4;
-    const margin = 4;
-    const size = qr.getModuleCount() * cellSize + margin * 2;
-
-    let svg = `<svg viewBox="0 0 ${size} ${size}" width="256" height="256" xmlns="http://www.w3.org/2000/svg">`;
-    svg += `<rect width="${size}" height="${size}" fill="white"/>`;
-
-    for (let row = 0; row < qr.getModuleCount(); row++) {
-        for (let col = 0; col < qr.getModuleCount(); col++) {
-            if (qr.isDark(row, col)) {
-                const x = col * cellSize + margin;
-                const y = row * cellSize + margin;
-                svg += `<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" fill="black"/>`;
-            }
-        }
-    }
-    svg += '</svg>';
-
-    return svg;
-}
-
-function updateQrCode() {
-    const container = document.getElementById('qr-container');
-    const includeLayoutCheckbox = document.getElementById('qr-include-layout');
-    const preferredPlotGroup = document.getElementById('qr-preferred-plot');
-    const urlSizeElement = document.getElementById('qr-url-size');
-
-    if (!container) return;
-
-    const includeLayout = includeLayoutCheckbox?.checked || false;
-    const preferredPlot = preferredPlotGroup?.value || 'bode';
-
-    // Generate URL with current options
-    const options = {
-        includeLayout,
-        preferredPlot
-    };
-
-    currentQrUrl = generateShareUrl(options);
-    container.innerHTML = generateQrSvg(currentQrUrl);
-
-    // Display URL size
-    if (urlSizeElement) {
-        const bytes = new Blob([currentQrUrl]).size;
-        urlSizeElement.textContent = `URL size: ${bytes.toLocaleString()} bytes`;
-    }
-}
-
-function showShareDialog() {
-    const dialog = document.getElementById('qr-dialog');
-    const includeLayoutCheckbox = document.getElementById('qr-include-layout');
-    const preferredPlotGroup = document.getElementById('qr-preferred-plot');
-
-    if (!dialog) return;
-
-    // Reset options
-    if (includeLayoutCheckbox) {
-        includeLayoutCheckbox.checked = false;
-    }
-
-    // Set default plot based on currently active tab in narrow mode
-    if (preferredPlotGroup) {
-        let defaultPlot = 'bode';
-        if (isNarrowLayout) {
-            const activeTab = document.querySelector('.narrow-tab-btn.active');
-            if (activeTab) {
-                defaultPlot = activeTab.dataset.tab;
-            }
-        }
-        preferredPlotGroup.value = defaultPlot;
-    }
-
-    // Generate initial QR code
-    updateQrCode();
-
-    dialog.show();
-}
-
-// Initialize Share menu
-function initializeShareMenu() {
-    const shareButton = document.getElementById('share-button');
-    const includeLayoutCheckbox = document.getElementById('qr-include-layout');
-    const preferredPlotGroup = document.getElementById('qr-preferred-plot');
-    const qrCopyUrl = document.getElementById('qr-copy-url');
-
-    if (shareButton) {
-        shareButton.addEventListener('click', showShareDialog);
-    }
-
-    // Update QR code when options change
-    if (includeLayoutCheckbox) {
-        includeLayoutCheckbox.addEventListener('sl-change', updateQrCode);
-    }
-    if (preferredPlotGroup) {
-        preferredPlotGroup.addEventListener('sl-change', updateQrCode);
-    }
-
-    if (qrCopyUrl) {
-        qrCopyUrl.addEventListener('click', async () => {
-            if (currentQrUrl) {
-                try {
-                    await navigator.clipboard.writeText(currentQrUrl);
-                    showToast('URL copied to clipboard!');
-                } catch (e) {
-                    showToast('Failed to copy URL', 'warning');
-                }
-            }
-        });
-    }
-}
-
-// --- Export Code Dialog ---
-
-// Export language configurations (extensible for future languages)
-const exportLanguages = {
-    matlab: {
-        name: 'MATLAB',
-        generateCode: generateMatlabCode
-    },
-    python: {
-        name: 'Python',
-        generateCode: generatePythonCode
-    },
-    julia: {
-        name: 'Julia',
-        generateCode: generateJuliaCode
-    },
-    scilab: {
-        name: 'Scilab',
-        generateCode: generateScilabCode
-    }
-};
-
-let currentExportLang = 'matlab';
-
-// Convert math.js expression to MATLAB syntax
-function convertToMatlabSyntax(expr) {
-    // math.js uses ^ for power, which is the same in MATLAB for scalar
-    // But we need to ensure proper MATLAB syntax
-    return expr
-        .replace(/\*\*/g, '^')  // In case ** is used
-        .trim();
-}
-
-// Convert math.js expression to Python syntax
-function convertToPythonSyntax(expr) {
-    // math.js uses ^ for power, Python uses **
-    return expr
-        .replace(/\^/g, '**')
-        .trim();
-}
-
-// Generate MATLAB code from current design
-function generateMatlabCode() {
-    const lines = [];
-
-    lines.push('s = tf(\'s\');');
-    lines.push('');
-
-    // Add parameters with current values
-    if (design.sliders && design.sliders.length > 0) {
-        lines.push('% Parameters');
-        design.sliders.forEach(slider => {
-            const value = slider.currentValue;
-            // Format number nicely
-            const formattedValue = Number.isInteger(value) ? value.toString() : value.toPrecision(6).replace(/\.?0+$/, '');
-            lines.push(`${slider.name} = ${formattedValue};`);
-        });
-        lines.push('');
-    }
-
-    // Add system definition
-    lines.push('% System definition');
-    const codeLines = design.code.split('\n').filter(line => line.trim());
-    codeLines.forEach(line => {
-        const matlabLine = convertToMatlabSyntax(line);
-        // Add semicolon if not present
-        const trimmed = matlabLine.trim();
-        if (trimmed && !trimmed.endsWith(';') && !trimmed.startsWith('%')) {
-            lines.push(trimmed + ';');
-        } else {
-            lines.push(trimmed);
-        }
-    });
-    lines.push('');
-
-    // Add closed-loop transfer function
-    lines.push('% Closed-loop transfer function');
-    lines.push('T = feedback(L, 1);');
-    lines.push('');
-
-    // Add analysis commands
-    lines.push('% Analysis');
-    lines.push('figure; margin(L);');
-    lines.push('figure; nyquist(L);');
-    lines.push('figure; pzmap(L, T);');
-    lines.push('figure; step(T);');
-    lines.push('allmargin(L)');
-
-    return lines.join('\n');
-}
-
-// Generate Python code from current design
-function generatePythonCode() {
-    const lines = [];
-
-    lines.push('import control as ctrl');
-    lines.push('import matplotlib.pyplot as plt');
-    lines.push('');
-
-    // Add parameters with current values
-    if (design.sliders && design.sliders.length > 0) {
-        lines.push('# Parameters');
-        design.sliders.forEach(slider => {
-            const value = slider.currentValue;
-            const formattedValue = Number.isInteger(value) ? value.toString() : value.toPrecision(6).replace(/\.?0+$/, '');
-            lines.push(`${slider.name} = ${formattedValue}`);
-        });
-        lines.push('');
-    }
-
-    // Add system definition
-    lines.push('# System definition');
-    lines.push('s = ctrl.TransferFunction.s');
-    const codeLines = design.code.split('\n').filter(line => line.trim());
-    // Check if any line contains time delay pattern exp(-...*s)
-    const hasDelay = codeLines.some(line => /exp\s*\(\s*-\s*[^)]+\s*\*?\s*s\s*\)/.test(line));
-    if (hasDelay) {
-        lines.push('# Note: python-control does not support time delays (exp(-T*s)).');
-        lines.push('# You may need to use Pade approximation: num, den = ctrl.pade(T, 5)');
-        lines.push('');
-    }
-    codeLines.forEach(line => {
-        // Convert to Python syntax (^ to **)
-        const pythonLine = convertToPythonSyntax(line);
-        lines.push(pythonLine);
-    });
-    lines.push('L.name = \'L\'');
-    lines.push('');
-
-    // Add closed-loop transfer function
-    lines.push('# Closed-loop transfer function');
-    lines.push('T = ctrl.feedback(L, 1)');
-    lines.push('T.name = \'T\'');
-    lines.push('');
-
-    // Add analysis commands
-    lines.push('# Analysis');
-    lines.push('plt.figure()');
-    lines.push('ctrl.bode_plot(L, display_margins=True)');
-    lines.push('ctrl.bode_plot(T)');
-    lines.push('');
-    lines.push('plt.figure()');
-    lines.push('ctrl.nyquist_plot(L)');
-    lines.push('');
-    lines.push('plt.figure()');
-    lines.push('ctrl.pzmap([L, T])');
-    lines.push('');
-    lines.push('plt.figure()');
-    lines.push('ctrl.step_response(T).plot()');
-    lines.push('print(ctrl.step_info(T))');
-    lines.push('');
-    lines.push('plt.show()');
-
-    return lines.join('\n');
-}
-
-// Generate Julia code from current design (using ControlSystems.jl)
-function generateJuliaCode() {
-    const lines = [];
-
-    lines.push('using ControlSystems');
-    lines.push('using Plots');
-    lines.push('');
-
-    // Add parameters with current values
-    if (design.sliders && design.sliders.length > 0) {
-        lines.push('# Parameters');
-        design.sliders.forEach(slider => {
-            const value = slider.currentValue;
-            const formattedValue = Number.isInteger(value) ? value.toString() : value.toPrecision(6).replace(/\.?0+$/, '');
-            lines.push(`${slider.name} = ${formattedValue}`);
-        });
-        lines.push('');
-    }
-
-    // Add system definition
-    lines.push('# System definition');
-    lines.push('s = tf("s")');
-    const codeLines = design.code.split('\n').filter(line => line.trim());
-    // Check if any line contains time delay pattern exp(-...*s)
-    const hasDelay = codeLines.some(line => /exp\s*\(\s*-\s*[^)]+\s*\*?\s*s\s*\)/.test(line));
-    if (hasDelay) {
-        lines.push('# Note: ControlSystems.jl understands exp(-T*s), but multiplying an improper');
-        lines.push('# transfer function (e.g., PD controller) with a delayed system may fail.');
-        lines.push('# Workaround: Define P without delay, compute L = K*P, then apply delay(T) to L.');
-        lines.push('');
-    }
-    codeLines.forEach(line => {
-        // Julia uses ^ for power (same as math.js)
-        const juliaLine = line.trim();
-        lines.push(juliaLine);
-    });
-    lines.push('');
-
-    // Add closed-loop transfer function
-    lines.push('# Closed-loop transfer function');
-    lines.push('Tcl = feedback(L, 1)');
-    lines.push('');
-
-    // Add analysis commands
-    lines.push('# Analysis');
-    lines.push('display(marginplot(L, title="Bode Plot with Margins"))');
-    lines.push('display(nyquistplot(L, title="Nyquist Plot"))');
-    lines.push('display(pzmap(L, title="Pole-Zero Map"))');
-    lines.push('display(plot(step(Tcl), title="Step Response"))');
-
-    return lines.join('\n');
-}
-
-// Generate Scilab code from current design
-function generateScilabCode() {
-    const lines = [];
-
-    lines.push('s = %s;');
-    lines.push('');
-
-    // Add parameters with current values
-    if (design.sliders && design.sliders.length > 0) {
-        lines.push('// Parameters');
-        design.sliders.forEach(slider => {
-            const value = slider.currentValue;
-            const formattedValue = Number.isInteger(value) ? value.toString() : value.toPrecision(6).replace(/\.?0+$/, '');
-            lines.push(`${slider.name} = ${formattedValue};`);
-        });
-        lines.push('');
-    }
-
-    // Add system definition
-    lines.push('// System definition');
-    const codeLines = design.code.split('\n').filter(line => line.trim());
-    // Check if any line contains time delay pattern exp(-...*s)
-    const hasDelay = codeLines.some(line => /exp\s*\(\s*-\s*[^)]+\s*\*?\s*s\s*\)/.test(line));
-    if (hasDelay) {
-        lines.push('// Note: Scilab does not support time delays (exp(-T*s)) in transfer functions.');
-        lines.push('');
-    }
-    codeLines.forEach(line => {
-        // Scilab uses ^ for power (same as math.js)
-        const scilabLine = line.trim();
-        // Add semicolon if not present
-        if (scilabLine && !scilabLine.endsWith(';') && !scilabLine.startsWith('//')) {
-            lines.push(scilabLine + ';');
-        } else {
-            lines.push(scilabLine);
-        }
-    });
-    lines.push('L = syslin(\'c\', L);');
-    lines.push('');
-
-    // Add closed-loop transfer function
-    lines.push('// Closed-loop transfer function');
-    lines.push('Tcl = L /. 1;');
-    lines.push('');
-
-    // Add analysis commands
-    lines.push('// Analysis');
-    lines.push('scf(); show_margins(L, \'bode\');');
-    lines.push('scf(); show_margins(L, \'nyquist\');');
-    lines.push('scf(); plzr(L);');
-    lines.push('scf(); t = 0:0.01:20; y = csim(\'step\', t, Tcl); plot(t, y);');
-    lines.push('xgrid();');
-    lines.push('xtitle(\'Step Response\', \'Time (s)\', \'Amplitude\');');
-
-    return lines.join('\n');
-}
-
-// Update export code display
-function updateExportCode() {
-    const codeElement = document.getElementById('export-code');
-    if (!codeElement) return;
-
-    const langConfig = exportLanguages[currentExportLang];
-    if (langConfig && langConfig.generateCode) {
-        codeElement.textContent = langConfig.generateCode();
-    }
-}
-
-// Show export dialog
-function showExportDialog() {
-    const dialog = document.getElementById('export-dialog');
-    if (!dialog) return;
-
-    // Reset to default tab
-    currentExportLang = 'matlab';
-    const tabBtns = dialog.querySelectorAll('.export-tab-btn');
-    tabBtns.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.lang === currentExportLang);
-    });
-
-    // Generate and display code
-    updateExportCode();
-
-    dialog.show();
-}
-
-// Initialize Export dialog
-function initializeExportDialog() {
-    const exportButton = document.getElementById('export-button');
-    const exportCopyBtn = document.getElementById('export-copy-btn');
-    const dialog = document.getElementById('export-dialog');
-
-    // Open dialog on button click
-    if (exportButton) {
-        exportButton.addEventListener('click', showExportDialog);
-    }
-
-    // Tab switching
-    if (dialog) {
-        const tabBtns = dialog.querySelectorAll('.export-tab-btn');
-        tabBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                currentExportLang = this.dataset.lang;
-                tabBtns.forEach(b => b.classList.toggle('active', b === this));
-                updateExportCode();
-            });
-        });
-    }
-
-    // Copy button
-    if (exportCopyBtn) {
-        exportCopyBtn.addEventListener('click', async () => {
-            const code = document.getElementById('export-code')?.textContent;
-            if (code) {
-                try {
-                    await navigator.clipboard.writeText(code);
-                    showToast('Code copied to clipboard!');
-                } catch (e) {
-                    showToast('Failed to copy code', 'warning');
-                }
-            }
-        });
-    }
-}
-
-function loadFromUrl() {
-    if (location.hash.length > 1) {
-        try {
-            let encoded = location.hash.substring(1);
-            let json = null;
-
-            // Try pako (zlib) decompression first (new format)
-            try {
-                // Convert from base64url to base64
-                let base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-                // Add padding if needed
-                while (base64.length % 4) base64 += '=';
-                let binary = atob(base64);
-                let bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) {
-                    bytes[i] = binary.charCodeAt(i);
-                }
-                json = pako.inflate(bytes, { to: 'string' });
-            } catch (e) {
-                // Not pako format
-            }
-
-            // Fallback to old base64 format for backward compatibility
-            if (!json || json.charAt(0) !== '{') {
-                try {
-                    json = decodeURIComponent(escape(atob(encoded)));
-                } catch (e) {
-                    // Not old format either
-                }
-            }
-
-            if (json && json.charAt(0) === '{') {
-                let loaded = JSON.parse(json);
-
-                // Expand short keys and apply defaults (new compact format)
-                // Check if this is the new compact format by looking for short keys
-                if ('c' in loaded || 's' in loaded) {
-                    loaded = applyDefaults(expandFromUrl(loaded));
-                }
-
-                Object.assign(design, loaded);
-
-                // Restore Bode plot options if present
-                if (loaded.bodeOptions) {
-                    Object.assign(bodeOptions, loaded.bodeOptions);
-                }
-
-                // Restore Step response options if present
-                if (loaded.stepOptions) {
-                    Object.assign(stepOptions, loaded.stepOptions);
-                }
-
-                // Restore Nyquist compression radius if present
-                if (loaded.nyquistCompressionRadius !== undefined) {
-                    nyquistCompressionRadius = loaded.nyquistCompressionRadius;
-                }
-
-                // Restore Nyquist plot options if present
-                if (loaded.nyquistOptions) {
-                    Object.assign(nyquistOptions, loaded.nyquistOptions);
-                }
-
-                // Restore Pole-Zero Map options if present
-                if (loaded.pzmapOptions) {
-                    Object.assign(pzmapOptions, loaded.pzmapOptions);
-                }
-            }
-        } catch (e) {
-            console.log('Failed to load from URL:', e);
-        }
-    }
-}
-
-// Reset layout to default
-function resetLayout() {
-    if (dockviewApi) {
-        dockviewApi.clear();
-        createDefaultLayout();
-    }
-}
-
-// View menu functions
-function initializeViewMenu() {
-    const viewDropdown = document.getElementById('view-dropdown');
-    const viewMenu = document.getElementById('view-menu');
-
-    if (!viewDropdown || !viewMenu) return;
-
-    // Update menu items when dropdown opens
-    viewDropdown.addEventListener('sl-show', function() {
-        updateViewMenuItems();
-    });
-
-    // Handle menu item selection
-    viewMenu.addEventListener('sl-select', function(e) {
-        const item = e.detail.item;
-        const panelId = item.dataset.panelId;
-        const action = item.dataset.action;
-
-        if (action === 'reset') {
-            resetLayout();
-            setTimeout(() => {
-                initializeUI();
-                setupEventListeners();
-                updateAll();
-            }, 100);
-        } else if (panelId) {
-            if (isPanelOpen(panelId)) {
-                closePanel(panelId);
-            } else {
-                openPanel(panelId);
-            }
-        }
-    });
-
-    // Initial population
-    updateViewMenuItems();
-}
-
-function updateViewMenuItems() {
-    const viewMenu = document.getElementById('view-menu');
-    if (!viewMenu) return;
-
-    viewMenu.innerHTML = '';
-
-    // Add panel items using Shoelace sl-menu-item
-    PANEL_DEFINITIONS.forEach(panel => {
-        const isOpen = isPanelOpen(panel.id);
-        const item = document.createElement('sl-menu-item');
-        item.dataset.panelId = panel.id;
-        item.type = 'checkbox';
-        item.checked = isOpen;
-        item.textContent = panel.title;
-        viewMenu.appendChild(item);
-    });
-
-    // Add separator using Shoelace sl-divider
-    const separator = document.createElement('sl-divider');
-    viewMenu.appendChild(separator);
-
-    // Add reset layout option
-    const resetItem = document.createElement('sl-menu-item');
-    resetItem.dataset.action = 'reset';
-    resetItem.textContent = 'Reset Layout';
-    viewMenu.appendChild(resetItem);
-}
-
-function isPanelOpen(panelId) {
-    if (!dockviewApi) return false;
-    try {
-        const panel = dockviewApi.getPanel(panelId);
-        return panel !== undefined && panel !== null;
-    } catch (e) {
-        return false;
-    }
-}
-
-// Check if a panel is currently visible (open and active in its tab group)
-function isPanelVisible(panelId) {
-    if (!dockviewApi) return false;
-    try {
-        const panel = dockviewApi.getPanel(panelId);
-        return panel && panel.api.isVisible;
-    } catch (e) {
-        return false;
-    }
-}
-
-// Check if a plot is visible in either wide (Dockview) or narrow (tab) layout
-function isPlotVisible(plotId) {
+    // Wide layout only settings
     if (!isNarrowLayout) {
-        return isPanelVisible(plotId);
+        // Apply Pole-Zero Map visibility settings
+        displayOptions.showLpz = design.showLpz !== undefined ? design.showLpz : true;
+        displayOptions.showTpz = design.showTpz !== undefined ? design.showTpz : true;
+        const chkLpz = document.getElementById('chk-show-L-pz');
+        const chkTpz = document.getElementById('chk-show-T-pz');
+        if (chkLpz) chkLpz.checked = displayOptions.showLpz;
+        if (chkTpz) chkTpz.checked = displayOptions.showTpz;
     }
-    // Narrow layout: check if the corresponding tab is visible
-    const tabIdMap = {
-        'pole-zero': 'narrow-tab-pole-zero',
-        'nyquist': 'narrow-tab-nyquist',
-        'step-response': 'narrow-tab-step'
-    };
-    const tabId = tabIdMap[plotId];
-    if (!tabId) return false;
-    const tab = document.getElementById(tabId);
-    return tab && tab.style.display !== 'none';
+
+    rebuildSliders();
+
+    // Apply Bode plot visibility settings
+    displayOptions.showL = design.showL !== undefined ? design.showL : true;
+    displayOptions.showT = design.showT !== undefined ? design.showT : true;
+    const chkL = document.getElementById(prefix + 'chk-show-L');
+    const chkT = document.getElementById(prefix + 'chk-show-T');
+    // Shoelace sl-checkbox uses 'checked' property
+    if (chkL) chkL.checked = displayOptions.showL;
+    if (chkT) chkT.checked = displayOptions.showT;
 }
 
-function openPanel(panelId) {
-    if (!dockviewApi || isPanelOpen(panelId)) return;
+// ============================================================================
+// Event Listeners
+// ============================================================================
 
-    const panelDef = PANEL_DEFINITIONS.find(p => p.id === panelId);
-    if (!panelDef) return;
+function debounceUpdate() {
+    if (updateTimeout) {
+        clearTimeout(updateTimeout);
+    }
+    updateTimeout = setTimeout(function() {
+        saveDesign();
+        updateAll();
+    }, CONSTANTS.DEBOUNCE_DELAY);
+}
 
-    const options = {
-        id: panelDef.id,
-        component: panelDef.component,
-        title: panelDef.title,
-    };
+function saveDesign() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const codeField = document.getElementById(prefix + 'field-code');
 
-    // Determine best position based on panel type
-    if (panelId === 'bode' || panelId === 'pole-zero' || panelId === 'nyquist' || panelId === 'step-response') {
-        // Plot panels: prefer right side or below existing plots
-        if (isPanelOpen('bode') && panelId === 'pole-zero') {
-            options.position = { referencePanel: 'bode', direction: 'below' };
-        } else if (isPanelOpen('pole-zero') && panelId === 'bode') {
-            options.position = { referencePanel: 'pole-zero', direction: 'above' };
-        } else if (panelId === 'nyquist') {
-            // Nyquist: tab with pole-zero if open, otherwise below bode
-            if (isPanelOpen('pole-zero')) {
-                options.position = { referencePanel: 'pole-zero', direction: 'within' };
-            } else if (isPanelOpen('bode')) {
-                options.position = { referencePanel: 'bode', direction: 'below' };
-            } else if (isPanelOpen('system-definition')) {
-                options.position = { referencePanel: 'system-definition', direction: 'right' };
+    if (codeField) design.code = codeField.value;
+}
+
+function setupEventListeners() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+
+    // Code field and add slider button
+    attachListenerOnce(
+        document.getElementById(prefix + 'field-code'),
+        'sl-input',
+        debounceUpdate
+    );
+    attachListenerOnce(
+        document.getElementById(prefix + 'btn-add-slider'),
+        'click',
+        addSlider
+    );
+
+    // Bode plot visibility checkboxes
+    attachListenerOnce(
+        document.getElementById(prefix + 'chk-show-L'),
+        'sl-change',
+        function() {
+            displayOptions.showL = this.checked;
+            design.showL = displayOptions.showL;
+            updateBodePlot();
+        }
+    );
+    attachListenerOnce(
+        document.getElementById(prefix + 'chk-show-T'),
+        'sl-change',
+        function() {
+            displayOptions.showT = this.checked;
+            design.showT = displayOptions.showT;
+            updateBodePlot();
+        }
+    );
+
+    // Wide layout only elements
+    if (!isNarrowLayout) {
+        // Pole-Zero Map visibility checkboxes
+        attachListenerOnce(
+            document.getElementById('chk-show-L-pz'),
+            'sl-change',
+            function() {
+                displayOptions.showLpz = this.checked;
+                design.showLpz = displayOptions.showLpz;
+                updatePolePlot();
             }
-        } else if (panelId === 'step-response') {
-            // Step Response: tab with nyquist or pole-zero if open, otherwise below bode
-            if (isPanelOpen('nyquist')) {
-                options.position = { referencePanel: 'nyquist', direction: 'within' };
-            } else if (isPanelOpen('pole-zero')) {
-                options.position = { referencePanel: 'pole-zero', direction: 'within' };
-            } else if (isPanelOpen('bode')) {
-                options.position = { referencePanel: 'bode', direction: 'below' };
-            } else if (isPanelOpen('system-definition')) {
-                options.position = { referencePanel: 'system-definition', direction: 'right' };
+        );
+        attachListenerOnce(
+            document.getElementById('chk-show-T-pz'),
+            'sl-change',
+            function() {
+                displayOptions.showTpz = this.checked;
+                design.showTpz = displayOptions.showTpz;
+                updatePolePlot();
             }
-        } else if (isPanelOpen('system-definition')) {
-            options.position = { referencePanel: 'system-definition', direction: 'right' };
-        }
-    } else if (panelId === 'system-definition') {
-        // System Definition: left side
-        if (isPanelOpen('bode')) {
-            options.position = { referencePanel: 'bode', direction: 'left' };
-        }
-    } else if (panelId === 'parameters') {
-        // Parameters: below System Definition
-        if (isPanelOpen('system-definition')) {
-            options.position = { referencePanel: 'system-definition', direction: 'below' };
-        }
-    } else if (panelId === 'stability') {
-        // Stability: below parameters or left of pole-zero
-        if (isPanelOpen('parameters')) {
-            options.position = { referencePanel: 'parameters', direction: 'below' };
-        } else if (isPanelOpen('pole-zero')) {
-            options.position = { referencePanel: 'pole-zero', direction: 'left' };
-        }
+        );
+
+        // Nyquist plot mouse wheel for compression radius
+        attachListenerOnce(
+            document.getElementById('nyquist-wrapper'),
+            'wheel',
+            function(e) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.5 : 0.5;
+                nyquistCompressionRadius = Math.max(0.5, Math.min(100, nyquistCompressionRadius + delta));
+                updateNyquistPlot();
+            },
+            '',
+            { passive: false }
+        );
+
+        // Step Response visibility checkboxes
+        attachListenerOnce(
+            document.getElementById('chk-show-L-step'),
+            'sl-change',
+            function() {
+                displayOptions.showLstep = this.checked;
+                updateStepResponsePlot();
+            }
+        );
+        attachListenerOnce(
+            document.getElementById('chk-show-T-step'),
+            'sl-change',
+            function() {
+                displayOptions.showTstep = this.checked;
+                updateStepResponsePlot();
+            }
+        );
     }
 
-    // Fallback: add as tab to first available panel
-    if (!options.position) {
-        for (const def of PANEL_DEFINITIONS) {
-            if (isPanelOpen(def.id)) {
-                options.position = { referencePanel: def.id, direction: 'within' };
-                break;
+    // Handle layout mode switching on window resize
+    if (!resizeListenerAttached) {
+        window.addEventListener('resize', function() {
+            const newIsNarrow = window.innerWidth < CONSTANTS.NARROW_BREAKPOINT;
+            if (newIsNarrow === isNarrowLayout) return;
+            isNarrowLayout = newIsNarrow;
+
+            if (isNarrowLayout) {
+                initializeNarrowLayout();
+            } else if (!dockviewApi) {
+                initializeDockview();
+                initializeViewMenu();
             }
-        }
+
+            setupPlotResizeObserver();
+            initializeUI();
+            setupEventListeners();
+            updateAll();
+        });
+        resizeListenerAttached = true;
     }
 
-    dockviewApi.addPanel(options);
+    setupBodeContextMenu();
+    setupStepContextMenu();
+    setupPzmapContextMenu();
+    setupNyquistContextMenu();
+}
 
-    // Re-initialize UI for the new panel
-    setTimeout(() => {
+// ============================================================================
+// Initialization
+// ============================================================================
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadFromUrl();
+
+    isNarrowLayout = window.innerWidth < CONSTANTS.NARROW_BREAKPOINT;
+
+    // Initialize Share menu (available on all layouts)
+    initializeShareMenu();
+
+    // Initialize Export dialog (available on all layouts)
+    initializeExportDialog();
+
+    if (isNarrowLayout) {
+        // Narrow layout: use static HTML layout (no Dockview)
+        initializeNarrowLayout();
+    } else {
+        // Wide layout: use Dockview
+        initializeDockview();
+        initializeViewMenu();
+    }
+
+    // Wait for panels to be rendered and Shoelace components to be ready
+    Promise.all([
+        customElements.whenDefined('sl-checkbox'),
+        new Promise(resolve => setTimeout(resolve, 100))
+    ]).then(() => {
         initializeUI();
         setupEventListeners();
         updateAll();
-    }, 50);
-}
 
-function closePanel(panelId) {
-    if (!dockviewApi) return;
+        // Render KaTeX math in labels
+        renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });
 
-    try {
-        const panel = dockviewApi.getPanel(panelId);
-        if (panel) {
-            panel.api.close();
-        }
-    } catch (e) {
-        console.log('Error closing panel:', e);
-    }
-}
-
-window.addSlider = addSlider;
-window.resetLayout = resetLayout;
-window.openPanel = openPanel;
-window.closePanel = closePanel;
-
-// --- Step Response Plot Functions ---
-
-// Draw step response plot
-function drawStepResponse(simData, wrapperId, canvasId, options) {
-    options = options || {};
-    let wrapper = document.getElementById(wrapperId);
-    let canvas = document.getElementById(canvasId);
-
-    if (!wrapper || !canvas) return;
-
-    let ctx = canvas.getContext('2d');
-
-    const height = wrapper.clientHeight;
-    const width = wrapper.clientWidth;
-
-    if (width === 0 || height === 0) return;
-
-    canvas.height = height * devicePixelRatio;
-    canvas.width = width * devicePixelRatio;
-    canvas.style.height = height + 'px';
-    canvas.style.width = width + 'px';
-
-    ctx.scale(devicePixelRatio, devicePixelRatio);
-
-    // Clear canvas
-    ctx.fillStyle = options.backgroundColor || '#ffffff';
-    ctx.fillRect(0, 0, width, height);
-
-    if (!simData || !simData.time || simData.time.length === 0) return;
-
-    let showL = options.showL !== false;
-    let showT = options.showT !== false;
-
-    // Calculate data range
-    let tMin = 0;
-    let tMax = simData.time[simData.time.length - 1];
-
-    let yMin = 0, yMax = 1;
-    let hasData = false;
-
-    if (showL && simData.yL) {
-        let validYL = simData.yL.filter(y => isFinite(y));
-        if (validYL.length > 0) {
-            yMin = Math.min(yMin, Math.min(...validYL));
-            yMax = Math.max(yMax, Math.max(...validYL));
-            hasData = true;
-        }
-    }
-    if (showT && simData.yT) {
-        let validYT = simData.yT.filter(y => isFinite(y));
-        if (validYT.length > 0) {
-            yMin = Math.min(yMin, Math.min(...validYT));
-            yMax = Math.max(yMax, Math.max(...validYT));
-            hasData = true;
-        }
-    }
-
-    if (!hasData) return;
-
-    // Add margin to y range
-    let yRange = yMax - yMin;
-    if (yRange < 0.1) yRange = 0.1;
-    yMin -= yRange * 0.1;
-    yMax += yRange * 0.1;
-
-    const leftMargin = 60;
-    const rightMargin = 20;
-    const topMargin = 20;
-    const bottomMargin = 50;
-    const plotWidth = width - leftMargin - rightMargin;
-    const plotHeight = height - topMargin - bottomMargin;
-
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-
-    // Coordinate transformations
-    let t2x = (t) => leftMargin + (t - tMin) / (tMax - tMin) * plotWidth;
-    let y2y = (y) => topMargin + (yMax - y) / (yMax - yMin) * plotHeight;
-
-    // Draw grid
-    ctx.strokeStyle = CONSTANTS.COLORS.GRID;
-    ctx.lineWidth = 1;
-    ctx.font = '14px Consolas, monospace';
-    ctx.fillStyle = CONSTANTS.COLORS.TEXT;
-
-    // Time axis grid
-    let tStep = calculateNiceStep(tMax - tMin, 6);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    for (let t = 0; t <= tMax; t += tStep) {
-        let x = t2x(t);
-        ctx.beginPath();
-        ctx.moveTo(x, topMargin);
-        ctx.lineTo(x, topMargin + plotHeight);
-        ctx.stroke();
-        ctx.fillText(formatAxisValue(t), x, topMargin + plotHeight + 8);
-    }
-
-    // Y axis grid
-    let yStep = calculateNiceStep(yMax - yMin, 6);
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    for (let y = Math.ceil(yMin / yStep) * yStep; y <= yMax; y += yStep) {
-        let py = y2y(y);
-        if (py >= topMargin && py <= topMargin + plotHeight) {
-            ctx.beginPath();
-            ctx.moveTo(leftMargin, py);
-            ctx.lineTo(leftMargin + plotWidth, py);
-            ctx.stroke();
-            ctx.fillText(formatAxisValue(y), leftMargin - 8, py);
-        }
-    }
-
-    // Draw y=0 line if visible
-    if (yMin < 0 && yMax > 0) {
-        ctx.strokeStyle = CONSTANTS.COLORS.AXIS;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(leftMargin, y2y(0));
-        ctx.lineTo(leftMargin + plotWidth, y2y(0));
-        ctx.stroke();
-    }
-
-    // Draw y=1 line (steady-state reference for closed-loop)
-    if (yMin < 1 && yMax > 1) {
-        ctx.strokeStyle = CONSTANTS.COLORS.AXIS;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(leftMargin, y2y(1));
-        ctx.lineTo(leftMargin + plotWidth, y2y(1));
-        ctx.stroke();
-        ctx.setLineDash([]);
-    }
-
-    // Draw axis labels
-    ctx.fillStyle = CONSTANTS.COLORS.TEXT;
-    ctx.font = '14px Consolas, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('Time [s]', leftMargin + plotWidth / 2, height - 18);
-
-    ctx.save();
-    ctx.translate(18, topMargin + plotHeight / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Response', 0, 0);
-    ctx.restore();
-
-    // Draw L(s) response
-    if (showL && simData.yL) {
-        ctx.strokeStyle = CONSTANTS.COLORS.L;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        let started = false;
-        for (let i = 0; i < simData.time.length; i++) {
-            let x = t2x(simData.time[i]);
-            let y = y2y(simData.yL[i]);
-            if (isFinite(y) && y >= topMargin - 50 && y <= topMargin + plotHeight + 50) {
-                if (!started) {
-                    ctx.moveTo(x, y);
-                    started = true;
-                } else {
-                    ctx.lineTo(x, y);
-                }
-            }
-        }
-        ctx.stroke();
-    }
-
-    // Draw T(s) response
-    if (showT && simData.yT) {
-        ctx.strokeStyle = CONSTANTS.COLORS.T;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        let started = false;
-        for (let i = 0; i < simData.time.length; i++) {
-            let x = t2x(simData.time[i]);
-            let y = y2y(simData.yT[i]);
-            if (isFinite(y) && y >= topMargin - 50 && y <= topMargin + plotHeight + 50) {
-                if (!started) {
-                    ctx.moveTo(x, y);
-                    started = true;
-                } else {
-                    ctx.lineTo(x, y);
-                }
-            }
-        }
-        ctx.stroke();
-    }
-
-    // Draw plot border
-    ctx.strokeStyle = CONSTANTS.COLORS.TEXT;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(leftMargin, topMargin, plotWidth, plotHeight);
-}
-
-// Calculate nice step size for axis
-function calculateNiceStep(range, targetSteps) {
-    let roughStep = range / targetSteps;
-    let magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
-    let normalized = roughStep / magnitude;
-
-    let niceStep;
-    if (normalized <= 1) niceStep = magnitude;
-    else if (normalized <= 2) niceStep = 2 * magnitude;
-    else if (normalized <= 5) niceStep = 5 * magnitude;
-    else niceStep = 10 * magnitude;
-
-    return niceStep;
-}
-
-// Format axis value for display
-function formatAxisValue(value) {
-    if (Math.abs(value) < 1e-10) return '0';
-    if (Math.abs(value) >= 1000 || (Math.abs(value) < 0.01 && value !== 0)) {
-        return value.toExponential(1);
-    }
-    return parseFloat(value.toPrecision(3)).toString();
-}
-
-// Core step response rendering function
-// options: { showL, showT }
-function renderStepResponsePlot(wrapperId, canvasId, options) {
-    const wrapper = document.getElementById(wrapperId);
-    const canvas = document.getElementById(canvasId);
-
-    if (!wrapper || !canvas) return;
-
-    // Get current time range (auto or manual)
-    const stepTimeMax = getStepTimeMax();
-
-    try {
-        const analysis = currentVars.analysis;
-        if (!analysis) {
-            // Clear canvas
-            const ctx = canvas.getContext('2d');
-            const width = wrapper.clientWidth;
-            const height = wrapper.clientHeight;
-            if (width === 0 || height === 0) return;
-            canvas.width = width * devicePixelRatio;
-            canvas.height = height * devicePixelRatio;
-            canvas.style.width = width + 'px';
-            canvas.style.height = height + 'px';
-            ctx.scale(devicePixelRatio, devicePixelRatio);
-            ctx.fillStyle = CONSTANTS.COLORS.BACKGROUND;
-            ctx.fillRect(0, 0, width, height);
-            return;
-        }
-
-        // Get step response data from analysis (lazy evaluation)
-        const stepData = analysis.stepResponseData;
-        if (!stepData) {
-            console.log('Step response: Cannot simulate non-rational transfer function');
-            return;
-        }
-
-        const structure = analysis.lStructure;
-        const delayL = stepData.delayL;
-        const LCoeffs = stepData.LCoeffs;
-        const ssL = stepData.ssL;
-
-        // Choose simulation resolution.
-        // For loop delay, we need reasonably fine dt relative to delay to avoid artifacts.
-        let nPoints = 500;
-        if (structure.type === 'rational_delay' && delayL > 0) {
-            const dtTarget = delayL / 25;
-            if (dtTarget > 0) {
-                nPoints = Math.max(nPoints, Math.ceil(stepTimeMax / dtTarget) + 1);
-            }
-            nPoints = Math.min(nPoints, 20000);
-        }
-
-        let simData = null;
-        let ssT = null;
-
-        if (structure.type === 'rational_delay') {
-            // L(s) step response itself is just a pure transport delay on the I/O behavior.
-            const simL = simulateStepResponse(ssL, null, stepTimeMax, nPoints, delayL, 0);
-
-            // T(s) must be simulated as a delayed feedback loop:
-            //   T(s) = R(s)e^{-sT} / (1 + R(s)e^{-sT})
-            // not (R/(1+R))e^{-sT}.
-            const simT = simulateClosedLoopStepResponseLoopDelay(ssL, delayL, stepTimeMax, nPoints);
-
-            simData = { time: simL.time, yL: simL.yL, yT: simT.y };
-        } else {
-            // structure.type === 'rational'
-            // Build state-space for T = L/(1+L)
-            // T numerator = L numerator
-            // T denominator = L denominator + L numerator
-            const delayT = 0;
-            try {
-                const Tnum = LCoeffs.num.slice();
-                let Tden = [];
-
-                // Add polynomials: ensure same length
-                const maxLen = Math.max(LCoeffs.num.length, LCoeffs.den.length);
-                const numPadded = LCoeffs.num.slice();
-                const denPadded = LCoeffs.den.slice();
-                while (numPadded.length < maxLen) numPadded.push(0);
-                while (denPadded.length < maxLen) denPadded.push(0);
-
-                for (let i = 0; i < maxLen; i++) {
-                    Tden.push(numPadded[i] + denPadded[i]);
-                }
-
-                // Remove trailing zeros
-                while (Tden.length > 1 && Math.abs(Tden[Tden.length - 1]) < 1e-15) {
-                    Tden.pop();
-                }
-
-                ssT = tf2ss(Tnum, Tden);
-            } catch (e) {
-                console.log('Step response: Cannot build T state-space:', e);
-            }
-
-            simData = simulateStepResponse(ssL, ssT, stepTimeMax, nPoints, 0, delayT);
-        }
-
-        // Draw
-        drawStepResponse(simData, wrapperId, canvasId, options);
-
-    } catch (e) {
-        console.log('Step response plot error:', e);
-    }
-}
-
-function updateStepResponsePlot() {
-    const prefix = isNarrowLayout ? 'narrow-' : '';
-    const showL = isNarrowLayout
-        ? (document.getElementById('narrow-chk-show-L-step')?.checked ?? true)
-        : displayOptions.showLstep;
-    const showT = isNarrowLayout
-        ? (document.getElementById('narrow-chk-show-T-step')?.checked ?? true)
-        : displayOptions.showTstep;
-
-    renderStepResponsePlot(prefix + 'step-wrapper', prefix + 'step-canvas', {
-        showL: showL,
-        showT: showT
+        // Enable and trigger browser URL synchronization
+        isInitialized = true;
+        updateBrowserUrl();
     });
-}
-
+});
