@@ -84,11 +84,39 @@ const EXAMPLE_PLANTS = [
         name: 'Non-minimum Phase',
         latex: 'P(s) = \\frac{1 - T_z s}{(T_1 s + 1)(T_2 s + 1)}',
         code: 'Tz = 0.5\nT1 = 1\nT2 = 0.2\nP = (1 - Tz*s) / ((T1*s + 1) * (T2*s + 1))'
+    }
+];
+
+const EXAMPLE_FILTERS = [
+    {
+        name: 'Low-pass Filter',
+        latex: 'F(s) = \\frac{1}{Ts + 1}',
+        code: 'T = 0.1\nF = 1 / (T*s + 1)'
     },
     {
-        name: 'Resonant System',
-        latex: 'P(s) = \\frac{\\omega_n^2}{s^2 + 2\\zeta\\omega_n s + \\omega_n^2}',
-        code: 'wn = 10\nzeta = 0.1\nP = wn^2 / (s^2 + 2*zeta*wn*s + wn^2)'
+        name: 'High-pass Filter',
+        latex: 'F(s) = \\frac{Ts}{Ts + 1}',
+        code: 'T = 0.1\nF = T*s / (T*s + 1)'
+    },
+    {
+        name: 'Band-pass Filter',
+        latex: 'F(s) = \\frac{2\\zeta\\omega_n s}{s^2 + 2\\zeta\\omega_n s + \\omega_n^2}',
+        code: 'wn = 10\nzeta = 0.5\nF = 2*zeta*wn*s / (s^2 + 2*zeta*wn*s + wn^2)'
+    },
+    {
+        name: 'Notch Filter',
+        latex: 'F(s) = \\frac{s^2 + \\omega_n^2}{s^2 + 2\\zeta\\omega_n s + \\omega_n^2}',
+        code: 'wn = 10\nzeta = 0.1\nF = (s^2 + wn^2) / (s^2 + 2*zeta*wn*s + wn^2)'
+    },
+    {
+        name: 'Comb Filter',
+        latex: 'F(s) = \\frac{1 - e^{-Ls}}{Ls}',
+        code: 'Ld = 0.1\nF = (1 - exp(-Ld*s)) / (Ld*s)'
+    },
+    {
+        name: 'Second-order Low-pass',
+        latex: 'F(s) = \\frac{\\omega_n^2}{s^2 + 2\\zeta\\omega_n s + \\omega_n^2}',
+        code: 'wn = 10\nzeta = 0.707\nF = wn^2 / (s^2 + 2*zeta*wn*s + wn^2)'
     }
 ];
 
@@ -146,19 +174,28 @@ function createExampleItem(example) {
 function populateExamplesList() {
     const controllersContainer = document.getElementById('examples-controllers');
     const plantsContainer = document.getElementById('examples-plants');
+    const filtersContainer = document.getElementById('examples-filters');
 
-    if (!controllersContainer || !plantsContainer) return;
+    if (controllersContainer) {
+        controllersContainer.innerHTML = '';
+        EXAMPLE_CONTROLLERS.forEach(example => {
+            controllersContainer.appendChild(createExampleItem(example));
+        });
+    }
 
-    controllersContainer.innerHTML = '';
-    plantsContainer.innerHTML = '';
+    if (plantsContainer) {
+        plantsContainer.innerHTML = '';
+        EXAMPLE_PLANTS.forEach(example => {
+            plantsContainer.appendChild(createExampleItem(example));
+        });
+    }
 
-    EXAMPLE_CONTROLLERS.forEach(example => {
-        controllersContainer.appendChild(createExampleItem(example));
-    });
-
-    EXAMPLE_PLANTS.forEach(example => {
-        plantsContainer.appendChild(createExampleItem(example));
-    });
+    if (filtersContainer) {
+        filtersContainer.innerHTML = '';
+        EXAMPLE_FILTERS.forEach(example => {
+            filtersContainer.appendChild(createExampleItem(example));
+        });
+    }
 }
 
 // ============================================================================
