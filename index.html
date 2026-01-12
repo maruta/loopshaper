@@ -42,7 +42,10 @@
             <img src="favicon.svg" alt="LoopShaper" class="app-icon">
             <span class="app-title">LoopShaper</span>
         </a>
-        <sl-button id="examples-button" variant="text" size="small">Examples</sl-button>
+        <sl-button id="examples-button" variant="text" size="small">
+            <sl-icon slot="prefix" name="book" library="default"></sl-icon>
+            <span class="menu-label">Examples</span>
+        </sl-button>
 
         <div class="menubar-spacer"></div>
 
@@ -50,17 +53,20 @@
             <sl-tooltip content="Share URL or QR code for mobile">
                 <sl-button id="share-button" variant="text" size="small">
                     <sl-icon slot="prefix" name="share" library="default"></sl-icon>
-                    Share
+                    <span class="menu-label">Share</span>
                 </sl-button>
             </sl-tooltip>
             <sl-tooltip content="Export design for further analysis">
                 <sl-button id="export-button" variant="text" size="small">
                     <sl-icon slot="prefix" name="download" library="default"></sl-icon>
-                    Export
+                    <span class="menu-label">Export</span>
                 </sl-button>
             </sl-tooltip>
             <sl-dropdown id="compare-dropdown" hoist>
-                <sl-button slot="trigger" variant="text" size="small" caret>Compare</sl-button>
+                <sl-button slot="trigger" variant="text" size="small" caret>
+                    <sl-icon slot="prefix" name="layers" library="default"></sl-icon>
+                    <span class="menu-label">Compare</span>
+                </sl-button>
                 <sl-menu id="compare-menu">
                     <sl-menu-item id="compare-save-snapshot">Save current as reference</sl-menu-item>
                     <sl-menu-item id="compare-clear-snapshots">Clear all references</sl-menu-item>

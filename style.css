@@ -677,6 +677,16 @@ sl-textarea.is-invalid::part(base) {
         display: none !important;
     }
 
+    /* Hide menu text labels on narrow screens (icon-only) */
+    .menu-label {
+        display: none;
+    }
+
+    /* Hide caret on narrow screens for compare dropdown */
+    #compare-dropdown sl-button::part(caret) {
+        display: none;
+    }
+
     .narrow-panel {
         border-bottom: 1px solid var(--sl-color-neutral-200);
     }
