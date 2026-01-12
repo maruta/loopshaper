@@ -4,18 +4,19 @@
 function formatNumForLatex(x) {
     const absX = Math.abs(x);
     if (absX < 1e-6) return '0';
-    if (absX >= 1000) {
+
+    // Use scientific notation for very large or very small numbers
+    if (absX >= 1000 || absX < 0.01) {
         const exp = Math.floor(Math.log10(absX));
         const mantissa = x / Math.pow(10, exp);
         return `${mantissa.toFixed(2)} \\times 10^{${exp}}`;
     }
+
+    // Use fixed precision based on magnitude
     if (absX >= 100) return x.toFixed(1);
     if (absX >= 10) return x.toFixed(2);
     if (absX >= 1) return x.toFixed(3);
-    if (absX >= 0.01) return x.toFixed(4);
-    const exp = Math.floor(Math.log10(absX));
-    const mantissa = x / Math.pow(10, exp);
-    return `${mantissa.toFixed(2)} \\times 10^{${exp}}`;
+    return x.toFixed(4);
 }
 
 // Format angle in degrees for LaTeX display
@@ -33,63 +34,40 @@ function formatAngleDegrees(radians) {
 function formatSValueLatex(pointInfo) {
     if (!pointInfo || !pointInfo.s) return '';
 
-    const s = pointInfo.s;
-    const indent = pointInfo.indentation;
-    const L = pointInfo.L;
-
+    const { s, indentation, L } = pointInfo;
     let sLine = '';
-    let lLine = '';
 
-    // Format s value
-    if (indent) {
-        const poleIm = indent.poleIm;
-        const theta = indent.theta;
+    // Format s value based on whether we're on an indentation arc or regular imaginary axis
+    if (indentation) {
+        const { poleIm, theta } = indentation;
         const thetaDeg = formatAngleDegrees(theta);
+        const isOriginPole = Math.abs(poleIm) < IMAG_AXIS_TOL;
 
-        // Format pole position (jω part)
-        let poleStr;
-        if (Math.abs(poleIm) < IMAG_AXIS_TOL) {
-            poleStr = '';  // Origin pole, no jω term
-        } else {
-            poleStr = `${formatNumForLatex(poleIm)}j`;
-        }
-
-        // s = jω + ε∠θ°
-        if (Math.abs(poleIm) < IMAG_AXIS_TOL) {
-            sLine = `s &= \\varepsilon \\angle ${thetaDeg}^\\circ`;
-        } else {
-            sLine = `s &= ${poleStr} + \\varepsilon \\angle ${thetaDeg}^\\circ`;
-        }
+        // s = jω + ε∠θ° (or just ε∠θ° for origin pole)
+        sLine = isOriginPole
+            ? `s &= \\varepsilon \\angle ${thetaDeg}^\\circ`
+            : `s &= ${formatNumForLatex(poleIm)}j + \\varepsilon \\angle ${thetaDeg}^\\circ`;
     } else {
         // Regular point on imaginary axis: s = jω
-        const im = s.im;
-        if (Math.abs(im) < 1e-8) {
-            sLine = 's &= 0';
-        } else {
-            sLine = `s &= ${formatNumForLatex(im)}j`;
-        }
+        sLine = Math.abs(s.im) < 1e-8 ? 's &= 0' : `s &= ${formatNumForLatex(s.im)}j`;
     }
 
-    // Format L(s) value
-    if (L) {
-        const mag = Math.sqrt(L.re * L.re + L.im * L.im);
-        const phase = Math.atan2(L.im, L.re);
-        const phaseDeg = formatAngleDegrees(phase);
+    // Format L(s) value in polar form
+    if (!L) return sLine;
 
-        if (mag < 1e-10) {
-            lLine = 'L(s) &= 0';
-        } else if (mag > 1e4) {
-            lLine = `L(s) &= \\infty \\angle ${phaseDeg}^\\circ`;
-        } else {
-            lLine = `L(s) &= ${formatNumForLatex(mag)} \\angle ${phaseDeg}^\\circ`;
-        }
+    const mag = Math.sqrt(L.re * L.re + L.im * L.im);
+    const phaseDeg = formatAngleDegrees(Math.atan2(L.im, L.re));
+
+    let lLine;
+    if (mag < 1e-10) {
+        lLine = 'L(s) &= 0';
+    } else if (mag > 1e4) {
+        lLine = `L(s) &= \\infty \\angle ${phaseDeg}^\\circ`;
+    } else {
+        lLine = `L(s) &= ${formatNumForLatex(mag)} \\angle ${phaseDeg}^\\circ`;
     }
 
-    // Combine both lines
-    if (sLine && lLine) {
-        return `\\begin{aligned} ${sLine} \\\\ ${lLine} \\end{aligned}`;
-    }
-    return sLine;
+    return `\\begin{aligned} ${sLine} \\\\ ${lLine} \\end{aligned}`;
 }
 
 // Animation state
@@ -103,6 +81,12 @@ const nyquistSpeedOptions = [0.25, 0.5, 1, 2, 4];  // Available speed options
 
 // Compression radius (adjustable via mouse wheel)
 let nyquistCompressionRadius = 3;
+
+// Helper to get element IDs based on wrapper type (narrow vs wide layout)
+function getNyquistElementId(wrapperId, elementType) {
+    const prefix = wrapperId === 'narrow-nyquist-wrapper' ? 'narrow-nyquist-' : 'nyquist-';
+    return prefix + elementType;
+}
 
 // Draw Nyquist plot with z/(1+|z|/R) compression mapping
 // When options.ctx/width/height are provided, draws to external context (for SVG export)
@@ -314,18 +298,18 @@ function drawPolarGrid(ctx, centerX, centerY, scale, maxRadius, R) {
         const lx = centerX + Math.cos(angle) * labelRadius;
         const ly = centerY - Math.sin(angle) * labelRadius;
 
-        if (Math.abs(item.deg) === 90) {
+        // Determine text alignment based on angle position
+        const absDeg = Math.abs(item.deg);
+        if (absDeg === 90) {
             ctx.textAlign = 'center';
             ctx.textBaseline = item.deg > 0 ? 'bottom' : 'top';
-        } else if (item.deg === 0 || item.deg === 180) {
+        } else if (absDeg === 0 || absDeg === 180) {
             ctx.textAlign = item.deg === 0 ? 'left' : 'right';
             ctx.textBaseline = 'middle';
-        } else if (item.deg > 0) {
-            ctx.textAlign = item.deg < 90 ? 'left' : 'right';
-            ctx.textBaseline = 'bottom';
         } else {
-            ctx.textAlign = item.deg > -90 ? 'left' : 'right';
-            ctx.textBaseline = 'top';
+            // For diagonal angles: left side for angles closer to 0, right for closer to 180
+            ctx.textAlign = absDeg < 90 ? 'left' : 'right';
+            ctx.textBaseline = item.deg > 0 ? 'bottom' : 'top';
         }
 
         ctx.fillText(item.label, lx, ly);
@@ -485,12 +469,12 @@ function drawPhaseMarginArcs(ctx, centerX, centerY, scale, R, phaseMargins) {
 
         // Draw arc from reference phase to phase at gain crossover
         ctx.beginPath();
-        let startAngle = refAngle;
-        let endAngle = gcAngle;
+        const startAngle = refAngle;
 
-        // Normalize angles to be close to each other
-        while (endAngle - startAngle > Math.PI) endAngle -= 2 * Math.PI;
-        while (startAngle - endAngle > Math.PI) endAngle += 2 * Math.PI;
+        // Normalize end angle to be within PI of start angle (shortest arc)
+        let endAngle = gcAngle;
+        const angleDiff = endAngle - startAngle;
+        endAngle -= Math.round(angleDiff / (2 * Math.PI)) * 2 * Math.PI;
 
         // Draw arc (counterclockwise if endAngle > startAngle)
         const counterClockwise = endAngle < startAngle;
@@ -540,28 +524,22 @@ function drawPhaseMarginArcs(ctx, centerX, centerY, scale, R, phaseMargins) {
 function drawGainMarginLines(ctx, centerX, centerY, scale, R, gainMargins) {
     if (!gainMargins || gainMargins.length === 0) return;
 
-    // Stability check is now done in main.js before passing gainMargins
-    // gainMargins is only passed when closed-loop system is stable (Z = N + P = 0)
-
     // Filter to finite gain margins only (exclude infinite GM)
     const finiteGMs = gainMargins.filter(gm => isFinite(gm.margin) && Math.abs(gm.margin) < 1000);
     if (finiteGMs.length === 0) return;
 
-    // Find the smallest positive and smallest negative (or largest negative = closest to 0) gain margins
+    // Find the gain margin closest to zero in each direction (positive and negative)
+    // These represent the most critical stability margins
+    const gmToShow = [];
     const positiveGMs = finiteGMs.filter(gm => gm.margin > 0);
     const negativeGMs = finiteGMs.filter(gm => gm.margin < 0);
 
-    // Get the one with smallest margin in each direction
-    let gmToShow = [];
     if (positiveGMs.length > 0) {
-        const minPositive = positiveGMs.reduce((a, b) => a.margin < b.margin ? a : b);
-        gmToShow.push(minPositive);
+        gmToShow.push(positiveGMs.reduce((a, b) => a.margin < b.margin ? a : b));
     }
     if (negativeGMs.length > 0) {
-        const maxNegative = negativeGMs.reduce((a, b) => a.margin > b.margin ? a : b);
-        gmToShow.push(maxNegative);
+        gmToShow.push(negativeGMs.reduce((a, b) => a.margin > b.margin ? a : b));
     }
-
     if (gmToShow.length === 0) return;
 
     ctx.save();
@@ -685,6 +663,11 @@ function drawArrow(ctx, points, idx, toCanvasX, toCanvasY) {
     ctx.fill();
 }
 
+// Linear interpolation helper
+function lerp(a, b, t) {
+    return a + t * (b - a);
+}
+
 // Find point position at a given arc length using binary search
 function getPointAtArcLength(points, cumulativeLength, targetLength) {
     // Binary search to find the segment containing targetLength
@@ -698,48 +681,37 @@ function getPointAtArcLength(points, cumulativeLength, targetLength) {
         }
     }
 
-    // Interpolate between points[lo] and points[hi]
-    const segmentStart = cumulativeLength[lo];
-    const segmentEnd = cumulativeLength[hi];
-    const segmentLength = segmentEnd - segmentStart;
+    const p0 = points[lo];
+    const p1 = points[hi];
+    const segmentLength = cumulativeLength[hi] - cumulativeLength[lo];
 
+    // Return start point if segment is degenerate
     if (segmentLength < 1e-10) {
-        return {
-            cx: points[lo].cx,
-            cy: points[lo].cy,
-            x: points[lo].x,
-            y: points[lo].y,
-            s: points[lo].s,
-            indentation: points[lo].indentation
-        };
+        return { cx: p0.cx, cy: p0.cy, x: p0.x, y: p0.y, s: p0.s, indentation: p0.indentation };
     }
 
-    const t = (targetLength - segmentStart) / segmentLength;
-    const cx = points[lo].cx + t * (points[hi].cx - points[lo].cx);
-    const cy = points[lo].cy + t * (points[hi].cy - points[lo].cy);
+    const t = (targetLength - cumulativeLength[lo]) / segmentLength;
 
-    // Interpolate L(s) value (uncompressed coordinates)
-    const x = points[lo].x + t * (points[hi].x - points[lo].x);
-    const y = points[lo].y + t * (points[hi].y - points[lo].y);
+    // Interpolate coordinates
+    const cx = lerp(p0.cx, p1.cx, t);
+    const cy = lerp(p0.cy, p1.cy, t);
+    const x = lerp(p0.x, p1.x, t);
+    const y = lerp(p0.y, p1.y, t);
 
     // Interpolate s value (complex number)
-    let s = null;
-    if (points[lo].s && points[hi].s) {
-        const sRe = points[lo].s.re + t * (points[hi].s.re - points[lo].s.re);
-        const sIm = points[lo].s.im + t * (points[hi].s.im - points[lo].s.im);
-        s = math.complex(sRe, sIm);
-    } else if (points[lo].s) {
-        s = points[lo].s;
+    let s = p0.s;
+    if (p0.s && p1.s) {
+        s = math.complex(lerp(p0.s.re, p1.s.re, t), lerp(p0.s.im, p1.s.im, t));
     }
 
-    // Interpolate indentation info (if both points have it with same pole)
-    let indentation = null;
-    if (points[lo].indentation && points[hi].indentation &&
-        Math.abs(points[lo].indentation.poleIm - points[hi].indentation.poleIm) < 1e-6) {
-        const theta = points[lo].indentation.theta + t * (points[hi].indentation.theta - points[lo].indentation.theta);
-        indentation = { poleIm: points[lo].indentation.poleIm, theta: theta };
-    } else if (points[lo].indentation) {
-        indentation = points[lo].indentation;
+    // Interpolate indentation info (only if both points share the same pole)
+    let indentation = p0.indentation;
+    if (p0.indentation && p1.indentation &&
+        Math.abs(p0.indentation.poleIm - p1.indentation.poleIm) < 1e-6) {
+        indentation = {
+            poleIm: p0.indentation.poleIm,
+            theta: lerp(p0.indentation.theta, p1.indentation.theta, t)
+        };
     }
 
     return { cx, cy, x, y, s, indentation };
@@ -883,8 +855,7 @@ function renderNyquistFrame(canvas, ctx, points, cumulativeLength,
     ctx.stroke();
 
     // Display current s value and L(s) using KaTeX overlay
-    const sOverlayId = wrapperId === 'narrow-nyquist-wrapper' ? 'narrow-nyquist-s-value-overlay' : 'nyquist-s-value-overlay';
-    const sOverlay = document.getElementById(sOverlayId);
+    const sOverlay = document.getElementById(getNyquistElementId(wrapperId, 's-value-overlay'));
     if (sOverlay && p.s) {
         // p.x and p.y are the uncompressed L(s) values (real and imaginary parts)
         const L = (p.x !== undefined && p.y !== undefined) ? { re: p.x, im: p.y } : null;
@@ -906,14 +877,9 @@ function renderNyquistFrame(canvas, ctx, points, cumulativeLength,
 
 // Setup play/pause button, seek bar, and speed button event handlers
 function setupNyquistAnimationControls(wrapperId) {
-    const isNarrow = wrapperId === 'narrow-nyquist-wrapper';
-    const playBtnId = isNarrow ? 'narrow-nyquist-play-btn' : 'nyquist-play-btn';
-    const seekBarId = isNarrow ? 'narrow-nyquist-seek-bar' : 'nyquist-seek-bar';
-    const speedBtnId = isNarrow ? 'narrow-nyquist-speed-btn' : 'nyquist-speed-btn';
-
-    const playBtn = document.getElementById(playBtnId);
-    const seekBar = document.getElementById(seekBarId);
-    const speedBtn = document.getElementById(speedBtnId);
+    const playBtn = document.getElementById(getNyquistElementId(wrapperId, 'play-btn'));
+    const seekBar = document.getElementById(getNyquistElementId(wrapperId, 'seek-bar'));
+    const speedBtn = document.getElementById(getNyquistElementId(wrapperId, 'speed-btn'));
 
     if (playBtn && !playBtn._nyquistSetup) {
         playBtn._nyquistSetup = true;
@@ -963,10 +929,7 @@ function cycleNyquistSpeed() {
 
 // Update speed button label
 function updateSpeedButtonLabel(wrapperId) {
-    const isNarrow = wrapperId === 'narrow-nyquist-wrapper';
-    const speedBtnId = isNarrow ? 'narrow-nyquist-speed-btn' : 'nyquist-speed-btn';
-    const speedBtn = document.getElementById(speedBtnId);
-
+    const speedBtn = document.getElementById(getNyquistElementId(wrapperId, 'speed-btn'));
     if (speedBtn) {
         speedBtn.textContent = nyquistAnimationSpeed + 'x';
     }
@@ -974,10 +937,7 @@ function updateSpeedButtonLabel(wrapperId) {
 
 // Update play/pause button icon
 function updatePlayButtonIcon(wrapperId, isPlaying) {
-    const isNarrow = wrapperId === 'narrow-nyquist-wrapper';
-    const playBtnId = isNarrow ? 'narrow-nyquist-play-btn' : 'nyquist-play-btn';
-    const playBtn = document.getElementById(playBtnId);
-
+    const playBtn = document.getElementById(getNyquistElementId(wrapperId, 'play-btn'));
     if (playBtn) {
         // Shoelace sl-icon-button uses 'name' attribute for icon
         playBtn.name = isPlaying ? 'pause-fill' : 'play-fill';
@@ -986,10 +946,7 @@ function updatePlayButtonIcon(wrapperId, isPlaying) {
 
 // Update seek bar position
 function updateSeekBar(wrapperId, progress) {
-    const isNarrow = wrapperId === 'narrow-nyquist-wrapper';
-    const seekBarId = isNarrow ? 'narrow-nyquist-seek-bar' : 'nyquist-seek-bar';
-    const seekBar = document.getElementById(seekBarId);
-
+    const seekBar = document.getElementById(getNyquistElementId(wrapperId, 'seek-bar'));
     if (seekBar && document.activeElement !== seekBar) {
         seekBar.value = Math.round(progress * 1000);
     }
