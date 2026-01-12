@@ -251,7 +251,8 @@ function processCodeLines(code, vars, onError) {
         if (!parsed) return;
 
         try {
-            const expr = math.parse(parsed.exprStr);
+            let expr = math.parse(parsed.exprStr);
+            expr = expandPadeDelay(expr); // Expand pade_delay() to rational form
             const substituted = substituteVars(expr, vars);
             vars[parsed.varName] = substituted;
         } catch (e) {

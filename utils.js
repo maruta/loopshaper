@@ -935,3 +935,117 @@ function findRoots(coeffs, complexCoeffs, maxIterations, tolerance) {
 
     return [rootsReal, rootsImag];
 }
+
+// ============================================================================
+// Padé Approximation for Time Delay
+// ============================================================================
+
+// Calculate Padé coefficient for [n/m] approximant of e^(-x)
+// Returns coefficient a_k where:
+//   Numerator: sum_{k=0}^{n} (-1)^k * a_k * x^k
+//   Denominator: sum_{k=0}^{m} b_k * x^k
+// Formula: coeff(n, m, k) = (n+m-k)! * n! / ((n+m)! * k! * (n-k)!)
+function padeCoeff(n, m, k) {
+    // Using iterative calculation to avoid factorial overflow
+    // coeff = product_{i=0}^{k-1} [(n-i) / ((n+m-i) * (i+1))]
+    let result = 1;
+    for (let i = 0; i < k; i++) {
+        result *= (n - i) / ((n + m - i) * (i + 1));
+    }
+    return result;
+}
+
+// Build Padé approximation AST node for e^(-Ld*s)
+// Ld: math.js node (SymbolNode, ConstantNode, or expression)
+// n: numerator order (integer)
+// m: denominator order (integer)
+function buildPadeNode(Ld, n, m) {
+    const s = new math.SymbolNode('s');
+
+    // Helper: build a single term: coeff * (Ld*s)^k
+    function buildTerm(coeff, k) {
+        if (k === 0) {
+            return new math.ConstantNode(coeff);
+        }
+
+        // (Ld * s)
+        const LdS = new math.OperatorNode('*', 'multiply', [Ld.clone(), s.clone()]);
+
+        // (Ld * s)^k
+        const power = k === 1 ? LdS : new math.OperatorNode('^', 'pow', [LdS, new math.ConstantNode(k)]);
+
+        // coeff * (Ld * s)^k
+        if (coeff === 1) {
+            return power;
+        }
+        return new math.OperatorNode('*', 'multiply', [new math.ConstantNode(coeff), power]);
+    }
+
+    // Helper: sum an array of terms
+    function sumTerms(terms) {
+        if (terms.length === 0) return new math.ConstantNode(0);
+        if (terms.length === 1) return terms[0];
+
+        let result = terms[0];
+        for (let i = 1; i < terms.length; i++) {
+            result = new math.OperatorNode('+', 'add', [result, terms[i]]);
+        }
+        return result;
+    }
+
+    // Build numerator: sum_{k=0}^{n} (-1)^k * a_k * (Ld*s)^k
+    let numTerms = [];
+    for (let k = 0; k <= n; k++) {
+        const coeff = padeCoeff(n, m, k);
+        const sign = (k % 2 === 0) ? 1 : -1;
+        numTerms.push(buildTerm(coeff * sign, k));
+    }
+
+    // Build denominator: sum_{k=0}^{m} b_k * (Ld*s)^k
+    let denTerms = [];
+    for (let k = 0; k <= m; k++) {
+        const coeff = padeCoeff(m, n, k);
+        denTerms.push(buildTerm(coeff, k));
+    }
+
+    const num = sumTerms(numTerms);
+    const den = sumTerms(denTerms);
+
+    return new math.OperatorNode('/', 'divide', [num, den]);
+}
+
+// Expand pade_delay function calls in an AST
+// Transforms pade_delay(Ld, n) or pade_delay(Ld, n, m) into rational expression
+function expandPadeDelay(node) {
+    return node.transform(function(node, path, parent) {
+        if (node.isFunctionNode && node.fn && node.fn.name === 'pade_delay') {
+            const args = node.args;
+
+            if (args.length < 2 || args.length > 3) {
+                throw new Error('pade_delay requires 2 or 3 arguments: pade_delay(Ld, n) or pade_delay(Ld, n, m)');
+            }
+
+            const Ld = args[0];
+            const nArg = args[1];
+            const mArg = args.length > 2 ? args[2] : args[1]; // Default m = n
+
+            // n and m must be constant integers
+            if (!nArg.isConstantNode || !Number.isInteger(nArg.value) || nArg.value < 0) {
+                throw new Error('pade_delay: n must be a non-negative integer constant');
+            }
+            if (!mArg.isConstantNode || !Number.isInteger(mArg.value) || mArg.value < 0) {
+                throw new Error('pade_delay: m must be a non-negative integer constant');
+            }
+
+            const n = nArg.value;
+            const m = mArg.value;
+
+            if (n === 0 && m === 0) {
+                return new math.ConstantNode(1); // e^0 = 1
+            }
+
+            return buildPadeNode(Ld, n, m);
+        }
+        return node;
+    });
+}
