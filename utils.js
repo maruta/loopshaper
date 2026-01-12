@@ -55,8 +55,9 @@ function util_rationalize(eq, vars) {
     return rat;
 }
 
-// Convert number to TeX format
+// Convert number to TeX format (values < 1e-10 are treated as 0)
 function num2tex(num, prec) {
+    if (Math.abs(num) < 1e-10) num = 0;
     return num.toPrecision(prec).replace(/(e)([\+-]?\d+)/, '\\times10^{$2}');
 }
 

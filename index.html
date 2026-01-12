@@ -200,6 +200,17 @@
                     </div>
                 </div>
                 <div class="poles-section">
+                    <strong>Open-loop poles:</strong>
+                    <span id="narrow-olp-display" class="text-muted"></span>
+                </div>
+                <div class="poles-section">
+                    <sl-tooltip>
+                        <div slot="content">Open-loop and closed-loop zeros are identical<br>when there is no pole-zero cancellation.</div>
+                        <strong>Zeros:</strong>
+                    </sl-tooltip>
+                    <span id="narrow-zeros-display" class="text-muted"></span>
+                </div>
+                <div class="poles-section">
                     <strong>Closed-loop poles:</strong>
                     <span id="narrow-clp-display" class="text-muted"></span>
                 </div>
@@ -272,6 +283,17 @@
                     <strong>Winding number:</strong>
                     <span id="winding-number-display" class="text-muted">--</span>
                 </div>
+            </div>
+            <div class="poles-section">
+                <strong>Open-loop poles:</strong>
+                <span id="olp-display" class="text-muted"></span>
+            </div>
+            <div class="poles-section">
+                <sl-tooltip>
+                    <div slot="content">Open-loop and closed-loop zeros are identical<br>when there is no pole-zero cancellation.</div>
+                    <strong>Zeros:</strong>
+                </sl-tooltip>
+                <span id="zeros-display" class="text-muted"></span>
             </div>
             <div class="poles-section">
                 <strong>Closed-loop poles:</strong>

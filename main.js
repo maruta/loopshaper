@@ -936,37 +936,41 @@ function getOrComputeNyquistAnalysisCached(Lnode, Lcompiled, imagAxisPoles) {
 }
 
 // ============================================================================
-// Closed-Loop Poles
+// Poles and Zeros Display
 // ============================================================================
 
+// Update all pole/zero displays in Stability panel
 function updateClosedLoopPoles() {
     const prefix = isNarrowLayout ? 'narrow-' : '';
     let clpEl = document.getElementById(prefix + 'clp-display');
+    let olpEl = document.getElementById(prefix + 'olp-display');
+    let zerosEl = document.getElementById(prefix + 'zeros-display');
     let indicator = document.getElementById(prefix + 'stability-indicator');
+
+    // Helper to clear all displays
+    function clearAllDisplays() {
+        if (clpEl) clpEl.textContent = '--';
+        if (olpEl) olpEl.textContent = '--';
+        if (zerosEl) zerosEl.textContent = '--';
+        if (indicator) {
+            indicator.textContent = '--';
+            indicator.variant = 'neutral';
+        }
+        window.lastPoles = [];
+        window.lastZeros = [];
+    }
 
     try {
         const analysis = currentVars.analysis;
         if (!analysis) {
-            if (clpEl) clpEl.textContent = '--';
-            if (indicator) {
-                indicator.textContent = '--';
-                indicator.variant = 'neutral';
-            }
-            window.lastPoles = [];
-            window.lastZeros = [];
+            clearAllDisplays();
             updateTpzCheckboxState(false);
             return;
         }
 
         const structure = analysis.lStructure;
         if (structure.type === 'unknown') {
-            if (clpEl) clpEl.textContent = '--';
-            if (indicator) {
-                indicator.textContent = '--';
-                indicator.variant = 'neutral';
-            }
-            window.lastPoles = [];
-            window.lastZeros = [];
+            clearAllDisplays();
             updateTpzCheckboxState(false);
             return;
         }
@@ -980,6 +984,11 @@ function updateClosedLoopPoles() {
         // Determine stability using Nyquist criterion: Z = N + P
         const Z = (P !== null) ? N + P : null;
         const isStable = (Z !== null) ? (Z === 0) : false;
+
+        // Display open-loop poles and zeros (available for both rational and rational_delay)
+        const olPZ = analysis.openLoopPolesZeros;
+        displayOpenLoopPoles(olPZ.poles);
+        displayZeros(olPZ.zeros);
 
         if (structure.type === 'rational') {
             const clPZ = analysis.closedLoopPolesZeros;
@@ -1023,6 +1032,8 @@ function updateClosedLoopPoles() {
             clpEl.classList.add('text-danger');
             clpEl.classList.remove('text-muted');
         }
+        if (olpEl) olpEl.textContent = '--';
+        if (zerosEl) zerosEl.textContent = '--';
         if (indicator) {
             indicator.textContent = '--';
             indicator.variant = 'neutral';
@@ -1141,6 +1152,112 @@ function displayClosedLoopPoles(poles, isStableByNyquist) {
 
     // Use Nyquist-based stability determination
     updateStabilityIndicator(isStableByNyquist);
+}
+
+// Display open-loop poles in Stability panel
+function displayOpenLoopPoles(poles) {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let olpEl = document.getElementById(prefix + 'olp-display');
+    if (!olpEl) return;
+
+    // Handle empty poles case
+    if (!poles || poles.length === 0) {
+        olpEl.textContent = 'None';
+        olpEl.classList.add('text-muted');
+        olpEl.classList.remove('text-danger');
+        return;
+    }
+
+    let poleStrings = [];
+
+    for (let i = 0; i < poles.length; i++) {
+        let p = poles[i];
+        let poleStr = '';
+        let isUnstablePole = p.re > 1e-10;
+
+        if (isUnstablePole) {
+            poleStr = '\\color{red}{';
+        }
+
+        // Check for conjugate pairs
+        if (i < poles.length - 1 &&
+            Math.abs(p.re - poles[i + 1].re) < 1e-6 &&
+            Math.abs(p.im + poles[i + 1].im) < 1e-6 &&
+            Math.abs(p.im) > 1e-6) {
+            poleStr += num2tex(p.re, 3) + ' \\pm ' + num2tex(Math.abs(p.im), 3) + 'j';
+            i++;
+        } else if (Math.abs(p.im) < 1e-6) {
+            poleStr += num2tex(p.re, 3);
+        } else {
+            poleStr += num2tex(p.re, 3) + (p.im >= 0 ? '+' : '') + num2tex(p.im, 3) + 'j';
+        }
+
+        if (isUnstablePole) {
+            poleStr += '}';
+        }
+
+        poleStrings.push(poleStr);
+    }
+
+    let latex = poleStrings.join(',\\; ');
+    olpEl.classList.remove('text-danger', 'text-muted');
+    katex.render(latex, olpEl, {
+        displayMode: false,
+        throwOnError: false
+    });
+}
+
+// Display zeros (open-loop = closed-loop) in Stability panel
+function displayZeros(zeros) {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    let zerosEl = document.getElementById(prefix + 'zeros-display');
+    if (!zerosEl) return;
+
+    // Handle empty zeros case
+    if (!zeros || zeros.length === 0) {
+        zerosEl.textContent = 'None';
+        zerosEl.classList.add('text-muted');
+        zerosEl.classList.remove('text-danger');
+        return;
+    }
+
+    let zeroStrings = [];
+
+    for (let i = 0; i < zeros.length; i++) {
+        let z = zeros[i];
+        let zeroStr = '';
+        let isRHPzero = z.re > 1e-10;
+
+        if (isRHPzero) {
+            zeroStr = '\\color{blue}{';
+        }
+
+        // Check for conjugate pairs
+        if (i < zeros.length - 1 &&
+            Math.abs(z.re - zeros[i + 1].re) < 1e-6 &&
+            Math.abs(z.im + zeros[i + 1].im) < 1e-6 &&
+            Math.abs(z.im) > 1e-6) {
+            zeroStr += num2tex(z.re, 3) + ' \\pm ' + num2tex(Math.abs(z.im), 3) + 'j';
+            i++;
+        } else if (Math.abs(z.im) < 1e-6) {
+            zeroStr += num2tex(z.re, 3);
+        } else {
+            zeroStr += num2tex(z.re, 3) + (z.im >= 0 ? '+' : '') + num2tex(z.im, 3) + 'j';
+        }
+
+        if (isRHPzero) {
+            zeroStr += '}';
+        }
+
+        zeroStrings.push(zeroStr);
+    }
+
+    let latex = zeroStrings.join(',\\; ');
+    zerosEl.classList.remove('text-danger', 'text-muted');
+    katex.render(latex, zerosEl, {
+        displayMode: false,
+        throwOnError: false
+    });
 }
 
 // ============================================================================
