@@ -186,7 +186,8 @@ function exportStepResponseAsSVG() {
         width: width,
         height: height,
         showL: showL,
-        showT: showT
+        showT: showT,
+        showMetrics: stepOptions.showMetrics
     });
 
     downloadSvg(svgCtx.getSerializedSvg(true), 'step-response.svg');
@@ -600,7 +601,9 @@ function setupStepContextMenu() {
 
         initializeState: function() {
             const optAutoTime = document.getElementById('step-opt-auto-time');
+            const optShowMetrics = document.getElementById('step-opt-show-metrics');
             if (optAutoTime) optAutoTime.checked = stepOptions.autoTime;
+            if (optShowMetrics) optShowMetrics.checked = stepOptions.showMetrics;
             if (customTimePanel) {
                 customTimePanel.style.display = stepOptions.autoTime ? 'none' : 'block';
             }
@@ -634,7 +637,11 @@ function setupStepContextMenu() {
         },
 
         onItemSelect: function(item) {
-            if (item.id === 'step-opt-auto-time') {
+            if (item.id === 'step-opt-show-metrics') {
+                stepOptions.showMetrics = item.checked;
+                updateStepResponsePlot();
+                updateBrowserUrl();
+            } else if (item.id === 'step-opt-auto-time') {
                 stepOptions.autoTime = item.checked;
                 if (customTimePanel) {
                     customTimePanel.style.display = item.checked ? 'none' : 'block';

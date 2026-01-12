@@ -38,6 +38,7 @@ const URL_KEY_MAP = {
     stepOptions: 'so',
     autoTime: 'at',
     timeMax: 'tm',
+    showMetrics: 'sme',
     // nyquistOptions keys
     nyquistOptions: 'no',
     showStabilityMargin: 'ssm',
@@ -78,7 +79,8 @@ const URL_DEFAULTS = {
     // stepOptions defaults
     stepOptions: {
         autoTime: true,
-        timeMax: 20
+        timeMax: 20,
+        showMetrics: false
     },
     // nyquistOptions defaults
     nyquistOptions: {
@@ -238,7 +240,8 @@ function generateShareUrl(options = {}) {
     // Include Step response options
     saveData.stepOptions = {
         autoTime: stepOptions.autoTime,
-        timeMax: stepOptions.timeMax
+        timeMax: stepOptions.timeMax,
+        showMetrics: stepOptions.showMetrics
     };
 
     // Include Nyquist compression radius

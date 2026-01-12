@@ -90,7 +90,8 @@ let autoFreq = true;
 let stepOptions = {
     autoTime: true,        // Auto-calculate time range from dominant pole
     timeMax: 20,           // Manual time range (seconds, used when autoTime is false)
-    autoTimeMultiplier: 10 // Multiplier for auto time: T = multiplier / |Re(dominant pole)|
+    autoTimeMultiplier: 10, // Multiplier for auto time: T = multiplier / |Re(dominant pole)|
+    showMetrics: false     // Show performance metrics (rise time, settling time, etc.)
 };
 
 // ============================================================================
