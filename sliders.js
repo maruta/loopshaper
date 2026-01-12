@@ -64,16 +64,25 @@ function createSliderElement(slider, index) {
     let initialPos = valueToSliderPos(initialValue, slider.min, slider.max, slider.logScale);
 
     div.innerHTML = `
-        <div class="slider-config">
+        <div class="slider-main">
             <sl-input type="text" class="slider-name" placeholder="Name" value="${slider.name || ''}" data-index="${index}" size="small"></sl-input>
-            <sl-input type="number" class="slider-min" placeholder="Min" value="${slider.min || 0.1}" step="any" data-index="${index}" size="small"></sl-input>
-            <sl-input type="number" class="slider-max" placeholder="Max" value="${slider.max || 100}" step="any" data-index="${index}" size="small"></sl-input>
-            <sl-checkbox class="slider-log" id="${prefix}log-${index}" ${slider.logScale ? 'checked' : ''} data-index="${index}" size="medium"></sl-checkbox>
-            <sl-icon-button class="remove-slider" name="x-lg" data-index="${index}" label="Remove"></sl-icon-button>
-        </div>
-        <div class="slider-control">
             <sl-range class="slider-range" id="${prefix}range-${index}" min="0" max="1000" value="${initialPos}" data-index="${index}"></sl-range>
-            <span class="slider-value" id="${prefix}value-${index}">${formatValue(initialValue)}</span>
+            <span class="slider-value" id="${prefix}value-${index}" title="Click to edit">${formatValue(initialValue)}</span>
+            <sl-icon-button class="slider-settings-toggle" name="gear" label="Settings" data-index="${index}"></sl-icon-button>
+        </div>
+        <div class="slider-settings" data-index="${index}">
+            <div class="slider-settings-row">
+                <label>Min</label>
+                <sl-input type="number" class="slider-min" value="${slider.min || 0.1}" step="any" data-index="${index}" size="small"></sl-input>
+            </div>
+            <div class="slider-settings-row">
+                <label>Max</label>
+                <sl-input type="number" class="slider-max" value="${slider.max || 100}" step="any" data-index="${index}" size="small"></sl-input>
+            </div>
+            <div class="slider-settings-row">
+                <sl-checkbox class="slider-log" id="${prefix}log-${index}" ${slider.logScale ? 'checked' : ''} data-index="${index}" size="small">Log scale</sl-checkbox>
+            </div>
+            <sl-icon-button class="remove-slider" name="trash" label="Remove" data-index="${index}"></sl-icon-button>
         </div>
     `;
 
@@ -85,6 +94,9 @@ function createSliderElement(slider, index) {
         const logCheck = div.querySelector('.slider-log');
         const rangeInput = div.querySelector('.slider-range');
         const removeBtn = div.querySelector('.remove-slider');
+        const settingsToggle = div.querySelector('.slider-settings-toggle');
+        const settingsPanel = div.querySelector('.slider-settings');
+        const valueSpan = div.querySelector('.slider-value');
 
         // Set tooltip formatter to show actual parameter value
         if (rangeInput) {
@@ -94,6 +106,22 @@ function createSliderElement(slider, index) {
                 const value = sliderPosToValue(pos, s.min, s.max, s.logScale);
                 return formatValue(value);
             };
+        }
+
+        // Settings toggle (collapsible panel)
+        if (settingsToggle && settingsPanel) {
+            settingsToggle.addEventListener('click', function() {
+                const isExpanded = settingsPanel.classList.toggle('expanded');
+                settingsToggle.name = isExpanded ? 'gear-fill' : 'gear';
+            });
+        }
+
+        // Direct value input on click
+        if (valueSpan) {
+            valueSpan.addEventListener('click', function(e) {
+                e.stopPropagation();
+                startDirectValueEdit(div, index);
+            });
         }
 
         // Shoelace sl-input uses 'sl-input' event
@@ -144,6 +172,83 @@ function createSliderElement(slider, index) {
     };
 
     return div;
+}
+
+// ============================================================================
+// Direct Value Input
+// ============================================================================
+
+function startDirectValueEdit(sliderRow, index) {
+    const valueSpan = sliderRow.querySelector('.slider-value');
+    if (!valueSpan || valueSpan.style.display === 'none') return;
+
+    const currentValue = design.sliders[index].currentValue;
+
+    // Create inline input
+    const input = document.createElement('sl-input');
+    input.type = 'number';
+    input.size = 'small';
+    input.value = currentValue;
+    input.step = 'any';
+    input.className = 'slider-value-input';
+
+    // Replace span with input
+    valueSpan.style.display = 'none';
+    valueSpan.parentNode.insertBefore(input, valueSpan.nextSibling);
+
+    // Focus and select after Shoelace component is ready
+    input.updateComplete.then(() => {
+        const inputEl = input.shadowRoot?.querySelector('input');
+        if (inputEl) {
+            inputEl.focus();
+            inputEl.select();
+        }
+    });
+
+    // Commit value function
+    function commitValue() {
+        let newValue = parseFloat(input.value);
+        const slider = design.sliders[index];
+
+        // Validate and clamp to min/max
+        if (isNaN(newValue)) {
+            newValue = slider.currentValue;
+        } else {
+            newValue = Math.max(slider.min, Math.min(slider.max, newValue));
+        }
+
+        // Update slider position
+        slider.currentValue = newValue;
+        const pos = valueToSliderPos(newValue, slider.min, slider.max, slider.logScale);
+        const rangeInput = sliderRow.querySelector('.slider-range');
+        if (rangeInput) {
+            rangeInput.value = pos;
+        }
+
+        // Restore span
+        valueSpan.textContent = formatValue(newValue);
+        valueSpan.style.display = '';
+        input.remove();
+
+        // Trigger update
+        updateAll();
+    }
+
+    // Cancel edit function
+    function cancelEdit() {
+        valueSpan.style.display = '';
+        input.remove();
+    }
+
+    input.addEventListener('sl-blur', commitValue);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            commitValue();
+        } else if (e.key === 'Escape') {
+            cancelEdit();
+        }
+    });
 }
 
 // ============================================================================

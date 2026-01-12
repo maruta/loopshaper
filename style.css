@@ -263,21 +263,9 @@ sl-textarea.is-invalid::part(base) {
 }
 
 /* Slider Styles */
-.slider-header {
-    display: grid;
-    grid-template-columns: 70px 60px 60px 35px 28px;
-    gap: 6px;
-    padding: 4px 0;
-    margin-bottom: 8px;
-    font-size: 11px;
-    color: var(--sl-color-neutral-600);
-    font-weight: 600;
-    border-bottom: 1px solid var(--sl-color-neutral-200);
-}
-
 .slider-row {
-    margin-bottom: 10px;
-    padding-bottom: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
     border-bottom: 1px solid var(--sl-color-neutral-100);
 }
 
@@ -287,67 +275,121 @@ sl-textarea.is-invalid::part(base) {
     padding-bottom: 0;
 }
 
-.slider-config {
-    display: grid;
-    grid-template-columns: 70px 60px 60px 35px 28px;
-    gap: 6px;
-    align-items: center;
-    margin-bottom: 6px;
-}
-
-/* Shoelace sl-input in slider config */
-.slider-config sl-input {
-    --sl-input-height-small: 26px;
-}
-
-.slider-config sl-input::part(input) {
-    padding: 0 6px;
-}
-
-/* Shoelace sl-checkbox in slider config */
-.slider-config sl-checkbox {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-/* Shoelace sl-icon-button for remove */
-.slider-config sl-icon-button {
-    font-size: 14px;
-    color: var(--sl-color-danger-600);
-}
-
-.slider-control {
+/* Main slider row (always visible) */
+.slider-main {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-/* Shoelace sl-range in slider control */
-.slider-control sl-range {
+.slider-main .slider-name {
+    width: 50px;
+    flex-shrink: 0;
+    --sl-input-height-small: 26px;
+}
+
+.slider-main .slider-name::part(input) {
+    padding: 0 6px;
+}
+
+.slider-main sl-range {
     flex: 1;
-
-    /*
-      IMPORTANT:
-      Do NOT set `--sl-color-primary-600: var(--sl-color-primary-600);`
-      on the same element. That creates a cyclic custom-property reference
-      and effectively unsets the variable for this component, which can
-      make the thumb (knob) hard to see except during active interaction.
-    */
-
     --thumb-size: 16px;
-
-    /* Ensure sufficient contrast even if theme variables change */
     --track-color-active: var(--sl-color-primary-600);
     --track-color-inactive: var(--sl-color-neutral-200);
 }
 
 .slider-value {
-    min-width: 70px;
+    min-width: 60px;
+    padding: 4px 6px;
     text-align: right;
     font-family: monospace;
     font-size: 12px;
     color: var(--sl-color-primary-600);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.slider-value:hover {
+    background-color: var(--sl-color-neutral-100);
+}
+
+.slider-settings-toggle {
+    font-size: 16px;
+    color: var(--sl-color-neutral-500);
+    flex-shrink: 0;
+}
+
+.slider-settings-toggle:hover {
+    color: var(--sl-color-neutral-700);
+}
+
+/* Collapsible settings panel */
+.slider-settings {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    gap: 8px 12px;
+    align-items: center;
+    border-top: 1px dashed var(--sl-color-neutral-200);
+    overflow: hidden;
+    max-height: 0;
+    padding-top: 0;
+    margin-top: 0;
+    opacity: 0;
+    transition: max-height 0.2s ease-out, opacity 0.2s ease-out,
+                padding-top 0.2s ease-out, margin-top 0.2s ease-out;
+}
+
+.slider-settings.expanded {
+    max-height: 60px;
+    opacity: 1;
+    padding-top: 10px;
+    margin-top: 8px;
+}
+
+.slider-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.slider-settings-row label {
+    font-size: 11px;
+    color: var(--sl-color-neutral-600);
+    min-width: 28px;
+}
+
+.slider-settings sl-input {
+    width: 70px;
+    --sl-input-height-small: 26px;
+}
+
+.slider-settings sl-input::part(input) {
+    padding: 0 6px;
+    text-align: right;
+}
+
+.slider-settings sl-checkbox {
+    --sl-font-size-small: 12px;
+}
+
+.slider-settings .remove-slider {
+    font-size: 16px;
+    color: var(--sl-color-danger-600);
+}
+
+/* Direct value input */
+.slider-value-input {
+    width: 70px;
+    --sl-input-height-small: 26px;
+}
+
+.slider-value-input::part(input) {
+    text-align: right;
+    font-family: monospace;
+    font-size: 12px;
+    padding: 0 6px;
 }
 
 /* Plot Wrapper */
@@ -589,10 +631,26 @@ sl-textarea.is-invalid::part(base) {
 
 /* Responsive adjustments for small panels */
 @media (max-width: 400px) {
-    .slider-header,
-    .slider-config {
-        grid-template-columns: 55px 50px 50px 32px 24px;
+    .slider-main .slider-name {
+        width: 45px;
+    }
+
+    .slider-main {
         gap: 4px;
+    }
+
+    .slider-value {
+        min-width: 50px;
+        padding: 2px 4px;
+    }
+
+    .slider-settings {
+        grid-template-columns: repeat(2, auto);
+        gap: 6px 8px;
+    }
+
+    .slider-settings.expanded {
+        max-height: 100px;
     }
 }
 
