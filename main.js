@@ -1745,6 +1745,129 @@ function setupEventListeners() {
                 updateStepResponsePlot();
             }
         );
+    } else {
+        // Narrow layout: setup wheel and pinch-to-wheel handlers for plot zooming
+
+        // Nyquist Plot: adjusts compression radius
+        const nyquistWheelHandler = function(e) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.5 : 0.5;
+            nyquistCompressionRadius = Math.max(0.5, Math.min(100, nyquistCompressionRadius + delta));
+            updateNyquistPlot();
+        };
+        attachListenerOnce(
+            document.getElementById('narrow-nyquist-wrapper'),
+            'wheel',
+            nyquistWheelHandler,
+            '',
+            { passive: false }
+        );
+        setupPinchToWheel(
+            document.getElementById('narrow-nyquist-wrapper'),
+            nyquistWheelHandler
+        );
+
+        // Bode Plot: adjusts frequency range
+        const bodeWheelHandler = function(e) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.2 : -0.2;  // Zoom out/in
+            const center = (design.freqMin + design.freqMax) / 2;
+            const halfRange = (design.freqMax - design.freqMin) / 2;
+            const newHalfRange = Math.max(1, Math.min(6, halfRange * (1 + delta)));
+            design.freqMin = center - newHalfRange;
+            design.freqMax = center + newHalfRange;
+            autoFreq = false;  // Disable auto frequency when manually zooming
+            updateBodePlot();
+        };
+        attachListenerOnce(
+            document.getElementById('narrow-bode-wrapper'),
+            'wheel',
+            bodeWheelHandler,
+            '',
+            { passive: false }
+        );
+        setupPinchToWheel(
+            document.getElementById('narrow-bode-wrapper'),
+            bodeWheelHandler
+        );
+
+        // Pole-Zero Map: adjusts scale
+        const pzmapWheelHandler = function(e) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 1.2 : 0.8;  // Zoom out/in factor
+            if (pzmapOptions.autoScale) {
+                // Switch to manual scale, starting from current auto-calculated scale
+                pzmapOptions.autoScale = false;
+                // Estimate current auto scale from displayed poles/zeros
+                const analysis = currentVars.analysis;
+                if (analysis) {
+                    const olPZ = analysis.openLoopPolesZeros;
+                    const allPoints = [...(olPZ.poles || []), ...(olPZ.zeros || []),
+                                       ...(window.lastPoles || []), ...(window.lastZeros || [])];
+                    let maxScale = 1;
+                    allPoints.forEach(p => {
+                        maxScale = Math.max(maxScale, Math.abs(p.re), Math.abs(p.im));
+                    });
+                    pzmapOptions.scaleMax = maxScale * pzmapOptions.autoScaleMultiplier;
+                }
+            }
+            pzmapOptions.scaleMax = Math.max(0.1, Math.min(1000, pzmapOptions.scaleMax * delta));
+            updatePolePlot();
+        };
+        attachListenerOnce(
+            document.getElementById('narrow-pole-wrapper'),
+            'wheel',
+            pzmapWheelHandler,
+            '',
+            { passive: false }
+        );
+        setupPinchToWheel(
+            document.getElementById('narrow-pole-wrapper'),
+            pzmapWheelHandler
+        );
+
+        // Step Response: adjusts time range
+        const stepWheelHandler = function(e) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 1.2 : 0.8;  // Zoom out/in factor
+            if (stepOptions.autoTime) {
+                // Adjust auto time multiplier
+                stepOptions.autoTimeMultiplier = Math.max(1, Math.min(100, stepOptions.autoTimeMultiplier * delta));
+            } else {
+                // Adjust manual time max
+                stepOptions.timeMax = Math.max(0.1, Math.min(1000, stepOptions.timeMax * delta));
+            }
+            updateStepResponsePlot();
+        };
+        attachListenerOnce(
+            document.getElementById('narrow-step-wrapper'),
+            'wheel',
+            stepWheelHandler,
+            '',
+            { passive: false }
+        );
+        setupPinchToWheel(
+            document.getElementById('narrow-step-wrapper'),
+            stepWheelHandler
+        );
+
+        // Step Response visibility checkboxes (narrow layout)
+        attachListenerOnce(
+            document.getElementById('narrow-chk-show-L-step'),
+            'sl-change',
+            function() {
+                displayOptions.showLstep = this.checked;
+                updateStepResponsePlot();
+            }
+        );
+        attachListenerOnce(
+            document.getElementById('narrow-chk-show-T-step'),
+            'sl-change',
+            function() {
+                displayOptions.showTstep = this.checked;
+                updateStepResponsePlot();
+            }
+        );
     }
 
     // Handle layout mode switching on window resize
@@ -1773,6 +1896,73 @@ function setupEventListeners() {
     setupStepContextMenu();
     setupPzmapContextMenu();
     setupNyquistContextMenu();
+}
+
+// ============================================================================
+// Pinch-to-Wheel Gesture Handling (for mobile)
+// ============================================================================
+
+// Track active touch points for pinch detection
+let pinchState = {
+    active: false,
+    initialDistance: 0,
+    lastDistance: 0,
+    centerX: 0,
+    centerY: 0
+};
+
+// Calculate distance between two touch points
+function getTouchDistance(touch1, touch2) {
+    const dx = touch2.clientX - touch1.clientX;
+    const dy = touch2.clientY - touch1.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Set up pinch-to-wheel gesture handling for an element
+function setupPinchToWheel(element, wheelHandler) {
+    if (!element) return;
+
+    element.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            pinchState.active = true;
+            pinchState.initialDistance = getTouchDistance(e.touches[0], e.touches[1]);
+            pinchState.lastDistance = pinchState.initialDistance;
+            pinchState.centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            pinchState.centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        }
+    }, { passive: false });
+
+    element.addEventListener('touchmove', function(e) {
+        if (pinchState.active && e.touches.length === 2) {
+            e.preventDefault();
+            const currentDistance = getTouchDistance(e.touches[0], e.touches[1]);
+            const delta = currentDistance - pinchState.lastDistance;
+
+            // Only trigger if movement is significant (threshold of 5px)
+            if (Math.abs(delta) > 5) {
+                // Create a synthetic wheel event object
+                const syntheticEvent = {
+                    deltaY: delta > 0 ? -100 : 100,  // Invert: pinch out = zoom in
+                    clientX: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                    clientY: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+                    preventDefault: function() {}
+                };
+                wheelHandler(syntheticEvent);
+                pinchState.lastDistance = currentDistance;
+            }
+        }
+    }, { passive: false });
+
+    element.addEventListener('touchend', function(e) {
+        if (e.touches.length < 2) {
+            pinchState.active = false;
+        }
+    });
+
+    element.addEventListener('touchcancel', function() {
+        pinchState.active = false;
+    });
 }
 
 // ============================================================================
