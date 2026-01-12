@@ -724,8 +724,8 @@ sl-textarea.is-invalid::part(base) {
     .narrow-plot-wrapper {
         height: 350px;
         flex: none;
-        /* Allow pinch gestures to be captured for wheel simulation */
-        touch-action: none;
+        /* Allow vertical panning for page scroll, pinch gestures handled by JS */
+        touch-action: pan-y;
     }
 
     .narrow-plot-tabs {
