@@ -2,21 +2,12 @@
 
 // Format frequency value with appropriate precision
 function formatFrequency(freq) {
-    if (freq >= 1000) {
-        return freq.toPrecision(3);
-    } else if (freq >= 100) {
-        return freq.toFixed(1);
-    } else if (freq >= 10) {
-        return freq.toFixed(2);
-    } else if (freq >= 1) {
-        return freq.toFixed(2);
-    } else if (freq >= 0.1) {
-        return freq.toFixed(3);
-    } else if (freq >= 0.01) {
-        return freq.toFixed(4);
-    } else {
-        return freq.toPrecision(2);
-    }
+    if (freq >= 1000) return freq.toPrecision(3);
+    if (freq >= 100) return freq.toFixed(1);
+    if (freq >= 1) return freq.toFixed(2);
+    if (freq >= 0.1) return freq.toFixed(3);
+    if (freq >= 0.01) return freq.toFixed(4);
+    return freq.toPrecision(2);
 }
 
 // Draw multiple transfer functions on the same Bode plot
@@ -24,6 +15,12 @@ function formatFrequency(freq) {
 // options.ctx, options.width, options.height can be provided for external context (e.g., SVG export)
 function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     options = options || {};
+
+    const MARGIN_MARKER_RADIUS = 3;
+    const backgroundColor = options.backgroundColor || '#ffffff';
+    const textColor = options.textColor || '#333333';
+    const majorGridColor = options.majorGridColor || '#c0c0c0';
+    const minorGridColor = options.minorGridColor || '#c0c0c0';
 
     let ctx, width, height;
 
@@ -58,7 +55,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     }
 
     // Clear canvas
-    ctx.fillStyle = options.backgroundColor || '#ffffff';
+    ctx.fillStyle = backgroundColor;
     ctx.fillRect(0, 0, width, height);
 
     let N = w.length;
@@ -214,7 +211,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     ctx.font = "14px Consolas, monospace";
-    ctx.fillStyle = options.textColor || '#333333';
+    ctx.fillStyle = textColor;
 
     // Draw frequency grid
     for (let i = math.ceil(wmin); i <= math.floor(wmax); i++) {
@@ -222,7 +219,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         ctx.fillText((math.pow(10, i)).toFixed(Math.max(0, -i)), x, p2y(pmin) + 5);
 
         // Major grid lines
-        ctx.strokeStyle = options.majorGridColor || '#c0c0c0';
+        ctx.strokeStyle = majorGridColor;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x, g2y(gmin));
@@ -234,7 +231,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         // Minor grid lines
         for (let k = 2; k < 10; k++) {
             if (i + math.log10(k) >= wmax) break;
-            ctx.strokeStyle = options.minorGridColor || '#c0c0c0';
+            ctx.strokeStyle = minorGridColor;
             ctx.lineWidth = 0.5;
             let xk = w2x(i + math.log10(k));
             ctx.beginPath();
@@ -275,10 +272,10 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     }
 
     // Axis labels
-    ctx.fillStyle = options.textColor || '#333333';
+    ctx.fillStyle = textColor;
     ctx.fillText("Frequency [rad/s]", (w2x(wmin) + w2x(wmax)) / 2, p2y(pmin) + 25);
 
-    // Gain and phase grid
+    // Y-axis labels (rotated)
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     ctx.save();
@@ -295,53 +292,33 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
 
-    // Gain grid lines - start from multiple of 20 that includes 0
-    let gGridStart = Math.floor(gmin / 20) * 20;
-    for (let g = gGridStart; g <= gmax + 1; g += 20) {
-        if (g < gmin - 0.1) continue;  // Skip if below visible range
-        let y = g2y(g);
-        ctx.fillStyle = options.textColor || '#333333';
-        ctx.fillText(g.toFixed(0), w2x(wmin) - 5, y);
-        if (g === 0) {
-            ctx.strokeStyle = '#333333';
+    // Helper to draw horizontal grid lines with labels
+    const drawHorizontalGrid = (min, max, step, yTransform, highlightCondition) => {
+        let gridStart = Math.floor(min / step) * step;
+        for (let v = gridStart; v <= max + 1; v += step) {
+            if (v < min - 0.1) continue;
+            let y = yTransform(v);
+            ctx.fillStyle = textColor;
+            ctx.fillText(v.toFixed(0), w2x(wmin) - 5, y);
+            if (highlightCondition(v)) {
+                ctx.strokeStyle = '#333333';
+                ctx.setLineDash([5, 5]);
+            } else {
+                ctx.strokeStyle = majorGridColor;
+                ctx.setLineDash([]);
+            }
             ctx.lineWidth = 1;
-            ctx.setLineDash([5, 5]);
-        } else {
-            ctx.strokeStyle = options.majorGridColor || '#c0c0c0';
-            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(w2x(wmin), y);
+            ctx.lineTo(w2x(wmax), y);
+            ctx.stroke();
             ctx.setLineDash([]);
         }
-        ctx.beginPath();
-        ctx.moveTo(w2x(wmin), y);
-        ctx.lineTo(w2x(wmax), y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-    }
+    };
 
-    // Phase grid lines - start from multiple of 45 that includes 0, -180, 180
-    let pGridStart = Math.floor(pmin / 45) * 45;
-    for (let p = pGridStart; p <= pmax + 1; p += 45) {
-        if (p < pmin - 0.1) continue;  // Skip if below visible range
-        let y = p2y(p);
-        ctx.fillStyle = options.textColor || '#333333';
-        ctx.fillText(p.toFixed(0), w2x(wmin) - 5, y);
-        // Highlight phase crossover reference lines at -180 + 360k degrees
-        // These are critical for stability analysis as they define phase crossover frequencies
-        if ((p + 180) % 360 === 0) {
-            ctx.strokeStyle = '#333333';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([5, 5]);
-        } else {
-            ctx.strokeStyle = options.majorGridColor || '#c0c0c0';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([]);
-        }
-        ctx.beginPath();
-        ctx.moveTo(w2x(wmin), y);
-        ctx.lineTo(w2x(wmax), y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-    }
+    // Gain grid (highlight 0dB), Phase grid (highlight -180° + 360k°)
+    drawHorizontalGrid(gmin, gmax, 20, g2y, v => v === 0);
+    drawHorizontalGrid(pmin, pmax, 45, p2y, v => (v + 180) % 360 === 0);
 
     // Draw comparison snapshots (behind main curves, as dashed lines)
     if (typeof savedSnapshots !== 'undefined' && savedSnapshots.length > 0) {
@@ -389,10 +366,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
 
             tfList.forEach(({ data, color, show }) => {
                 if (!show || !data) return;
-
-                // Draw gain curve
                 drawSnapshotCurve(snapW, data.gain, color, g2y, topMargin, plotHeight);
-                // Draw phase curve
                 drawSnapshotCurve(snapW, data.phase, color, p2y, topMargin + plotHeight + midMargin, plotHeight);
             });
         });
@@ -400,50 +374,31 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         ctx.setLineDash([]);
     }
 
+    // Helper to draw a curve with clipping
+    const drawCurve = (dataArray, yTransform, clipY, color) => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(leftMargin, clipY, plotWidth, plotHeight);
+        ctx.clip();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+            let x = w2x(math.log10(w[i]));
+            let y = yTransform(dataArray[i]);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
+    };
+
     // Draw curves for each transfer function
     transferFunctions.forEach((tf, tfIndex) => {
         let data = allData[tfIndex];
         if (!data) return;
-
-        // Draw gain curve with clipping to plot area
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(leftMargin, topMargin, plotWidth, plotHeight);
-        ctx.clip();
-        ctx.strokeStyle = tf.gainColor || '#0088aa';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        for (let i = 0; i < N; i++) {
-            let x = w2x(math.log10(w[i]));
-            let y = g2y(data.gain[i]);
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
-            }
-        }
-        ctx.stroke();
-        ctx.restore();
-
-        // Draw phase curve with clipping to plot area
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(leftMargin, topMargin + plotHeight + midMargin, plotWidth, plotHeight);
-        ctx.clip();
-        ctx.strokeStyle = tf.phaseColor || '#0088aa';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        for (let i = 0; i < N; i++) {
-            let x = w2x(math.log10(w[i]));
-            let y = p2y(data.phase[i]);
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
-            }
-        }
-        ctx.stroke();
-        ctx.restore();
+        drawCurve(data.gain, g2y, topMargin, tf.gainColor || '#0088aa');
+        drawCurve(data.phase, p2y, topMargin + plotHeight + midMargin, tf.phaseColor || '#0088aa');
     });
 
     ctx.restore();
@@ -495,62 +450,36 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
                 ctx.fillStyle = '#000000';
                 ctx.font = '12px Consolas, monospace';
 
+                // Helper to draw margin annotation (vertical line, label, marker, frequency)
+                const drawMarginAnnotation = (x, y1, y2, label, markerY, freq) => {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y1);
+                    ctx.lineTo(x, y2);
+                    ctx.stroke();
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, x + 4, (y1 + y2) / 2);
+                    ctx.beginPath();
+                    ctx.arc(x, markerY, MARGIN_MARKER_RADIUS, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText('ω=' + formatFrequency(freq) + 'rad/s', x + 6, markerY - 6);
+                };
+
                 // Draw gain margins
                 gainMargins.forEach((gm) => {
                     let x = w2x(math.log10(gm.frequency));
-                    let y0dB = g2y(0);
-                    let yGain = g2y(gm.gainAtCrossover);
-                    let yPhaseRef = p2y(-180);
-
-                    // Vertical line on gain plot (0dB to gain value)
-                    ctx.beginPath();
-                    ctx.moveTo(x, y0dB);
-                    ctx.lineTo(x, yGain);
-                    ctx.stroke();
-
-                    // GM label at midpoint
                     let gmValue = Math.round(gm.margin);
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText('GM=' + (gmValue >= 0 ? '+' : '') + gmValue + 'dB', x + 4, (y0dB + yGain) / 2);
-
-                    // Crossover marker on phase plot (-180° line)
-                    ctx.beginPath();
-                    ctx.arc(x, yPhaseRef, 4, 0, 2 * Math.PI);
-                    ctx.fill();
-
-                    // Frequency label
-                    ctx.textBaseline = 'bottom';
-                    ctx.fillText('ω=' + formatFrequency(gm.frequency) + 'rad/s', x + 6, yPhaseRef - 6);
+                    drawMarginAnnotation(x, g2y(0), g2y(gm.gainAtCrossover),
+                        'GM=' + (gmValue >= 0 ? '+' : '') + gmValue + 'dB', p2y(-180), gm.frequency);
                 });
 
                 // Draw phase margins
                 phaseMargins.forEach((pm) => {
                     let x = w2x(math.log10(pm.frequency));
-                    let yPhase = p2y(pm.phaseAtCrossover);
-                    let yRef = p2y(pm.referencePhase);
-                    let y0dB = g2y(0);
-
-                    // Vertical line on phase plot (phase value to -180° reference)
-                    ctx.beginPath();
-                    ctx.moveTo(x, yPhase);
-                    ctx.lineTo(x, yRef);
-                    ctx.stroke();
-
-                    // PM label at midpoint
                     let pmValue = Math.round(pm.margin);
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText('PM=' + pmValue + '°', x + 4, (yPhase + yRef) / 2);
-
-                    // Crossover marker on gain plot (0dB line)
-                    ctx.beginPath();
-                    ctx.arc(x, y0dB, 4, 0, 2 * Math.PI);
-                    ctx.fill();
-
-                    // Frequency label
-                    ctx.textBaseline = 'bottom';
-                    ctx.fillText('ω=' + formatFrequency(pm.frequency) + 'rad/s', x + 6, y0dB - 6);
+                    drawMarginAnnotation(x, p2y(pm.phaseAtCrossover), p2y(pm.referencePhase),
+                        'PM=' + pmValue + '°', g2y(0), pm.frequency);
                 });
 
                 ctx.restore();
