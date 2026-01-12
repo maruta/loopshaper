@@ -250,6 +250,63 @@ function drawStepResponse(simData, wrapperId, canvasId, options) {
     ctx.fillText('Response', 0, 0);
     ctx.restore();
 
+    // Draw comparison snapshots (behind main curves, as dashed lines)
+    if (typeof savedSnapshots !== 'undefined' && savedSnapshots.length > 0) {
+        savedSnapshots.forEach((snap) => {
+            if (!snap.visible || !snap.stepData || !snap.stepData.time) return;
+            const snapTime = snap.stepData.time;
+
+            // Draw L(s) snapshot
+            if (showL && snap.stepData.yL) {
+                const lightColor = typeof lightenColor === 'function' ? lightenColor(CONSTANTS.COLORS.L, 0.1) : CONSTANTS.COLORS.L;
+                ctx.strokeStyle = lightColor;
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath();
+                let started = false;
+                for (let i = 0; i < snapTime.length; i++) {
+                    if (snapTime[i] > tMax) break;
+                    let x = t2x(snapTime[i]);
+                    let y = y2y(snap.stepData.yL[i]);
+                    if (isFinite(y) && y >= topMargin - 50 && y <= topMargin + plotHeight + 50) {
+                        if (!started) {
+                            ctx.moveTo(x, y);
+                            started = true;
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                }
+                ctx.stroke();
+            }
+
+            // Draw T(s) snapshot
+            if (showT && snap.stepData.yT) {
+                const lightColor = typeof lightenColor === 'function' ? lightenColor(CONSTANTS.COLORS.T, 0.1) : CONSTANTS.COLORS.T;
+                ctx.strokeStyle = lightColor;
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath();
+                let started = false;
+                for (let i = 0; i < snapTime.length; i++) {
+                    if (snapTime[i] > tMax) break;
+                    let x = t2x(snapTime[i]);
+                    let y = y2y(snap.stepData.yT[i]);
+                    if (isFinite(y) && y >= topMargin - 50 && y <= topMargin + plotHeight + 50) {
+                        if (!started) {
+                            ctx.moveTo(x, y);
+                            started = true;
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                }
+                ctx.stroke();
+            }
+        });
+        ctx.setLineDash([]);
+    }
+
     // Draw L(s) response
     if (showL && simData.yL) {
         ctx.strokeStyle = CONSTANTS.COLORS.L;

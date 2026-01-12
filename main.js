@@ -703,6 +703,205 @@ function updateBodePlot() {
 }
 
 // ============================================================================
+// Design Comparison Snapshots
+// ============================================================================
+
+// Lighten a hex color by mixing with white (factor: 0=original, 1=white)
+function lightenColor(hex, factor = 0.5) {
+    // Parse hex color
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    // Mix with white
+    const newR = Math.round(r + (255 - r) * factor);
+    const newG = Math.round(g + (255 - g) * factor);
+    const newB = Math.round(b + (255 - b) * factor);
+    return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
+}
+
+// Calculate frequency response for a compiled transfer function
+function calculateFrequencyResponse(compiled, w) {
+    const N = w.length;
+    const gain = new Array(N);
+    const phase = new Array(N);
+    let phaseOffset = 0;
+
+    for (let i = 0; i < N; i++) {
+        let Gjw;
+        try {
+            Gjw = compiled.evaluate({ 's': math.complex(0, w[i]) });
+        } catch (e) {
+            Gjw = math.complex(0, 0);
+        }
+        if (typeof Gjw.abs !== 'function') Gjw = math.complex(Gjw, 0);
+
+        gain[i] = 20 * math.log10(Gjw.abs());
+
+        // Phase unwrapping
+        let rawPhase = Gjw.arg() / math.pi * 180;
+        if (i > 0 && Math.abs(rawPhase + phaseOffset - phase[i - 1]) > 180) {
+            phaseOffset += Math.round(-(rawPhase + phaseOffset - phase[i - 1]) / 360) * 360;
+        }
+        phase[i] = rawPhase + phaseOffset;
+    }
+
+    return { gain, phase };
+}
+
+// Save current L(s), T(s), S(s) frequency response and step response as a snapshot
+function saveCurrentAsSnapshot() {
+    const L = currentVars.L;
+    const T = currentVars.T;
+    const S = currentVars.S;
+    const analysis = currentVars.analysis;
+
+    if (!L || !L.isNode) {
+        showToast('No transfer function defined', 'warning');
+        return;
+    }
+
+    // Check max snapshots
+    if (savedSnapshots.length >= MAX_SNAPSHOTS) {
+        showToast(`Maximum ${MAX_SNAPSHOTS} snapshots allowed. Clear existing snapshots first.`, 'warning');
+        return;
+    }
+
+    // Generate frequency array for Bode
+    const w = logspace(design.freqMin, design.freqMax, design.freqPoints);
+
+    // Calculate frequency response for L
+    const respL = calculateFrequencyResponse(L.compile(), w);
+
+    // Calculate frequency response for T (if available)
+    let respT = null;
+    if (T && T.isNode) {
+        respT = calculateFrequencyResponse(T.compile(), w);
+    }
+
+    // Calculate frequency response for S (if available)
+    let respS = null;
+    if (S && S.isNode) {
+        respS = calculateFrequencyResponse(S.compile(), w);
+    }
+
+    // Get step response data (if available)
+    let stepData = null;
+    if (analysis && analysis.stepResponseData) {
+        try {
+            const stepTimeMax = typeof getStepTimeMax === 'function' ? getStepTimeMax() : 20;
+            const structure = analysis.lStructure;
+            const ssL = analysis.stepResponseData.ssL;
+            const delayL = analysis.stepResponseData.delayL;
+            const LCoeffs = analysis.stepResponseData.LCoeffs;
+
+            let nPoints = 500;
+            if (structure.type === 'rational_delay' && delayL > 0) {
+                const dtTarget = delayL / 25;
+                if (dtTarget > 0) {
+                    nPoints = Math.max(nPoints, Math.ceil(stepTimeMax / dtTarget) + 1);
+                }
+                nPoints = Math.min(nPoints, 20000);
+            }
+
+            if (structure.type === 'rational_delay') {
+                const simL = simulateStepResponse(ssL, null, stepTimeMax, nPoints, delayL, 0);
+                const simT = simulateClosedLoopStepResponseLoopDelay(ssL, delayL, stepTimeMax, nPoints);
+                stepData = { time: simL.time, yL: simL.yL, yT: simT.y };
+            } else {
+                // Build state-space for T
+                let ssT = null;
+                try {
+                    const Tnum = LCoeffs.num.slice();
+                    let Tden = [];
+                    const maxLen = Math.max(LCoeffs.num.length, LCoeffs.den.length);
+                    const numPadded = LCoeffs.num.slice();
+                    const denPadded = LCoeffs.den.slice();
+                    while (numPadded.length < maxLen) numPadded.push(0);
+                    while (denPadded.length < maxLen) denPadded.push(0);
+                    for (let i = 0; i < maxLen; i++) {
+                        Tden.push(numPadded[i] + denPadded[i]);
+                    }
+                    while (Tden.length > 1 && Math.abs(Tden[Tden.length - 1]) < 1e-15) {
+                        Tden.pop();
+                    }
+                    ssT = tf2ss(Tnum, Tden);
+                } catch (e) {
+                    // T state-space build failed
+                }
+                stepData = simulateStepResponse(ssL, ssT, stepTimeMax, nPoints, 0, 0);
+            }
+        } catch (e) {
+            console.log('Snapshot: step response simulation failed:', e);
+        }
+    }
+
+    // Generate name from current slider values
+    const paramStr = design.sliders
+        .map(s => `${s.name}=${s.currentValue.toPrecision(3)}`)
+        .join(', ');
+
+    savedSnapshots.push({
+        name: paramStr || 'Snapshot ' + (savedSnapshots.length + 1),
+        visible: true,
+        bodeData: {
+            frequencies: w,
+            L: respL,
+            T: respT,
+            S: respS
+        },
+        stepData: stepData
+    });
+
+    updateSnapshotCountDisplay();
+    showToast('Snapshot saved for comparison');
+    updateBodePlot();
+    updateStepResponsePlot();
+}
+
+// Clear all snapshots
+function clearAllSnapshots() {
+    if (savedSnapshots.length === 0) {
+        showToast('No snapshots to clear', 'warning');
+        return;
+    }
+    savedSnapshots.length = 0;
+    updateSnapshotCountDisplay();
+    showToast('All snapshots cleared');
+    updateBodePlot();
+    updateStepResponsePlot();
+}
+
+// Update the snapshot count display in Compare menu
+function updateSnapshotCountDisplay() {
+    const countEl = document.getElementById('compare-snapshot-count');
+    if (countEl) {
+        if (savedSnapshots.length === 0) {
+            countEl.textContent = 'No saved references';
+        } else {
+            countEl.textContent = `${savedSnapshots.length} reference(s) saved`;
+        }
+    }
+}
+
+// Initialize Compare menu event handlers
+function initializeCompareMenu() {
+    const saveItem = document.getElementById('compare-save-snapshot');
+    const clearItem = document.getElementById('compare-clear-snapshots');
+
+    if (saveItem) {
+        saveItem.addEventListener('click', () => {
+            saveCurrentAsSnapshot();
+        });
+    }
+
+    if (clearItem) {
+        clearItem.addEventListener('click', () => {
+            clearAllSnapshots();
+        });
+    }
+}
+
+// ============================================================================
 // Nyquist Analysis Cache
 // ============================================================================
 
@@ -1471,6 +1670,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initialize Share menu (available on all layouts)
     initializeShareMenu();
+
+    // Initialize Compare menu (available on all layouts)
+    initializeCompareMenu();
 
     // Initialize Export dialog (available on all layouts)
     initializeExportDialog();

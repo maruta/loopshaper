@@ -52,6 +52,15 @@
                     <!-- Menu items will be populated by JavaScript -->
                 </sl-menu>
             </sl-dropdown>
+            <sl-dropdown id="compare-dropdown" hoist>
+                <sl-button slot="trigger" variant="text" size="small" caret>Compare</sl-button>
+                <sl-menu id="compare-menu">
+                    <sl-menu-item id="compare-save-snapshot">Save current as reference</sl-menu-item>
+                    <sl-menu-item id="compare-clear-snapshots">Clear all references</sl-menu-item>
+                    <sl-divider></sl-divider>
+                    <sl-menu-item id="compare-snapshot-count" disabled>No saved references</sl-menu-item>
+                </sl-menu>
+            </sl-dropdown>
         </div>
         <div class="menubar-spacer"></div>
         <a href="https://github.com/maruta/loopshaper" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">

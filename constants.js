@@ -123,6 +123,13 @@ let nyquistOptions = {
     showStabilityMargin: true   // Show stability margin (PM arc and GM line) on Nyquist plot
 };
 
+// ============================================================================
+// Design Comparison Snapshots
+// ============================================================================
+// Each snapshot contains frequency response (Bode) and time response (Step) data
+let savedSnapshots = [];  // Array of { name, visible, bodeData, stepData }
+const MAX_SNAPSHOTS = 3;
+
 // Cached Nyquist analysis (evaluate L(s) once, reuse for both plot and stability info)
 window.lastNyquistAnalysis = null;
 window.lastNyquistAnalysisKey = null;

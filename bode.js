@@ -343,6 +343,63 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         ctx.setLineDash([]);
     }
 
+    // Draw comparison snapshots (behind main curves, as dashed lines)
+    if (typeof savedSnapshots !== 'undefined' && savedSnapshots.length > 0) {
+        const drawSnapshotCurve = (snapW, data, color, yTransform, clipY, clipHeight) => {
+            if (!data) return;
+            const lightColor = typeof lightenColor === 'function' ? lightenColor(color, 0.1) : color;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(leftMargin, clipY, plotWidth, clipHeight);
+            ctx.clip();
+            ctx.strokeStyle = lightColor;
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            let started = false;
+            for (let i = 0; i < snapW.length; i++) {
+                const logW = math.log10(snapW[i]);
+                if (logW < wmin || logW > wmax) continue;
+                const x = w2x(logW);
+                const y = yTransform(data[i]);
+                if (!started) {
+                    ctx.moveTo(x, y);
+                    started = true;
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            ctx.restore();
+        };
+
+        savedSnapshots.forEach((snap) => {
+            if (!snap.visible || !snap.bodeData) return;
+
+            const snapW = snap.bodeData.frequencies;
+            if (!snapW) return;
+
+            // Define which transfer functions to draw based on displayOptions
+            const tfList = [
+                { data: snap.bodeData.L, color: CONSTANTS.COLORS.L, show: displayOptions.showL },
+                { data: snap.bodeData.T, color: CONSTANTS.COLORS.T, show: displayOptions.showT },
+                { data: snap.bodeData.S, color: CONSTANTS.COLORS.S, show: displayOptions.showS }
+            ];
+
+            tfList.forEach(({ data, color, show }) => {
+                if (!show || !data) return;
+
+                // Draw gain curve
+                drawSnapshotCurve(snapW, data.gain, color, g2y, topMargin, plotHeight);
+                // Draw phase curve
+                drawSnapshotCurve(snapW, data.phase, color, p2y, topMargin + plotHeight + midMargin, plotHeight);
+            });
+        });
+
+        ctx.setLineDash([]);
+    }
+
     // Draw curves for each transfer function
     transferFunctions.forEach((tf, tfIndex) => {
         let data = allData[tfIndex];
