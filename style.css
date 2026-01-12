@@ -20,12 +20,12 @@ body {
     padding: 0 8px;
     background-color: var(--sl-color-neutral-100);
     border-bottom: 1px solid var(--sl-color-neutral-200);
-    gap: 4px;
+    gap: 2px;
 }
 
 .app-icon {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
 }
 
 .app-title {
@@ -45,39 +45,60 @@ body {
     color: var(--sl-color-neutral-900);
 }
 
-.menu-items {
-    display: flex;
-    align-items: center;
-    gap: 0;
+.menubar-spacer {
+    flex: 1;
 }
 
-.menu-items sl-button[variant="text"]::part(base) {
+/* Menu buttons (shared style for all menubar buttons) */
+#menubar sl-button[variant="text"]::part(base) {
     font-size: 13px;
+    font-weight: 500;
     padding: 4px 8px;
     height: 24px;
     line-height: 1;
     display: flex;
     align-items: center;
     color: var(--sl-color-neutral-700);
+    border-radius: 6px;
 }
 
-.menu-items sl-button[variant="text"]::part(label) {
-    line-height: 1;
-}
-
-.menu-items sl-button[variant="text"]::part(base):hover {
-    background-color: var(--sl-color-neutral-200);
+#menubar sl-button[variant="text"]::part(base):hover {
+    background-color: rgba(0, 0, 0, 0.07);
     color: var(--sl-color-neutral-900);
 }
 
-.menu-items sl-button[variant="text"]::part(caret) {
+#menubar sl-button[variant="text"]::part(label) {
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#menubar sl-button[variant="text"]::part(caret) {
     margin-left: 2px;
 }
 
-.menubar-spacer {
-    flex: 1;
+/* Icon styling in menu buttons */
+#menubar sl-button sl-icon {
+    font-size: 14px;
 }
 
+/* Right side menu items */
+.menu-items {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* Menu separator (GitHub-style vertical line) */
+.menu-separator {
+    width: 1px;
+    height: 16px;
+    background-color: var(--sl-color-neutral-300);
+    margin: 0 6px;
+}
+
+/* GitHub link */
 .github-link {
     display: flex;
     align-items: center;
@@ -85,13 +106,13 @@ body {
     width: 28px;
     height: 28px;
     color: var(--sl-color-neutral-600);
-    border-radius: 4px;
+    border-radius: 6px;
     transition: color 0.15s, background-color 0.15s;
 }
 
 .github-link:hover {
     color: var(--sl-color-neutral-900);
-    background-color: var(--sl-color-neutral-200);
+    background-color: rgba(0, 0, 0, 0.07);
 }
 
 /* QR Code Dialog */
