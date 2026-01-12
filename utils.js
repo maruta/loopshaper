@@ -1,5 +1,11 @@
 // Utility functions for loop shaping tool
 
+// Tolerance for detecting poles/zeros on or near the imaginary axis.
+// Poles with |Re(s)| < IMAG_AXIS_TOL are treated as imaginary axis poles.
+// This threshold must be used consistently for: origin pole detection,
+// RHP pole counting, Nyquist indentation, and pole/zero display formatting.
+const IMAG_AXIS_TOL = 1e-6;
+
 // Generate logarithmically spaced array
 function logspace(s, e, n) {
     let tmp = Array(n);
@@ -55,9 +61,9 @@ function util_rationalize(eq, vars) {
     return rat;
 }
 
-// Convert number to TeX format (values < 1e-10 are treated as 0)
+// Convert number to TeX format (values < IMAG_AXIS_TOL are treated as 0)
 function num2tex(num, prec) {
-    if (Math.abs(num) < 1e-10) num = 0;
+    if (Math.abs(num) < IMAG_AXIS_TOL) num = 0;
     return num.toPrecision(prec).replace(/(e)([\+-]?\d+)/, '\\times10^{$2}');
 }
 
@@ -125,7 +131,7 @@ function generateNyquistContourPoints(wArray, imagAxisPoles, options) {
     const dedupTol = options.dedupTol ?? NYQUIST_DEFAULTS.dedupTol;
 
     const poleFreqs = nyquistUniquePoleFreqs(imagAxisPoles);
-    const hasOriginPole = poleFreqs.some(f => f < 1e-9);
+    const hasOriginPole = poleFreqs.some(f => f < IMAG_AXIS_TOL);
 
     // Build positive sweep segments that avoid poles
     let currentStart = hasOriginPole ? epsilon : wArray[0];
@@ -135,7 +141,7 @@ function generateNyquistContourPoints(wArray, imagAxisPoles, options) {
 
     let segments = [];
     for (let poleFreq of poleFreqs) {
-        if (poleFreq < 1e-9) continue; // origin handled separately
+        if (poleFreq < IMAG_AXIS_TOL) continue; // origin handled separately
 
         if (poleFreq > currentStart + epsilon && poleFreq < wEnd) {
             segments.push({ wStart: currentStart, wEnd: poleFreq - epsilon, poleFreq });
@@ -313,7 +319,7 @@ function findImaginaryAxisPoles(rationalNode) {
         let poles = root2math(roots);
 
         // Return poles that are on or very close to the imaginary axis
-        let imagPoles = poles.filter(p => Math.abs(p.re) < 1e-6);
+        let imagPoles = poles.filter(p => Math.abs(p.re) < IMAG_AXIS_TOL);
         return imagPoles;
     } catch (e) {
         console.log('Error finding imaginary axis poles:', e);
@@ -480,7 +486,7 @@ function countRHPpoles(rationalNode) {
 
         let rhpCount = 0;
         for (let p of poles) {
-            if (p.re > 1e-10) rhpCount++;
+            if (p.re > IMAG_AXIS_TOL) rhpCount++;
         }
         return rhpCount;
     } catch (e) {

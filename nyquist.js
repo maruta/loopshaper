@@ -48,14 +48,14 @@ function formatSValueLatex(pointInfo) {
 
         // Format pole position (jω part)
         let poleStr;
-        if (Math.abs(poleIm) < 1e-9) {
+        if (Math.abs(poleIm) < IMAG_AXIS_TOL) {
             poleStr = '';  // Origin pole, no jω term
         } else {
             poleStr = `${formatNumForLatex(poleIm)}j`;
         }
 
         // s = jω + ε∠θ°
-        if (Math.abs(poleIm) < 1e-9) {
+        if (Math.abs(poleIm) < IMAG_AXIS_TOL) {
             sLine = `s &= \\varepsilon \\angle ${thetaDeg}^\\circ`;
         } else {
             sLine = `s &= ${poleStr} + \\varepsilon \\angle ${thetaDeg}^\\circ`;

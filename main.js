@@ -1111,7 +1111,7 @@ function displayClosedLoopPoles(poles, isStableByNyquist) {
     for (let i = 0; i < poles.length; i++) {
         let p = poles[i];
         let poleStr = '';
-        let isUnstablePole = p.re > 1e-10;
+        let isUnstablePole = p.re > IMAG_AXIS_TOL;
 
         if (isUnstablePole) {
             poleStr = '\\color{red}{';
@@ -1173,7 +1173,7 @@ function displayOpenLoopPoles(poles) {
     for (let i = 0; i < poles.length; i++) {
         let p = poles[i];
         let poleStr = '';
-        let isUnstablePole = p.re > 1e-10;
+        let isUnstablePole = p.re > IMAG_AXIS_TOL;
 
         if (isUnstablePole) {
             poleStr = '\\color{red}{';
@@ -1226,7 +1226,7 @@ function displayZeros(zeros) {
     for (let i = 0; i < zeros.length; i++) {
         let z = zeros[i];
         let zeroStr = '';
-        let isRHPzero = z.re > 1e-10;
+        let isRHPzero = z.re > IMAG_AXIS_TOL;
 
         if (isRHPzero) {
             zeroStr = '\\color{blue}{';
