@@ -100,6 +100,7 @@ let stepOptions = {
 let bodeOptions = {
     showMarginLines: true,      // Show GM/PM lines
     showCrossoverLines: true,   // Show gain/phase crossover lines
+    showPoleZeroFrequencies: true, // Show vertical lines at pole/zero frequencies (|p| or |z|)
     autoScaleVertical: true,    // Auto-scale vertical axis
     // Custom range values (used when autoScaleVertical is false)
     gainMin: -60,

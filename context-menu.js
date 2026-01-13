@@ -71,6 +71,18 @@ function exportBodePlotAsSVG() {
         });
     }
 
+    // Get poles and zeros for frequency markers
+    let poleZeroFrequencies = null;
+    if (bodeOptions.showPoleZeroFrequencies && currentVars.analysis) {
+        const olPZ = currentVars.analysis.openLoopPolesZeros;
+        if (olPZ) {
+            poleZeroFrequencies = {
+                poles: olPZ.poles || [],
+                zeros: olPZ.zeros || []
+            };
+        }
+    }
+
     // Draw to SVG context
     drawBodeMulti(transferFunctions, w, null, null, {
         ctx: svgCtx,
@@ -78,6 +90,8 @@ function exportBodePlotAsSVG() {
         height: height,
         showMarginLines: bodeOptions.showMarginLines,
         showCrossoverLines: bodeOptions.showCrossoverLines,
+        showPoleZeroFrequencies: bodeOptions.showPoleZeroFrequencies,
+        poleZeroFrequencies: poleZeroFrequencies,
         autoScaleVertical: bodeOptions.autoScaleVertical,
         gainMin: bodeOptions.gainMin,
         gainMax: bodeOptions.gainMax,
@@ -468,6 +482,7 @@ function setupBodeContextMenu() {
     // Context menu items
     const optMarginLines = document.getElementById('bode-opt-margin-lines');
     const optCrossoverLines = document.getElementById('bode-opt-crossover-lines');
+    const optPzFrequencies = document.getElementById('bode-opt-pz-frequencies');
     const optAutoScale = document.getElementById('bode-opt-auto-scale');
     const optAutoFreq = document.getElementById('bode-opt-auto-freq');
     const customRangePanel = document.getElementById('bode-custom-range-panel');
@@ -482,6 +497,7 @@ function setupBodeContextMenu() {
     // Initialize checkbox states
     if (optMarginLines) optMarginLines.checked = bodeOptions.showMarginLines;
     if (optCrossoverLines) optCrossoverLines.checked = bodeOptions.showCrossoverLines;
+    if (optPzFrequencies) optPzFrequencies.checked = bodeOptions.showPoleZeroFrequencies;
     if (optAutoScale) optAutoScale.checked = bodeOptions.autoScaleVertical;
     if (optAutoFreq) optAutoFreq.checked = autoFreq;
 
@@ -603,6 +619,9 @@ function setupBodeContextMenu() {
             case 'bode-opt-crossover-lines':
                 bodeOptions.showCrossoverLines = item.checked;
                 break;
+            case 'bode-opt-pz-frequencies':
+                bodeOptions.showPoleZeroFrequencies = item.checked;
+                break;
             case 'bode-opt-auto-scale':
                 bodeOptions.autoScaleVertical = item.checked;
                 if (customRangePanel) {
@@ -627,6 +646,7 @@ function setupBodeContextMenu() {
                 return; // Don't call updateBodePlot for export
         }
         updateBodePlot();
+        updateBrowserUrl();
     }
 
     setupMenuItemHandlers('bode-context-menu-inner', handleBodeMenuItem, contextMenu);

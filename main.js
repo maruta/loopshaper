@@ -682,9 +682,24 @@ function updateBodePlot() {
         }
 
         const prefix = isNarrowLayout ? 'narrow-' : '';
+
+        // Get poles and zeros for frequency markers
+        let poleZeroFrequencies = null;
+        if (bodeOptions.showPoleZeroFrequencies && currentVars.analysis) {
+            const olPZ = currentVars.analysis.openLoopPolesZeros;
+            if (olPZ) {
+                poleZeroFrequencies = {
+                    poles: olPZ.poles || [],
+                    zeros: olPZ.zeros || []
+                };
+            }
+        }
+
         let margins = drawBodeMulti(transferFunctions, w, prefix + 'bode-wrapper', prefix + 'bode-canvas', {
             showMarginLines: bodeOptions.showMarginLines,
             showCrossoverLines: bodeOptions.showCrossoverLines,
+            showPoleZeroFrequencies: bodeOptions.showPoleZeroFrequencies,
+            poleZeroFrequencies: poleZeroFrequencies,
             autoScaleVertical: bodeOptions.autoScaleVertical,
             gainMin: bodeOptions.gainMin,
             gainMax: bodeOptions.gainMax,

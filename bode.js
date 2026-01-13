@@ -271,6 +271,51 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         });
     }
 
+    // Draw pole/zero frequency lines at ω = |p| or |z| (absolute value)
+    // Useful for understanding break frequencies in Bode plot
+    if (options.showPoleZeroFrequencies && options.poleZeroFrequencies) {
+        const pzData = options.poleZeroFrequencies;
+        const poleZeroColor = (transferFunctions.length > 0 && transferFunctions[0].gainColor)
+            ? transferFunctions[0].gainColor
+            : '#0088aa';
+
+        // Collect unique frequencies: ω = |p| = sqrt(re² + im²)
+        let pzFrequencies = new Set();
+
+        if (pzData.poles) {
+            pzData.poles.forEach(p => {
+                let freq = Math.sqrt(p.re * p.re + p.im * p.im);
+                if (freq > 1e-6) pzFrequencies.add(freq);
+            });
+        }
+
+        if (pzData.zeros) {
+            pzData.zeros.forEach(z => {
+                let freq = Math.sqrt(z.re * z.re + z.im * z.im);
+                if (freq > 1e-6) pzFrequencies.add(freq);
+            });
+        }
+
+        // Draw vertical lines in L(s) color
+        ctx.strokeStyle = poleZeroColor;
+        ctx.lineWidth = 1;
+
+        pzFrequencies.forEach(freq => {
+            let logFreq = math.log10(freq);
+            if (logFreq >= wmin && logFreq <= wmax) {
+                let x = w2x(logFreq);
+                ctx.beginPath();
+                ctx.moveTo(x, g2y(gmax));
+                ctx.lineTo(x, g2y(gmin));
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(x, p2y(pmax));
+                ctx.lineTo(x, p2y(pmin));
+                ctx.stroke();
+            }
+        });
+    }
+
     // Axis labels
     ctx.fillStyle = textColor;
     ctx.fillText("Frequency [rad/s]", (w2x(wmin) + w2x(wmax)) / 2, p2y(pmin) + 25);

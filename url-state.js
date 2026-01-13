@@ -29,6 +29,7 @@ const URL_KEY_MAP = {
     bodeOptions: 'bo',
     showMarginLines: 'ml',
     showCrossoverLines: 'cl',
+    showPoleZeroFrequencies: 'pzf',
     autoScaleVertical: 'av',
     gainMin: 'gi',
     gainMax: 'gx',
@@ -70,6 +71,7 @@ const URL_DEFAULTS = {
     bodeOptions: {
         showMarginLines: true,
         showCrossoverLines: true,
+        showPoleZeroFrequencies: true,
         autoScaleVertical: true,
         gainMin: -60,
         gainMax: 60,
@@ -230,6 +232,7 @@ function generateShareUrl(options = {}) {
     saveData.bodeOptions = {
         showMarginLines: bodeOptions.showMarginLines,
         showCrossoverLines: bodeOptions.showCrossoverLines,
+        showPoleZeroFrequencies: bodeOptions.showPoleZeroFrequencies,
         autoScaleVertical: bodeOptions.autoScaleVertical,
         gainMin: bodeOptions.gainMin,
         gainMax: bodeOptions.gainMax,
