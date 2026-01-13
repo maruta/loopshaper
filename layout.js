@@ -398,19 +398,25 @@ function initializeNarrowLayout() {
             }, { passive: false });
         }
 
-        // Mouse wheel: zoom (vertical, ±0.2 decades) and pan (horizontal, ±0.1 decades)
+        // Mouse wheel: zoom (vertical) and pan (horizontal)
+        // Also handles synthetic wheel events from two-finger touch gestures
         const narrowBodeWrapper = document.getElementById('narrow-bode-wrapper');
         if (narrowBodeWrapper) {
             narrowBodeWrapper.addEventListener('wheel', function(e) {
                 e.preventDefault();
+                let changed = false;
 
-                if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-                    // Horizontal scroll: pan
-                    const panAmount = e.deltaX > 0 ? 0.1 : -0.1;
+                // Horizontal scroll: pan (continuous deltaX support for touch gestures)
+                if (e.deltaX !== undefined && e.deltaX !== 0) {
+                    // Use proportional panning for smooth two-finger drag
+                    const panAmount = e.deltaX * 0.005;
                     design.freqMin += panAmount;
                     design.freqMax += panAmount;
-                } else {
-                    // Vertical scroll: zoom centered at cursor position
+                    changed = true;
+                }
+
+                // Vertical scroll: zoom centered at cursor position
+                if (e.deltaY !== 0 && Math.abs(e.deltaY) >= Math.abs(e.deltaX || 0)) {
                     const leftMargin = 70;
                     const wrapperWidth = narrowBodeWrapper.clientWidth;
                     const plotWidth = wrapperWidth - leftMargin - 20;
@@ -426,10 +432,13 @@ function initializeNarrowLayout() {
 
                     design.freqMin = wCursor - p * newRange;
                     design.freqMax = wCursor + (1 - p) * newRange;
+                    changed = true;
                 }
 
-                if (autoFreq) autoFreq = false;
-                updateAll();
+                if (changed) {
+                    if (autoFreq) autoFreq = false;
+                    updateAll();
+                }
             }, { passive: false });
         }
 

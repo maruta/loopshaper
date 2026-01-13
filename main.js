@@ -1674,29 +1674,9 @@ function setupEventListeners() {
             nyquistWheelHandler
         );
 
-        // Bode Plot: adjusts frequency range
-        const bodeWheelHandler = function(e) {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? 0.2 : -0.2;  // Zoom out/in
-            const center = (design.freqMin + design.freqMax) / 2;
-            const halfRange = (design.freqMax - design.freqMin) / 2;
-            const newHalfRange = Math.max(1, Math.min(6, halfRange * (1 + delta)));
-            design.freqMin = center - newHalfRange;
-            design.freqMax = center + newHalfRange;
-            autoFreq = false;  // Disable auto frequency when manually zooming
-            updateBodePlot();
-        };
-        attachListenerOnce(
-            document.getElementById('narrow-bode-wrapper'),
-            'wheel',
-            bodeWheelHandler,
-            '',
-            { passive: false }
-        );
-        setupPinchToWheel(
-            document.getElementById('narrow-bode-wrapper'),
-            bodeWheelHandler
-        );
+        // Bode Plot: setup pinch-to-wheel for touch gestures
+        // The wheel handler is already registered in layout.js, so we use dispatch mode (no handler)
+        setupPinchToWheel(document.getElementById('narrow-bode-wrapper'));
 
         // Pole-Zero Map: adjusts scale
         const pzmapWheelHandler = function(e) {
@@ -1806,16 +1786,19 @@ function setupEventListeners() {
 }
 
 // ============================================================================
-// Pinch-to-Wheel Gesture Handling (for mobile)
+// Two-Finger Touch Gesture Handling (for mobile)
+// Converts pinch and horizontal drag gestures to wheel events
 // ============================================================================
 
-// Track active touch points for pinch detection
+// Track active touch points for two-finger gesture detection
 let pinchState = {
     active: false,
     initialDistance: 0,
     lastDistance: 0,
     centerX: 0,
-    centerY: 0
+    centerY: 0,
+    lastCenterX: 0,
+    lastCenterY: 0
 };
 
 // Calculate distance between two touch points
@@ -1826,6 +1809,8 @@ function getTouchDistance(touch1, touch2) {
 }
 
 // Set up pinch-to-wheel gesture handling for an element
+// If wheelHandler is provided, calls it directly with synthetic events.
+// Otherwise, dispatches native WheelEvent to the element for existing handlers.
 function setupPinchToWheel(element, wheelHandler) {
     if (!element) return;
 
@@ -1837,6 +1822,8 @@ function setupPinchToWheel(element, wheelHandler) {
             pinchState.lastDistance = pinchState.initialDistance;
             pinchState.centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
             pinchState.centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            pinchState.lastCenterX = pinchState.centerX;
+            pinchState.lastCenterY = pinchState.centerY;
         }
     }, { passive: false });
 
@@ -1844,19 +1831,44 @@ function setupPinchToWheel(element, wheelHandler) {
         if (pinchState.active && e.touches.length === 2) {
             e.preventDefault();
             const currentDistance = getTouchDistance(e.touches[0], e.touches[1]);
-            const delta = currentDistance - pinchState.lastDistance;
+            const currentCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const currentCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
 
-            // Only trigger if movement is significant (threshold of 5px)
-            if (Math.abs(delta) > 5) {
-                // Create a synthetic wheel event object
-                const syntheticEvent = {
-                    deltaY: delta > 0 ? -100 : 100,  // Invert: pinch out = zoom in
-                    clientX: (e.touches[0].clientX + e.touches[1].clientX) / 2,
-                    clientY: (e.touches[0].clientY + e.touches[1].clientY) / 2,
-                    preventDefault: function() {}
-                };
-                wheelHandler(syntheticEvent);
+            const distanceDelta = currentDistance - pinchState.lastDistance;
+            const panDeltaX = currentCenterX - pinchState.lastCenterX;
+            const panDeltaY = currentCenterY - pinchState.lastCenterY;
+
+            // Trigger if movement is significant (threshold of 5px for pinch or 3px for pan)
+            if (Math.abs(distanceDelta) > 5 || Math.abs(panDeltaX) > 3 || Math.abs(panDeltaY) > 3) {
+                const deltaY = Math.abs(distanceDelta) > 5 ? (distanceDelta > 0 ? -100 : 100) : 0;  // Invert: pinch out = zoom in
+                const deltaX = Math.abs(panDeltaX) > 3 ? -panDeltaX * 3 : 0;  // Horizontal pan (invert for natural scrolling)
+
+                if (wheelHandler) {
+                    // Call the provided handler directly with synthetic event object
+                    const syntheticEvent = {
+                        deltaY: deltaY,
+                        deltaX: deltaX,
+                        clientX: currentCenterX,
+                        clientY: currentCenterY,
+                        preventDefault: function() {}
+                    };
+                    wheelHandler(syntheticEvent);
+                } else {
+                    // Dispatch a native WheelEvent for existing handlers
+                    const wheelEvent = new WheelEvent('wheel', {
+                        deltaX: deltaX,
+                        deltaY: deltaY,
+                        clientX: currentCenterX,
+                        clientY: currentCenterY,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    element.dispatchEvent(wheelEvent);
+                }
+
                 pinchState.lastDistance = currentDistance;
+                pinchState.lastCenterX = currentCenterX;
+                pinchState.lastCenterY = currentCenterY;
             }
         }
     }, { passive: false });
