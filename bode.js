@@ -257,10 +257,10 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
             ctx.setLineDash([]);
         });
 
-        // Draw phase crossover lines (only for L) - blue
+        // Draw phase crossover lines (only for L)
         wpc.forEach((pc) => {
             let x = w2x(math.log10(pc.freq));
-            ctx.strokeStyle = '#0066cc';
+            ctx.strokeStyle = '#333333';
             ctx.lineWidth = 1;
             ctx.setLineDash([5, 5]);
             ctx.beginPath();
