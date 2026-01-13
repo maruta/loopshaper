@@ -16,23 +16,23 @@ body {
 #menubar {
     display: flex;
     align-items: center;
-    height: 32px;
-    padding: 0 8px;
+    height: 40px;
+    padding: 0 12px;
     background-color: var(--sl-color-neutral-100);
     border-bottom: 1px solid var(--sl-color-neutral-200);
-    gap: 2px;
+    gap: 4px;
 }
 
 .app-icon {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
 }
 
 .app-title {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--sl-color-neutral-700);
-    padding: 0 8px 0 4px;
+    padding: 0 8px 0 6px;
 }
 
 .app-home-link {
@@ -51,10 +51,10 @@ body {
 
 /* Menu buttons (shared style for all menubar buttons) */
 #menubar sl-button[variant="text"]::part(base) {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
-    padding: 4px 8px;
-    height: 24px;
+    padding: 6px 10px;
+    height: 32px;
     line-height: 1;
     display: flex;
     align-items: center;
@@ -78,24 +78,29 @@ body {
     margin-left: 2px;
 }
 
+/* Buttons without caret should have balanced padding */
+#menubar sl-button[variant="text"]:not([caret])::part(base) {
+    padding: 6px 8px;
+}
+
 /* Icon styling in menu buttons */
 #menubar sl-button sl-icon {
-    font-size: 14px;
+    font-size: 16px;
 }
 
 /* Right side menu items */
 .menu-items {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
 }
 
 /* Menu separator (GitHub-style vertical line) */
 .menu-separator {
     width: 1px;
-    height: 16px;
+    height: 20px;
     background-color: var(--sl-color-neutral-300);
-    margin: 0 6px;
+    margin: 0 8px;
 }
 
 /* GitHub link */
@@ -103,8 +108,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     color: var(--sl-color-neutral-600);
     border-radius: 6px;
     transition: color 0.15s, background-color 0.15s;
@@ -720,6 +725,17 @@ sl-textarea.is-invalid::part(base) {
     /* Hide caret on narrow screens for compare dropdown */
     #compare-dropdown sl-button::part(caret) {
         display: none;
+    }
+
+    /* Icon-only menu buttons on narrow screens */
+    #menubar sl-button[variant="text"]::part(base) {
+        padding: 6px;
+        min-width: 32px;
+        justify-content: center;
+    }
+
+    #menubar sl-button[variant="text"]::part(label) {
+        padding: 0;  /* Remove Shoelace default label padding */
     }
 
     .narrow-panel {
