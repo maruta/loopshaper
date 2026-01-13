@@ -329,6 +329,20 @@ function showContextMenuAtCursor(contextMenu, contextAnchor, e) {
     });
 }
 
+// Show a context menu below a trigger element (for menu button clicks)
+function showContextMenuBelowElement(contextMenu, contextAnchor, triggerElement) {
+    const rect = triggerElement.getBoundingClientRect();
+    contextAnchor.style.left = rect.left + 'px';
+    contextAnchor.style.top = rect.bottom + 'px';
+    contextMenu.strategy = 'fixed';
+    contextMenu.active = true;
+    requestAnimationFrame(() => {
+        if (typeof contextMenu.reposition === 'function') {
+            contextMenu.reposition();
+        }
+    });
+}
+
 // Setup menu item selection handler
 function setupMenuItemHandlers(menuInnerId, onItemSelect, contextMenu) {
     const menuInner = document.getElementById(menuInnerId);
@@ -357,6 +371,7 @@ function setupMenuItemHandlers(menuInnerId, onItemSelect, contextMenu) {
  * @param {string} config.menuId - ID of the context menu element
  * @param {string} config.anchorId - ID of the context menu anchor element
  * @param {string} config.menuInnerId - ID of the inner menu for item handlers
+ * @param {string} config.narrowMenuBtnId - ID of the narrow layout menu button (optional)
  * @param {Function} config.onWheel - Wheel event handler (optional)
  * @param {Function} config.onContextMenu - Called before showing context menu (optional, for syncing state)
  * @param {Function} config.onItemSelect - Menu item selection handler
@@ -410,6 +425,21 @@ function setupPlotContextMenu(config) {
         }
         showContextMenuAtCursor(contextMenu, contextAnchor, e);
     });
+
+    // Menu button for narrow layout
+    if (isNarrowLayout && config.narrowMenuBtnId) {
+        const menuBtn = document.getElementById(config.narrowMenuBtnId);
+        if (menuBtn && !menuBtn.dataset.listenerAttached) {
+            menuBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (config.onContextMenu) {
+                    config.onContextMenu();
+                }
+                showContextMenuBelowElement(contextMenu, contextAnchor, menuBtn);
+            });
+            menuBtn.dataset.listenerAttached = 'true';
+        }
+    }
 
     // Menu item handlers
     setupMenuItemHandlers(config.menuInnerId, config.onItemSelect, contextMenu);
@@ -539,14 +569,31 @@ function setupBodeContextMenu() {
         bodeWrapper.dataset.wheelListenerAttached = 'true';
     }
 
-    bodeWrapper.addEventListener('contextmenu', (e) => {
-        // Sync checkbox and input states before showing context menu
+    // Function to sync context menu state before showing
+    function syncBodeContextMenuState() {
         if (optAutoFreq) optAutoFreq.checked = autoFreq;
         if (customFreqPanel) customFreqPanel.style.display = autoFreq ? 'none' : 'block';
         if (freqMinInput) freqMinInput.value = design.freqMin.toFixed(2);
         if (freqMaxInput) freqMaxInput.value = design.freqMax.toFixed(2);
+    }
+
+    bodeWrapper.addEventListener('contextmenu', (e) => {
+        syncBodeContextMenuState();
         showContextMenuAtCursor(contextMenu, contextAnchor, e);
     });
+
+    // Menu button for narrow layout
+    if (isNarrowLayout) {
+        const menuBtn = document.getElementById('narrow-bode-menu-btn');
+        if (menuBtn && !menuBtn.dataset.listenerAttached) {
+            menuBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                syncBodeContextMenuState();
+                showContextMenuBelowElement(contextMenu, contextAnchor, menuBtn);
+            });
+            menuBtn.dataset.listenerAttached = 'true';
+        }
+    }
 
     function handleBodeMenuItem(item) {
         switch (item.id) {
@@ -598,6 +645,7 @@ function setupStepContextMenu() {
         menuId: 'step-context-menu',
         anchorId: 'step-context-menu-anchor',
         menuInnerId: 'step-context-menu-inner',
+        narrowMenuBtnId: 'narrow-step-menu-btn',
 
         initializeState: function() {
             const optAutoTime = document.getElementById('step-opt-auto-time');
@@ -675,6 +723,7 @@ function setupPzmapContextMenu() {
         menuId: 'pzmap-context-menu',
         anchorId: 'pzmap-context-menu-anchor',
         menuInnerId: 'pzmap-context-menu-inner',
+        narrowMenuBtnId: 'narrow-pzmap-menu-btn',
 
         initializeState: function() {
             const optAutoScale = document.getElementById('pzmap-opt-auto-scale');
@@ -741,6 +790,7 @@ function setupNyquistContextMenu() {
         menuId: 'nyquist-context-menu',
         anchorId: 'nyquist-context-menu-anchor',
         menuInnerId: 'nyquist-context-menu-inner',
+        narrowMenuBtnId: 'narrow-nyquist-menu-btn',
 
         initializeState: function() {
             const optStabilityMargin = document.getElementById('nyquist-opt-stability-margin');

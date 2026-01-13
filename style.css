@@ -421,6 +421,7 @@ sl-textarea.is-invalid::part(base) {
     gap: 16px;
     padding: 6px 10px;
     border-bottom: 1px solid var(--sl-color-neutral-200);
+    align-items: center;
 }
 
 /* Checkbox label colors for L(s) - cyan */
@@ -459,6 +460,28 @@ sl-textarea.is-invalid::part(base) {
     gap: 16px;
     padding: 6px 10px;
     border-bottom: 1px solid var(--sl-color-neutral-200);
+    align-items: center;
+}
+
+/* Nyquist Plot Options (for narrow layout menu button) */
+.nyquist-options {
+    display: flex;
+    gap: 16px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--sl-color-neutral-200);
+    align-items: center;
+    justify-content: flex-end;
+}
+
+/* Plot menu button (three-dots) in narrow layout */
+.plot-menu-btn {
+    margin-left: auto;
+    font-size: 18px;
+    color: var(--sl-color-neutral-600);
+}
+
+.plot-menu-btn:hover {
+    color: var(--sl-color-neutral-900);
 }
 
 .pole-label-L {

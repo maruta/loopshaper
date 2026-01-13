@@ -120,6 +120,7 @@
                     <sl-checkbox id="narrow-chk-show-L" checked size="medium" class="bode-label-L">━ L(s)</sl-checkbox>
                     <sl-checkbox id="narrow-chk-show-T" checked size="medium" class="bode-label-T">━ T(s)</sl-checkbox>
                     <sl-checkbox id="narrow-chk-show-S" size="medium" class="bode-label-S">━ S(s)</sl-checkbox>
+                    <sl-icon-button id="narrow-bode-menu-btn" name="three-dots-vertical" label="Options" class="plot-menu-btn"></sl-icon-button>
                 </div>
                 <div id="narrow-bode-wrapper" class="plot-wrapper narrow-plot-wrapper">
                     <canvas id="narrow-bode-canvas"></canvas>
@@ -129,12 +130,16 @@
                 <div class="pole-options">
                     <sl-checkbox id="narrow-chk-show-L-pz" checked size="medium" class="pole-label-L">L(s)</sl-checkbox>
                     <sl-checkbox id="narrow-chk-show-T-pz" checked size="medium" class="pole-label-T">T(s)</sl-checkbox>
+                    <sl-icon-button id="narrow-pzmap-menu-btn" name="three-dots-vertical" label="Options" class="plot-menu-btn"></sl-icon-button>
                 </div>
                 <div id="narrow-pole-wrapper" class="plot-wrapper narrow-plot-wrapper">
                     <canvas id="narrow-pole-canvas"></canvas>
                 </div>
             </div>
             <div class="panel-content panel-plot" id="narrow-tab-nyquist" style="display: none;">
+                <div class="nyquist-options">
+                    <sl-icon-button id="narrow-nyquist-menu-btn" name="three-dots-vertical" label="Options" class="plot-menu-btn"></sl-icon-button>
+                </div>
                 <div id="narrow-nyquist-wrapper" class="plot-wrapper narrow-plot-wrapper">
                     <canvas id="narrow-nyquist-canvas"></canvas>
                     <div class="nyquist-mapping-overlay">
@@ -158,6 +163,7 @@
                         <sl-input id="narrow-step-time-max" type="number" size="small" value="20" min="0.1" step="any" class="step-time-input"></sl-input>
                         <span class="step-time-unit">s</span>
                     </div>
+                    <sl-icon-button id="narrow-step-menu-btn" name="three-dots-vertical" label="Options" class="plot-menu-btn"></sl-icon-button>
                 </div>
                 <div id="narrow-step-wrapper" class="plot-wrapper narrow-plot-wrapper">
                     <canvas id="narrow-step-canvas"></canvas>
