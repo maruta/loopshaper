@@ -3,7 +3,10 @@
     "allow": [
       "Bash(ls:*)",
       "Bash(node:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(while read hash msg)",
+      "Bash(do echo \"=== $hash: $msg ===\")",
+      "Bash(done)"
     ]
   }
 }

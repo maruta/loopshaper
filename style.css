@@ -274,8 +274,8 @@ sl-textarea.is-invalid::part(base) {
 }
 
 .slider-row {
-    margin-bottom: 4px;
-    padding-bottom: 4px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
     border-bottom: 1px solid var(--sl-color-neutral-100);
 }
 
