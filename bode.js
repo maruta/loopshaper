@@ -135,7 +135,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
                 if (n1 !== n2) {
                     let targetPhase = (p1 > p2) ? n1 * 360 - 180 : n2 * 360 - 180;
                     let ratio = (targetPhase - p1) / (p2 - p1);
-                    wpc.push(w[i - 1] + ratio * (w[i] - w[i - 1]));
+                    wpc.push({ freq: w[i - 1] + ratio * (w[i] - w[i - 1]), phase: targetPhase });
                 }
             }
         }
@@ -258,8 +258,8 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         });
 
         // Draw phase crossover lines (only for L) - blue
-        wpc.forEach((wc) => {
-            let x = w2x(math.log10(wc));
+        wpc.forEach((pc) => {
+            let x = w2x(math.log10(pc.freq));
             ctx.strokeStyle = '#0066cc';
             ctx.lineWidth = 1;
             ctx.setLineDash([5, 5]);
@@ -455,13 +455,13 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
 
     if (firstData) {
         // Calculate gain margin at phase crossover
-        wpc.forEach((wc) => {
+        wpc.forEach((pc) => {
             for (let i = 0; i < N - 1; i++) {
-                if (w[i] <= wc && w[i + 1] >= wc) {
-                    let ratio = (wc - w[i]) / (w[i + 1] - w[i]);
+                if (w[i] <= pc.freq && w[i + 1] >= pc.freq) {
+                    let ratio = (pc.freq - w[i]) / (w[i + 1] - w[i]);
                     let gainAtWpc = firstData.gain[i] + ratio * (firstData.gain[i + 1] - firstData.gain[i]);
                     let gm = -gainAtWpc;
-                    gainMargins.push({ frequency: wc, margin: gm, gainAtCrossover: gainAtWpc });
+                    gainMargins.push({ frequency: pc.freq, margin: gm, gainAtCrossover: gainAtWpc, referencePhase: pc.phase });
                     break;
                 }
             }
@@ -493,38 +493,46 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
                 ctx.lineWidth = 2;
                 ctx.strokeStyle = '#000000';
                 ctx.fillStyle = '#000000';
-                ctx.font = '12px Consolas, monospace';
+                ctx.font = '14px Consolas, monospace';
 
-                // Helper to draw margin annotation (vertical line, label, marker, frequency)
-                const drawMarginAnnotation = (x, y1, y2, label, markerY, freq) => {
+                // Draw margin annotation: vertical line with label, crossover marker, and frequency
+                const drawMarginAnnotation = (x, y1, y2, label, markerY, freq, labelAlign = 'left') => {
+                    // Vertical margin line
                     ctx.beginPath();
                     ctx.moveTo(x, y1);
                     ctx.lineTo(x, y2);
                     ctx.stroke();
-                    ctx.textAlign = 'left';
+                    // Margin label (GM=.../PM=...)
+                    ctx.textAlign = labelAlign;
                     ctx.textBaseline = 'middle';
-                    ctx.fillText(label, x + 4, (y1 + y2) / 2);
+                    ctx.fillText(label, x + (labelAlign === 'left' ? 4 : -4), (y1 + y2) / 2);
+                    // Crossover marker
                     ctx.beginPath();
                     ctx.arc(x, markerY, MARGIN_MARKER_RADIUS, 0, 2 * Math.PI);
                     ctx.fill();
+                    // Frequency label with tight spacing
                     ctx.textBaseline = 'bottom';
-                    ctx.fillText('ω=' + formatFrequency(freq) + 'rad/s', x + 6, markerY - 6);
+                    ctx.textAlign = 'left';
+                    const freqText = formatFrequency(freq);
+                    const freqWidth = ctx.measureText(freqText).width;
+                    ctx.fillText(freqText, x + 6, markerY - 6);
+                    ctx.fillText('rad/s', x + 6 + freqWidth + 2, markerY - 6);
                 };
 
-                // Draw gain margins
+                // Draw gain margins (label on right, marker at phase crossover)
                 gainMargins.forEach((gm) => {
                     let x = w2x(math.log10(gm.frequency));
                     let gmValue = Math.round(gm.margin);
                     drawMarginAnnotation(x, g2y(0), g2y(gm.gainAtCrossover),
-                        'GM=' + (gmValue >= 0 ? '+' : '') + gmValue + 'dB', p2y(-180), gm.frequency);
+                        'GM=' + (gmValue >= 0 ? '+' : '') + gmValue + 'dB', p2y(gm.referencePhase), gm.frequency);
                 });
 
-                // Draw phase margins
+                // Draw phase margins (label on left, marker at gain crossover)
                 phaseMargins.forEach((pm) => {
                     let x = w2x(math.log10(pm.frequency));
                     let pmValue = Math.round(pm.margin);
                     drawMarginAnnotation(x, p2y(pm.phaseAtCrossover), p2y(pm.referencePhase),
-                        'PM=' + pmValue + '°', g2y(0), pm.frequency);
+                        'PM=' + pmValue + '°', g2y(0), pm.frequency, 'right');
                 });
 
                 ctx.restore();
@@ -536,7 +544,7 @@ function drawBodeMulti(transferFunctions, w, wrapperId, canvasId, options) {
         gainMargins: gainMargins,
         phaseMargins: phaseMargins,
         gainCrossoverFrequencies: wgc,
-        phaseCrossoverFrequencies: wpc
+        phaseCrossoverFrequencies: wpc.map(pc => pc.freq)
     };
 }
 
