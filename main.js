@@ -1547,6 +1547,118 @@ function initializeUI() {
 }
 
 // ============================================================================
+// Bode Plot Drag Panning
+// ============================================================================
+
+let bodeDragState = {
+    active: false,
+    startX: 0,
+    startFreqMin: 0,
+    startFreqMax: 0
+};
+
+function setupBodeDragPanning() {
+    const prefix = isNarrowLayout ? 'narrow-' : '';
+    const wrapper = document.getElementById(prefix + 'bode-wrapper');
+    if (!wrapper) return;
+
+    const leftMargin = CONSTANTS.MARGINS.LEFT;
+    const rightMargin = CONSTANTS.MARGINS.RIGHT;
+
+    // Helper to start drag
+    function startDrag(clientX) {
+        const rect = wrapper.getBoundingClientRect();
+        const x = clientX - rect.left;
+
+        // Only start drag if within plot area (horizontal bounds)
+        if (x >= leftMargin && x <= wrapper.clientWidth - rightMargin) {
+            bodeDragState.active = true;
+            bodeDragState.startX = clientX;
+            bodeDragState.startFreqMin = design.freqMin;
+            bodeDragState.startFreqMax = design.freqMax;
+            wrapper.style.cursor = 'grabbing';
+            return true;
+        }
+        return false;
+    }
+
+    // Helper to process drag movement
+    function processDrag(clientX) {
+        if (!bodeDragState.active) return;
+
+        const plotWidth = wrapper.clientWidth - leftMargin - rightMargin;
+        const dx = clientX - bodeDragState.startX;
+
+        // Calculate frequency shift in decades
+        // Positive dx (drag right) -> shift left (decrease freq) -> negative dFreq
+        const freqRange = bodeDragState.startFreqMax - bodeDragState.startFreqMin;
+        const dFreq = -dx / plotWidth * freqRange;
+
+        design.freqMin = bodeDragState.startFreqMin + dFreq;
+        design.freqMax = bodeDragState.startFreqMax + dFreq;
+
+        // Disable auto frequency when manually panning
+        if (autoFreq) autoFreq = false;
+
+        updateAll();
+    }
+
+    // Helper to end drag
+    function endDrag() {
+        if (bodeDragState.active) {
+            bodeDragState.active = false;
+            wrapper.style.cursor = '';
+        }
+    }
+
+    // Mouse events
+    attachListenerOnce(wrapper, 'mousedown', function(e) {
+        if (e.button !== 0) return; // Only left mouse button
+        if (startDrag(e.clientX)) {
+            e.preventDefault();
+        }
+    }, 'drag');
+
+    // Touch events (single finger drag)
+    attachListenerOnce(wrapper, 'touchstart', function(e) {
+        // Only handle single touch (two-finger gestures handled by setupPinchToWheel)
+        if (e.touches.length !== 1) return;
+        if (startDrag(e.touches[0].clientX)) {
+            e.preventDefault();
+        }
+    }, 'drag', { passive: false });
+
+    attachListenerOnce(wrapper, 'touchmove', function(e) {
+        if (e.touches.length !== 1 || !bodeDragState.active) return;
+        processDrag(e.touches[0].clientX);
+        e.preventDefault();
+    }, 'drag', { passive: false });
+
+    attachListenerOnce(wrapper, 'touchend', function() {
+        endDrag();
+    }, 'drag');
+
+    attachListenerOnce(wrapper, 'touchcancel', function() {
+        endDrag();
+    }, 'drag');
+
+    // Use document-level events for mouse move and up to handle drags outside wrapper
+    if (!document._bodeDragMoveAttached) {
+        document.addEventListener('mousemove', function(e) {
+            processDrag(e.clientX);
+        });
+        document._bodeDragMoveAttached = true;
+    }
+
+    if (!document._bodeDragUpAttached) {
+        document.addEventListener('mouseup', function() {
+            endDrag();
+        });
+        document._bodeDragUpAttached = true;
+    }
+}
+
+// ============================================================================
 // Event Listeners
 // ============================================================================
 
@@ -1794,6 +1906,7 @@ function setupEventListeners() {
         resizeListenerAttached = true;
     }
 
+    setupBodeDragPanning();
     setupBodeContextMenu();
     setupStepContextMenu();
     setupPzmapContextMenu();
