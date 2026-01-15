@@ -1553,8 +1553,11 @@ function initializeUI() {
 let bodeDragState = {
     active: false,
     startX: 0,
+    startY: 0,
     startFreqMin: 0,
-    startFreqMax: 0
+    startFreqMax: 0,
+    directionDecided: false,  // Whether drag direction has been determined
+    isHorizontalDrag: false   // True if horizontal drag, false if vertical scroll
 };
 
 function setupBodeDragPanning() {
@@ -1565,8 +1568,8 @@ function setupBodeDragPanning() {
     const leftMargin = CONSTANTS.MARGINS.LEFT;
     const rightMargin = CONSTANTS.MARGINS.RIGHT;
 
-    // Helper to start drag
-    function startDrag(clientX) {
+    // Helper to start drag (for mouse, immediately active; for touch, pending direction)
+    function startDrag(clientX, clientY, isTouch) {
         const rect = wrapper.getBoundingClientRect();
         const x = clientX - rect.left;
 
@@ -1574,20 +1577,50 @@ function setupBodeDragPanning() {
         if (x >= leftMargin && x <= wrapper.clientWidth - rightMargin) {
             bodeDragState.active = true;
             bodeDragState.startX = clientX;
+            bodeDragState.startY = clientY;
             bodeDragState.startFreqMin = design.freqMin;
             bodeDragState.startFreqMax = design.freqMax;
-            wrapper.style.cursor = 'grabbing';
+            // For touch, wait to decide direction; for mouse, immediately horizontal
+            bodeDragState.directionDecided = !isTouch;
+            bodeDragState.isHorizontalDrag = !isTouch;
+            if (!isTouch) {
+                wrapper.style.cursor = 'grabbing';
+            }
             return true;
         }
         return false;
     }
 
     // Helper to process drag movement
-    function processDrag(clientX) {
-        if (!bodeDragState.active) return;
+    // Returns true if this is a horizontal drag (should preventDefault), false otherwise
+    function processDrag(clientX, clientY) {
+        if (!bodeDragState.active) return false;
+
+        const dx = clientX - bodeDragState.startX;
+        const dy = clientY - bodeDragState.startY;
+
+        // For touch: decide direction on first significant movement
+        if (!bodeDragState.directionDecided) {
+            const threshold = 10; // pixels before deciding direction
+            if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
+                bodeDragState.directionDecided = true;
+                bodeDragState.isHorizontalDrag = Math.abs(dx) > Math.abs(dy);
+                if (bodeDragState.isHorizontalDrag) {
+                    wrapper.style.cursor = 'grabbing';
+                } else {
+                    // Vertical scroll - cancel drag state
+                    bodeDragState.active = false;
+                    return false;
+                }
+            } else {
+                // Not enough movement yet to decide
+                return false;
+            }
+        }
+
+        if (!bodeDragState.isHorizontalDrag) return false;
 
         const plotWidth = wrapper.clientWidth - leftMargin - rightMargin;
-        const dx = clientX - bodeDragState.startX;
 
         // Calculate frequency shift in decades
         // Positive dx (drag right) -> shift left (decrease freq) -> negative dFreq
@@ -1601,6 +1634,7 @@ function setupBodeDragPanning() {
         if (autoFreq) autoFreq = false;
 
         updateAll();
+        return true;
     }
 
     // Helper to end drag
@@ -1614,7 +1648,7 @@ function setupBodeDragPanning() {
     // Mouse events
     attachListenerOnce(wrapper, 'mousedown', function(e) {
         if (e.button !== 0) return; // Only left mouse button
-        if (startDrag(e.clientX)) {
+        if (startDrag(e.clientX, e.clientY, false)) {
             e.preventDefault();
         }
     }, 'drag');
@@ -1623,15 +1657,16 @@ function setupBodeDragPanning() {
     attachListenerOnce(wrapper, 'touchstart', function(e) {
         // Only handle single touch (two-finger gestures handled by setupPinchToWheel)
         if (e.touches.length !== 1) return;
-        if (startDrag(e.touches[0].clientX)) {
-            e.preventDefault();
-        }
-    }, 'drag', { passive: false });
+        // Don't preventDefault here - let direction be decided on move
+        startDrag(e.touches[0].clientX, e.touches[0].clientY, true);
+    }, 'drag', { passive: true });
 
     attachListenerOnce(wrapper, 'touchmove', function(e) {
         if (e.touches.length !== 1 || !bodeDragState.active) return;
-        processDrag(e.touches[0].clientX);
-        e.preventDefault();
+        // Only preventDefault if horizontal drag is confirmed
+        if (processDrag(e.touches[0].clientX, e.touches[0].clientY)) {
+            e.preventDefault();
+        }
     }, 'drag', { passive: false });
 
     attachListenerOnce(wrapper, 'touchend', function() {
@@ -1645,7 +1680,7 @@ function setupBodeDragPanning() {
     // Use document-level events for mouse move and up to handle drags outside wrapper
     if (!document._bodeDragMoveAttached) {
         document.addEventListener('mousemove', function(e) {
-            processDrag(e.clientX);
+            processDrag(e.clientX, e.clientY);
         });
         document._bodeDragMoveAttached = true;
     }
