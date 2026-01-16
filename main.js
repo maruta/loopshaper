@@ -2087,5 +2087,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // Enable and trigger browser URL synchronization
         isInitialized = true;
         updateBrowserUrl();
+
+        // Show app content (CLS prevention: content was hidden until layout is stable)
+        document.body.classList.remove('app-loading');
+        document.body.classList.add('app-ready');
     });
 });
